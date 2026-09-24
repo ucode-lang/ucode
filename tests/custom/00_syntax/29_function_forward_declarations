@@ -62,10 +62,10 @@ hello
 
 -- Expect stderr --
 Syntax error: Invalid assignment to constant 'foo'
-In line 4, byte 8:
+In line 4, byte 31:
 
  `    foo = function() { return 2; };`
-      ~~~~~~^
+      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
 
 
 -- End --
@@ -125,10 +125,10 @@ In line 4, byte 8:
 
 -- Expect stderr --
 Syntax error: Redeclaration of constant 'foo'
-In line 5, byte 11:
+In line 5, byte 2:
 
  `    function foo() { return 2; }`
-  Near here ---^
+      ^-- Near here
 
 
 -- End --
@@ -273,7 +273,79 @@ In line 4, byte 5:
 -- End --
 
 
-13. In strict mode, a regular function may not be declared twice in the
+13. In strict mode, the name of a regular function declaration is a
+constant binding, so assigning to it is forbidden.
+
+-- Expect stderr --
+Syntax error: Invalid assignment to constant 'foo'
+In line 6, byte 8:
+
+ `    foo = 1;`
+      ~~~~~~^
+
+
+-- End --
+
+-- Testcase --
+{%
+	"use strict";
+
+	function foo() { return 1; }
+
+	foo = 1;
+%}
+-- End --
+
+
+14. In strict mode, compound assignments to a regular function
+name are forbidden as well.
+
+-- Expect stderr --
+Syntax error: Invalid assignment to constant 'foo'
+In line 6, byte 9:
+
+ `    foo += 1;`
+      ~~~~~~~^
+
+
+-- End --
+
+-- Testcase --
+{%
+	"use strict";
+
+	function foo() { return 1; }
+
+	foo += 1;
+%}
+-- End --
+
+
+15. In strict mode, increment/decrement of a regular function name
+is forbidden.
+
+-- Expect stderr --
+Syntax error: Invalid increment/decrement of constant 'foo'
+In line 6, byte 5:
+
+ `    foo++;`
+         ^-- Near here
+
+
+-- End --
+
+-- Testcase --
+{%
+	"use strict";
+
+	function foo() { return 1; }
+
+	foo++;
+%}
+-- End --
+
+
+16. In strict mode, a regular function may not be declared twice in the
 same scope.
 
 -- Expect stderr --
@@ -293,5 +365,21 @@ In line 6, byte 11:
 	function foo() { return 1; }
 
 	function foo() { return 2; }
+%}
+-- End --
+
+
+17. In non-strict mode, the name of a regular function declaration is a
+mutable binding, so assigning to it rebinds the name.
+
+-- Expect exitcode --
+0
+-- End --
+
+-- Testcase --
+{%
+	function foo() { return 1; }
+
+	foo = 1;
 %}
 -- End --
