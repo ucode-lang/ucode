@@ -131,7 +131,22 @@ option(ZLIB_SUPPORT "Zlib plugin support" ${DEFAULT_ZLIB_SUPPORT})
 option(DIGEST_SUPPORT "Digest plugin support" ${DEFAULT_DIGEST_SUPPORT})
 option(DIGEST_SUPPORT_EXTENDED "Enable additional hash algorithms" ${DEFAULT_DIGEST_SUPPORT})
 
+if(APPLE AND CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+  execute_process(
+    COMMAND brew --prefix
+    OUTPUT_VARIABLE HOMEBREW_PREFIX
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+  )
+
+  if(HOMEBREW_PREFIX AND EXISTS "${HOMEBREW_PREFIX}")
+    message(STATUS "Using Homebrew prefix: ${HOMEBREW_PREFIX}")
+    set(CMAKE_INSTALL_PREFIX "${HOMEBREW_PREFIX}" CACHE PATH "Install path" FORCE)
+  endif()
+endif()
+
 set(LIB_SEARCH_PATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/ucode/*.so:${CMAKE_INSTALL_PREFIX}/share/ucode/*.uc:./*.so:./*.uc" CACHE STRING "Default library search path")
+message(STATUS "Using lib search path: ${LIB_SEARCH_PATH}")
 string(REPLACE ":" "\", \"" LIB_SEARCH_DEFINE "${LIB_SEARCH_PATH}")
 target_compile_definitions(uc_defines INTERFACE LIB_SEARCH_PATH="${LIB_SEARCH_DEFINE}")
 
@@ -192,20 +207,6 @@ if(APPLE)
   set_target_properties(ucode PROPERTIES
     INSTALL_RPATH "@loader_path/../${CMAKE_INSTALL_LIBDIR}"
   )
-endif()
-
-if(APPLE AND CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-  execute_process(
-    COMMAND brew --prefix
-    OUTPUT_VARIABLE HOMEBREW_PREFIX
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
-  )
-
-  if(HOMEBREW_PREFIX AND EXISTS "${HOMEBREW_PREFIX}")
-    message(STATUS "Using Homebrew prefix: ${HOMEBREW_PREFIX}")
-    set(CMAKE_INSTALL_PREFIX "${HOMEBREW_PREFIX}" CACHE PATH "Install path" FORCE)
-  endif()
 endif()
 
 check_function_exists(dlopen DLOPEN_FUNCTION_EXISTS)

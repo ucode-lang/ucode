@@ -76,7 +76,7 @@ To build on MacOS, first install *cmake*, *json-c* and *libmd* via
     $ brew install cmake json-c libmd
     $ git clone https://github.com/ucode-lang/ucode.git
     $ cd ucode/
-    $ cmake -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF -DULOOP_SUPPORT=OFF -DCMAKE_BUILD_RPATH=/usr/local/lib -DCMAKE_INSTALL_RPATH=/usr/local/lib .
+    $ cmake -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF -DULOOP_SUPPORT=OFF -DCMAKE_BUILD_RPATH=/opt/homebrew/lib -DCMAKE_INSTALL_RPATH=/opt/homebrew/lib .
     $ make
     $ sudo make install
 
