@@ -551,6 +551,7 @@ typedef struct {
 	struct blob_buf buf;
 	int timeout;
 	bool fd_handle;
+	bool disconnected;
 
 	uc_vm_t *vm;
 	uc_value_t *res;
@@ -700,6 +701,13 @@ enum {
 };
 
 enum {
+	LISTEN_RES_CONN,
+	LISTEN_RES_CB,
+	__LISTEN_RES_MAX,
+};
+
+enum {
+	SUB_RES_CONN,
 	SUB_RES_NOTIFY_CB,
 	SUB_RES_REMOVE_CB,
 	SUB_RES_PATTERNS,
@@ -962,6 +970,11 @@ uc_ubus_connect(uc_vm_t *vm, size_t nargs)
 
 	ubus_add_uloop(&c->ctx);
 
+	/* Keep the connection (and its embedded values) reachable across GC
+	 * passes while it is held purely by refcount (e.g. after the script
+	 * dropped its reference but derived resources keep it alive). */
+	ucv_resource_persistent_set(c->res, true);
+
 	ok_return(ucv_get(c->res));
 }
 
@@ -1012,6 +1025,7 @@ _conn_get(uc_vm_t *vm, uc_ubus_connection_t **conn)
 
 		ubus_add_uloop(&c->ctx);
 
+		ucv_resource_persistent_set(c->res, true);
 		uc_vm_registry_set(vm, "ubus.connection", ucv_get(c->res));
 	}
 	else {
@@ -2929,7 +2943,7 @@ uc_ubus_listener_cb(struct ubus_context *ctx, struct ubus_event_handler *ev,
 	uc_vm_t *vm = uul->vm;
 
 	this = uul->res;
-	func = ucv_resource_value_get(this, 0);
+	func = ucv_resource_value_get(this, LISTEN_RES_CB);
 
 	uc_vm_stack_push(vm, ucv_get(this));
 	uc_vm_stack_push(vm, ucv_get(func));
@@ -2986,7 +3000,7 @@ uc_ubus_listener(uc_vm_t *vm, size_t nargs)
 	         "event type pattern", UC_STRING, false, &pattern,
 	         "event callback", UC_CLOSURE, false, &cb);
 
-	res = ucv_resource_create_ex(vm, "ubus.listener", (void **)&uul, 1, sizeof(*uul));
+	res = ucv_resource_create_ex(vm, "ubus.listener", (void **)&uul, __LISTEN_RES_MAX, sizeof(*uul));
 
 	if (!uul)
 		err_return(UBUS_STATUS_UNKNOWN_ERROR, "Out of memory");
@@ -3005,7 +3019,8 @@ uc_ubus_listener(uc_vm_t *vm, size_t nargs)
 	}
 
 	ucv_resource_persistent_set(res, true);
-	ucv_resource_value_set(res, 0, ucv_get(cb));
+	ucv_resource_value_set(res, LISTEN_RES_CONN, ucv_get(c->res));
+	ucv_resource_value_set(res, LISTEN_RES_CB, ucv_get(cb));
 
 	ok_return(ucv_get(res));
 }
@@ -3346,6 +3361,7 @@ uc_ubus_subscriber(uc_vm_t *vm, size_t nargs)
 	uusub->ctx = &c->ctx;
 	uusub->res = ucv_get(res);
 
+	ucv_resource_value_set(res, SUB_RES_CONN, ucv_get(c->res));
 	ucv_resource_value_set(res, SUB_RES_NOTIFY_CB, ucv_get(notify_cb));
 	ucv_resource_value_set(res, SUB_RES_REMOVE_CB, ucv_get(remove_cb));
 	ucv_resource_value_set(res, SUB_RES_PATTERNS, ucv_get(subscriptions));
@@ -3469,6 +3485,29 @@ uc_ubus_remove(uc_vm_t *vm, size_t nargs)
 }
 
 
+static void
+uc_ubus_conn_teardown(uc_ubus_connection_t *c)
+{
+	/* Idempotently close the transport. Safe to call from within
+	 * ubus_handle_data / a re-entrant disconnect() because it only touches
+	 * the fd, timer and msgbuf -- it never frees the uc_ubus_connection_t
+	 * struct itself, which is owned by the resource refcount and freed in
+	 * free_connection() once that reaches zero. */
+	if (c->disconnected)
+		return;
+
+	c->disconnected = true;
+
+	if (c->fd_handle && c->ctx.sock.fd >= 0) {
+		uloop_fd_delete(&c->ctx.sock);
+		c->ctx.sock.fd = -1;
+	}
+
+	ubus_shutdown(&c->ctx);
+	c->ctx.sock.fd = -1;
+	c->ctx.msgbuf.data = NULL;
+}
+
 /**
  * Disconnect from the ubus bus.
  *
@@ -3490,18 +3529,33 @@ static uc_value_t *
 uc_ubus_disconnect(uc_vm_t *vm, size_t nargs)
 {
 	uc_ubus_connection_t *c;
+	uc_value_t *reg;
 
 	conn_get(vm, &c);
 
 #ifdef HAVE_UBUS_FLUSH_REQUESTS
 	ubus_flush_requests(&c->ctx);
 #endif
-	if (c->fd_handle) {
-		uloop_fd_delete(&c->ctx.sock);
-		c->ctx.sock.fd = -1;
-	}
-	ubus_shutdown(&c->ctx);
-	c->ctx.sock.fd = -1;
+
+	/* Close the transport (idempotent, guarded). Safe to run here even if a
+	 * re-entrant path already closed it. */
+	uc_ubus_conn_teardown(c);
+
+	/* If this connection is the one stored in the module-level registry
+	 * (auto-connect path), clear that entry so it can be reclaimed. The
+	 * registry holds the owned reference; setting the key to NULL releases
+	 * it via ucv_object_add(). (The value returned by uc_vm_registry_get()
+	 * above is a borrowed pointer, so no put is needed here.) */
+	reg = uc_vm_registry_get(vm, "ubus.connection");
+
+	if (ucv_resource_data(reg, "ubus.connection") == c)
+		uc_vm_registry_set(vm, "ubus.connection", NULL);
+
+	/* Drop the script's reference to the connection. The struct is not
+	 * freed here if derived resources (objects, defers, listeners,
+	 * subscribers) still hold references; in that case it is reclaimed in
+	 * free_connection() once the last of those is dropped -- which is
+	 * never while ubus_handle_data() is on the stack. */
 	uc_ubus_put_res(&c->res);
 
 	ok_return(ucv_boolean_new(true));
@@ -3648,14 +3702,11 @@ uc_ubus_channel_disconnect_cb(struct ubus_context *ctx)
 
 	blob_buf_free(&c->buf);
 
-	if (c->ctx.sock.fd >= 0) {
-		if (c->fd_handle) {
-			uloop_fd_delete(&c->ctx.sock);
-			c->ctx.sock.fd = -1;
-		}
-		ubus_shutdown(&c->ctx);
-		c->ctx.sock.fd = -1;
-	}
+	/* Idempotent transport close. If the user's disconnect_cb called
+	 * c.disconnect() re-entrantly, uc_ubus_conn_teardown already ran and
+	 * this is a no-op. The struct itself is kept alive by the `res` pin
+	 * above until after both puts below. */
+	uc_ubus_conn_teardown(c);
 
 	uc_ubus_put_res(&c->res);
 	ucv_put(res);
@@ -3910,13 +3961,9 @@ static void free_connection(void *ud) {
 
 	blob_buf_free(&conn->buf);
 
-	if (conn->ctx.sock.fd >= 0) {
-		if (conn->fd_handle) {
-			uloop_fd_delete(&conn->ctx.sock);
-			conn->ctx.sock.fd = -1;
-		}
-		ubus_shutdown(&conn->ctx);
-	}
+	/* Close the transport if it is still open (e.g. the script dropped its
+	 * reference without calling disconnect()). Guarded and idempotent. */
+	uc_ubus_conn_teardown(conn);
 }
 
 static void free_deferred(void *ud) {
