@@ -1260,6 +1260,7 @@ uc_uloop_pipe_receive_common(uc_vm_t *vm, int fd, uc_value_t **res, bool skip)
 			if (!tok)
 				tok = xjs_new_tokener();
 
+			json_object_put(jso);
 			jso = json_tokener_parse_ex(tok, buf, rlen);
 			err = json_tokener_get_error(tok);
 		}
@@ -1269,6 +1270,7 @@ uc_uloop_pipe_receive_common(uc_vm_t *vm, int fd, uc_value_t **res, bool skip)
 
 	if (!skip) {
 		if (err == json_tokener_continue) {
+			json_object_put(jso);
 			jso = json_tokener_parse_ex(tok, "\0", 1);
 			err = json_tokener_get_error(tok);
 		}

@@ -2807,8 +2807,10 @@ uc_nl_request_common(struct nl_sock *sock, uc_vm_t *vm, size_t nargs)
 		st.spec = &nl80211_msg;
 	}
 
-	if (id < 0)
+	if (id < 0) {
+		nlmsg_free(msg);
 		err_return(-id, NULL);
+	}
 
 	genlmsg_put(msg, 0, 0, id, 0, flagval, cid, 0);
 
