@@ -160,8 +160,20 @@ define Package/ucode-mod-uloop
 endef
 
 define Package/ucode-mod-uloop/description
- The uloop module allows ucode scripts to interact with OpenWrt uloop event
- loop implementation.
+  The uloop module allows ucode scripts to interact with OpenWrt uloop event
+  loop implementation.
+endef
+
+
+define Package/ucode-mod-websocket
+  $(Package/ucode/default)
+  TITLE+= (websocket module)
+  DEPENDS:=ucode +libubox +libwslay
+endef
+
+define Package/ucode-mod-websocket/description
+  The websocket module allows ucode scripts to interact with WebSocket
+  (RFC 6455) servers using an event driven, uloop based API.
 endef
 
 
@@ -227,6 +239,11 @@ define Package/ucode-mod-uloop/install
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/lib/ucode/uloop.so $(1)/usr/lib/ucode/
 endef
 
+define Package/ucode-mod-websocket/install
+	$(INSTALL_DIR) $(1)/usr/lib/ucode
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/lib/ucode/websocket.so $(1)/usr/lib/ucode/
+endef
+
 $(eval $(call BuildPackage,libucode))
 $(eval $(call BuildPackage,ucode))
 $(eval $(call BuildPackage,ucode-mod-fs))
@@ -238,4 +255,5 @@ $(eval $(call BuildPackage,ucode-mod-struct))
 $(eval $(call BuildPackage,ucode-mod-ubus))
 $(eval $(call BuildPackage,ucode-mod-uci))
 $(eval $(call BuildPackage,ucode-mod-uloop))
+$(eval $(call BuildPackage,ucode-mod-websocket))
 $(eval $(call HostBuild))
