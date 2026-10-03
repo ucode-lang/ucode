@@ -42,7 +42,7 @@ Syntax error: Module ./files/test2.uc has no default export
 In [stdin], line 1, byte 20:
 
  `import defVal from "./files/test2.uc";`
-  Near here ---------^
+  ~~~~~~~~~~~~~~~~~~~^
 
 
 -- End --

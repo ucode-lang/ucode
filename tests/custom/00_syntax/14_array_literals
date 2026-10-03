@@ -67,7 +67,7 @@ Type error: ({ "foo": true, "bar": false }) is not iterable
 In line 5, byte 21:
 
  `    print([ ...arr, ...obj ], "\n");`
-  Near here -------------^
+      ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~
 
 
 -- End --

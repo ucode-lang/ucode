@@ -130,6 +130,31 @@ uc_program_function_srcpos(uc_function_t *fn, size_t off)
 	return fn->srcpos + uc_chunk_debug_get_srcpos(&fn->chunk, off);
 }
 
+/* Resolve the innermost statement enclosing instruction `off` of `fn`, storing
+ * the source offsets delimiting its extent, absolute to the function's source
+ * buffer, into `startoff` and `endoff`. Returns false if the instruction
+ * belongs to no statement, e.g. to implicitly emitted code. Passing SIZE_MAX
+ * for `off` resolves the innermost statement still open instead, which is how a
+ * syntax error finds the statement it aborted. As with
+ * uc_chunk_debug_stmt_bounds(), the out parameters are left untouched on
+ * failure. */
+bool
+uc_program_function_stmt_bounds(uc_function_t *fn, size_t off,
+                                size_t *startoff, size_t *endoff)
+{
+	size_t srcpos;
+
+	if (!fn || !uc_chunk_debug_stmt_bounds(&fn->chunk, off, startoff, endoff))
+		return false;
+
+	srcpos = fn->srcpos;
+
+	*startoff += srcpos;
+	*endoff += srcpos;
+
+	return true;
+}
+
 void
 uc_program_function_free(uc_function_t *func)
 {

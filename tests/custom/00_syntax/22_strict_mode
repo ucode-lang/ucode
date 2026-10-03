@@ -15,7 +15,7 @@ Reference error: access to undeclared variable x
 In line 4, byte 8:
 
  `    print(x);`
-            ^-- Near here
+      ~~~~~~^~~
 
 
 -- End --
@@ -42,7 +42,7 @@ In b(), line 9, byte 24:
   called from anonymous function ([stdin]:13:4)
 
  `        printf("b() = %J\n", x);`
-  Near here -------------------^
+          ~~~~~~~~~~~~~~~~~~~~~^~~
 
 
 -- End --

@@ -67,6 +67,6 @@ to itself as `__call__` does not make it callable.
 -- End --
 
 -- Expect stdout --
-left-hand side is not a function
-left-hand side is not a function
+`o` is not a function, got { } instead
+`c` is not a function, got { "__call__": null } instead
 -- End --

@@ -71,7 +71,7 @@ Syntax error: Invalid left-hand side expression for assignment
 In line 2, byte 7:
 
  `    obj?.foo = 1;`
-           ^-- Near here
+      ~~~~~^
 
 
 -- End --
@@ -87,7 +87,7 @@ Syntax error: Invalid left-hand side expression for increment/decrement
 In line 2, byte 7:
 
  `    obj?.foo++;`
-           ^-- Near here
+      ~~~~~^
 
 
 -- End --

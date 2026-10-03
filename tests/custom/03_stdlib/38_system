@@ -91,7 +91,7 @@ Type error: Passed command is neither string nor array
 In line 2, byte 13:
 
  `    system(true);`
-  Near here -----^
+      ~~~~~~~~~~~^~
 
 
 -- End --
@@ -107,7 +107,7 @@ Type error: Passed command array is empty
 In line 2, byte 11:
 
  `    system([]);`
-  Near here ---^
+      ~~~~~~~~~^~
 
 
 -- End --
@@ -126,7 +126,7 @@ Type error: Invalid timeout specified
 In line 2, byte 28:
 
  `    system("exit 0", "invalid")`
-  Near here --------------------^
+      ~~~~~~~~~~~~~~~~~~~~~~~~~~^
 
 
 -- End --
@@ -142,7 +142,7 @@ Type error: Invalid timeout specified
 In line 2, byte 23:
 
  `    system("exit 0", -100)`
-  Near here ---------------^
+      ~~~~~~~~~~~~~~~~~~~~~^
 
 
 -- End --

@@ -26,7 +26,7 @@ An exception!
 In line 4, byte 21:
 
  `    die("An exception!");`
-  Near here -------------^
+      ~~~~~~~~~~~~~~~~~~~^~
 
 
 -- End --
@@ -43,7 +43,7 @@ Died
 In line 2, byte 6:
 
  `    die();`
-          ^-- Near here
+      ~~~~^~
 
 
 -- End --

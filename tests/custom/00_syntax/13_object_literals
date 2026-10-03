@@ -117,7 +117,7 @@ Expecting ':'
 In line 2, byte 14:
 
  `    o = { "foo" };`
-  Near here ------^
+      ~~~~~~~~~~~~^
 
 
 -- End --
@@ -133,7 +133,7 @@ Syntax error: Invalid identifier
 In line 2, byte 8:
 
  `    o = { function };`
-            ^-- Near here
+      ~~~~~~^
 
 
 -- End --
@@ -169,7 +169,7 @@ Syntax error: Expecting expression
 In line 2, byte 10:
 
  `    o1 = { []: true };`
-  Near here --^
+      ~~~~~~~~^
 
 
 Syntax error: Unexpected token
@@ -177,7 +177,7 @@ Expecting ']'
 In line 3, byte 14:
 
  `    o2 = { [true, false]: 123 };`
-  Near here ------^
+      ~~~~~~~~~~~~^
 
 
 -- End --

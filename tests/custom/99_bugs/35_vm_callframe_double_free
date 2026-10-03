@@ -26,7 +26,7 @@ In main(), file files/ex.uc, line 1, byte 16:
   called from anonymous function ([C])
 
  `die("Exception");`
-  Near here -----^
+  ~~~~~~~~~~~~~~~^~
 
 
 -- End --

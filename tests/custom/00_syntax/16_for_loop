@@ -223,7 +223,7 @@ Expecting ';'
 In line 2, byte 19:
 
  `    for (let x, y, z in {})`
-  Near here -----------^
+      ~~~~~~~~~~~~~~~~~^
 
 
 -- End --
@@ -244,7 +244,7 @@ Expecting ';'
 In line 2, byte 20:
 
  `    for (let x = 1, y in {})`
-  Near here ------------^
+      ~~~~~~~~~~~~~~~~~~^
 
 
 -- End --
@@ -265,7 +265,7 @@ Expecting ';'
 In line 2, byte 12:
 
  `    for (let x)`
-  Near here ----^
+      ~~~~~~~~~~^
 
 
 -- End --
@@ -286,7 +286,7 @@ Expecting ';'
 In line 2, byte 15:
 
  `    for (let x, y)`
-  Near here -------^
+      ~~~~~~~~~~~~~^
 
 
 -- End --

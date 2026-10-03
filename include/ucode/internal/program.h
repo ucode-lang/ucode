@@ -46,6 +46,7 @@ __hidden size_t uc_program_function_id(uc_program_t *, uc_function_t *);
 __hidden uc_function_t *uc_program_function_load(uc_program_t *, size_t);
 uc_source_t *uc_program_function_source(uc_function_t *);
 size_t uc_program_function_srcpos(uc_function_t *, size_t);
+__hidden bool uc_program_function_stmt_bounds(uc_function_t *, size_t, size_t *, size_t *);
 __hidden void uc_program_function_free(uc_function_t *);
 
 __hidden uc_value_t *uc_program_get_constant(uc_program_t *, size_t);

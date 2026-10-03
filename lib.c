@@ -52,35 +52,51 @@
 #include "ucode/internal/platform.h"
 #include "ucode/internal/json-c-compat.h"
 
+/* Appends the printed form of `line`, followed by a marker underlining the
+ * byte range [sbegin, send) of the enclosing statement within it. When no
+ * statement span is known, `sbegin` and `send` are equal and a caret labelled
+ * "Near here" is placed at the byte index `off` instead. */
 static void
-format_context_line(uc_stringbuf_t *buf, const char *line, size_t off, bool compact)
+format_context_line(uc_stringbuf_t *buf, const char *line, size_t off,
+                    size_t sbegin, size_t send, bool compact)
 {
-	unsigned padlen, i;
+	unsigned padlen, begcol = 0, endcol = 0, width, i;
+	size_t n;
 	const char *p;
 
 	for (p = line, padlen = 0; *p != '\n' && *p != '\0'; p++) {
-		if (compact && (p - line) == (ptrdiff_t)off)
+		n = (size_t) (p - line);
+
+		if (compact && n == off)
 			ucv_stringbuf_append(buf, "\033[22m");
 
 		switch (*p) {
 		case '\t':
 			ucv_stringbuf_append(buf, "    ");
-			if (p < line + off)
-				padlen += 4;
+			width = 4;
 			break;
 
 		case '\r':
 		case '\v':
 			ucv_stringbuf_append(buf, " ");
-			if (p < line + off)
-				padlen++;
+			width = 1;
 			break;
 
 		default:
 			ucv_stringbuf_addstr(buf, p, 1);
-			if (p < line + off)
-				padlen++;
+			width = 1;
 		}
+
+		/* the marker columns are the printed widths up to each position, with
+		 * tabs and control characters expanded to their printable equivalent */
+		if (n < sbegin)
+			begcol += width;
+
+		if (n < send)
+			endcol += width;
+
+		if (n < off)
+			padlen += width;
 	}
 
 	if (compact) {
@@ -91,6 +107,25 @@ format_context_line(uc_stringbuf_t *buf, const char *line, size_t off, bool comp
 
 	ucv_stringbuf_append(buf, "`\n  ");
 
+	if (send > sbegin) {
+		/* the caret always marks the failing position, even if the statement
+		 * extent resolved to something which does not contain it */
+		if (begcol > padlen)
+			begcol = padlen;
+
+		if (endcol < padlen + 1)
+			endcol = padlen + 1;
+
+		for (i = 0; i < endcol; i++)
+			ucv_stringbuf_addstr(buf, i < begcol ? " " : (i == padlen ? "^" : "~"), 1);
+
+		ucv_stringbuf_append(buf, "\n");
+
+		return;
+	}
+
+	/* without a resolvable statement span all we can do is point at the
+	 * failing position itself */
 	if (padlen < strlen("Near here ^")) {
 		for (i = 0; i < padlen; i++)
 			ucv_stringbuf_append(buf, " ");
@@ -122,10 +157,12 @@ source_filename(uc_source_t *src, uint32_t line)
 	return buf;
 }
 
-bool
-uc_source_context_format(uc_stringbuf_t *buf, uc_source_t *src, size_t off, bool compact)
+/* Shared body of uc_source_context_format() and uc_error_context_format(). */
+static bool
+format_context_range(uc_stringbuf_t *buf, uc_source_t *src, size_t off,
+                     size_t startoff, size_t endoff, bool compact)
 {
-	size_t len, rlen;
+	size_t len, rlen, lpos, eoff, sbegin, send, shift;
 	bool truncated;
 	char line[256];
 	long srcpos;
@@ -155,7 +192,22 @@ uc_source_context_format(uc_stringbuf_t *buf, uc_source_t *src, size_t off, bool
 				ucv_stringbuf_printf(buf, "\n `%s",
 					truncated ? "..." : "");
 
-			format_context_line(buf, line, len - (rlen - off) + (truncated ? 3 : 0), compact);
+			/* the source offset this line starts at, the index of the failing
+			 * byte within it and the columns gained by prefixing an overlong
+			 * line with "..." */
+			lpos = rlen - len;
+			eoff = off - lpos;
+			shift = truncated ? 3 : 0;
+
+			sbegin = send = eoff;
+
+			/* clip the statement's extent to the part of it on this line */
+			if (endoff > startoff && endoff > lpos && startoff < lpos + len) {
+				sbegin = startoff > lpos ? startoff - lpos : 0;
+				send = endoff < lpos + len ? endoff - lpos : len;
+			}
+
+			format_context_line(buf, line, eoff + shift, sbegin + shift, send + shift, compact);
 			break;
 		}
 
@@ -169,7 +221,18 @@ uc_source_context_format(uc_stringbuf_t *buf, uc_source_t *src, size_t off, bool
 }
 
 bool
-uc_error_context_format(uc_stringbuf_t *buf, uc_source_t *src, uc_value_t *stacktrace, size_t off)
+uc_source_context_format(uc_stringbuf_t *buf, uc_source_t *src, size_t off, bool compact)
+{
+	return format_context_range(buf, src, off, 0, 0, compact);
+}
+
+/* Renders the stacktrace of an error followed by the source context at `off`,
+ * underlining the extent delimited by `startoff` and `endoff` when the statement
+ * it covers is known, rather than just marking the failing position. Pass equal
+ * values for the two when it is not. */
+bool
+uc_error_context_format(uc_stringbuf_t *buf, uc_source_t *src, uc_value_t *stacktrace,
+                        size_t startoff, size_t endoff, size_t off)
 {
 	uc_value_t *e, *fn, *file, *line, *byte, *tco;
 	const char *path;
@@ -223,7 +286,7 @@ uc_error_context_format(uc_stringbuf_t *buf, uc_source_t *src, uc_value_t *stack
 				ucv_int64_get(tco));
 	}
 
-	return uc_source_context_format(buf, src, off, false);
+	return format_context_range(buf, src, off, startoff, endoff, false);
 }
 
 void

@@ -25,7 +25,11 @@
 #include "ucode/internal/program.h"
 #include "ucode/internal/chunk.h"
 #include "ucode/internal/lib.h" /* uc_error_context_format() */
+#include "ucode/internal/source.h" /* uc_source_callee_expr() */
 #include "ucode/internal/platform.h"
+
+/* maximum length of the value rendered into a "not a function" error message */
+#define UC_VALUE_HINT_MAXLEN 64
 
 #undef __insn
 #define __insn(_name) #_name,
@@ -722,6 +726,36 @@ uc_vm_frame_reinit(uc_vm_t *vm, uc_closure_t *closure, uc_value_t *ctx,
 	ucv_put(oldctx);
 }
 
+/* Returns the expression invoked by the call that the instruction the VM is
+ * about to execute belongs to, or NULL if it cannot be determined. The result
+ * is meant for error messages describing a failed call, and stays valid until
+ * the next call. */
+static const char *
+uc_vm_callee_expr(uc_vm_t *vm)
+{
+	uc_function_t *function;
+	uc_callframe_t *frame;
+	size_t insn;
+
+	/* the topmost frame is the one performing the failing call; if it belongs
+	 * to a native function, the call did not originate from source code */
+	if (vm->callframes.count == 0)
+		return NULL;
+
+	frame = &vm->callframes.entries[vm->callframes.count - 1];
+
+	if (!frame->closure)
+		return NULL;
+
+	function = frame->closure->function;
+	insn = (frame->ip - uc_vm_frame_chunk(frame)->entries) - 1;
+
+	/* a call instruction refers to the closing parenthesis of the arguments
+	 * passed to it */
+	return uc_source_callee_expr(uc_program_function_source(function),
+	                             uc_program_function_srcpos(function, insn));
+}
+
 static bool
 uc_vm_call_function(uc_vm_t *vm, uc_value_t *ctx, uc_value_t *fno, bool mcall,
                    size_t argspec, bool tail)
@@ -829,7 +863,24 @@ uc_vm_call_function(uc_vm_t *vm, uc_value_t *ctx, uc_value_t *fno, bool mcall,
 	}
 
 	if (ucv_type(fno) != UC_CLOSURE) {
-		uc_vm_raise_exception(vm, EXCEPTION_TYPE, "left-hand side is not a function");
+		/* name the invoked expression where it can be recovered from the source,
+		 * and render the value it held as JSON, so that the message identifies
+		 * both the offending expression and the value that was not a function;
+		 * a NULL vm skips __tostring__ dispatch, so describing the value has no
+		 * side effects */
+		const char *callee = uc_vm_callee_expr(vm);
+		char *hint = ucv_to_jsonstring(NULL, fno);
+		size_t hlen = strlen(hint);
+
+		if (hlen > UC_VALUE_HINT_MAXLEN)
+			memcpy(hint + UC_VALUE_HINT_MAXLEN - 3, "...", 4);
+
+		if (callee)
+			uc_vm_raise_exception(vm, EXCEPTION_TYPE, "`%s` is not a function, got %s instead", callee, hint);
+		else
+			uc_vm_raise_exception(vm, EXCEPTION_TYPE, "left-hand side is not a function, got %s instead", hint);
+
+		free(hint);
 		ucv_put(ctx);
 		ucv_put(fno);
 
@@ -1169,6 +1220,39 @@ uc_vm_handle_exception(uc_vm_t *vm)
 	return false;
 }
 
+/* Adds the line and byte column of the source position `off` to `object`, under
+ * the keys `linekey` and `bytekey`. */
+static void
+uc_vm_stacktrace_add_position(uc_value_t *object, uc_source_t *source, size_t off,
+                             const char *linekey, const char *bytekey)
+{
+	size_t pos = off;
+
+	ucv_object_add(object, linekey, ucv_int64_new(uc_source_get_line(source, &pos)));
+	ucv_object_add(object, bytekey, ucv_int64_new(pos));
+}
+
+/* Adds the bounds of the statement enclosing instruction `off` of `function`,
+ * so that consumers rendering a stacktrace can highlight the whole statement
+ * rather than only the failing position. */
+static void
+uc_vm_stacktrace_add_statement(uc_vm_t *vm, uc_value_t *entry, uc_function_t *function, size_t off)
+{
+	uc_source_t *source = uc_program_function_source(function);
+	size_t startoff, endoff;
+	uc_value_t *statement;
+
+	if (!uc_program_function_stmt_bounds(function, off, &startoff, &endoff))
+		return;
+
+	statement = ucv_object_new(vm);
+
+	uc_vm_stacktrace_add_position(statement, source, startoff, "line", "byte");
+	uc_vm_stacktrace_add_position(statement, source, endoff, "endline", "endbyte");
+
+	ucv_object_add(entry, "statement", statement);
+}
+
 static uc_value_t *
 uc_vm_capture_stacktrace(uc_vm_t *vm, size_t i)
 {
@@ -1193,8 +1277,9 @@ uc_vm_capture_stacktrace(uc_vm_t *vm, size_t i)
 			srcpos = uc_program_function_srcpos(function, off);
 
 			ucv_object_add(entry, "filename", ucv_string_new(source->filename));
-			ucv_object_add(entry, "line", ucv_int64_new(uc_source_get_line(source, &srcpos)));
-			ucv_object_add(entry, "byte", ucv_int64_new(srcpos));
+			uc_vm_stacktrace_add_position(entry, source, srcpos, "line", "byte");
+
+			uc_vm_stacktrace_add_statement(vm, entry, function, off);
 		}
 
 		if (i > 1) {
@@ -1233,7 +1318,7 @@ uc_vm_capture_stacktrace(uc_vm_t *vm, size_t i)
 static uc_value_t *
 uc_vm_get_error_context(uc_vm_t *vm)
 {
-	size_t offset, i, byte, line;
+	size_t offset, insn, i, byte, line, startoff = 0, endoff = 0;
 	uc_value_t *stacktrace;
 	uc_callframe_t *frame;
 	uc_stringbuf_t *buf;
@@ -1253,7 +1338,8 @@ uc_vm_get_error_context(uc_vm_t *vm)
 		return NULL;
 
 	chunk = uc_vm_frame_chunk(frame);
-	offset = uc_program_function_srcpos(frame->closure->function, (frame->ip - chunk->entries) - 1);
+	insn = (frame->ip - chunk->entries) - 1;
+	offset = uc_program_function_srcpos(frame->closure->function, insn);
 	stacktrace = uc_vm_capture_stacktrace(vm, i);
 
 	buf = ucv_stringbuf_new();
@@ -1261,8 +1347,14 @@ uc_vm_get_error_context(uc_vm_t *vm)
 	byte = offset;
 	line = uc_source_get_line(uc_program_function_source(frame->closure->function), &byte);
 
-	if (line)
-		uc_error_context_format(buf, uc_vm_frame_source(frame), stacktrace, offset);
+	if (line) {
+		/* underline the statement the failing instruction belongs to, where one
+		 * can be resolved, rather than only marking that instruction */
+		uc_program_function_stmt_bounds(frame->closure->function, insn, &startoff, &endoff);
+
+		uc_error_context_format(buf, uc_vm_frame_source(frame), stacktrace,
+			startoff, endoff, offset);
+	}
 	else if (frame->ip != chunk->entries)
 		ucv_stringbuf_printf(buf, "At instruction %zu", (frame->ip - chunk->entries) - 1);
 	else

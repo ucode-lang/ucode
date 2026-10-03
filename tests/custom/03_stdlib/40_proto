@@ -72,7 +72,7 @@ Type error: Passed value is neither a prototype, resource or object
 In line 2, byte 19:
 
  `    proto("inval", {});`
-  Near here -----------^
+      ~~~~~~~~~~~~~~~~~^~
 
 
 -- End --
@@ -88,7 +88,7 @@ Type error: Passed value is neither a prototype, resource or object
 In line 2, byte 19:
 
  `    proto({}, "inval");`
-  Near here -----------^
+      ~~~~~~~~~~~~~~~~~^~
 
 
 -- End --
@@ -109,7 +109,7 @@ Type error: Cannot set circular prototype
 In line 3, byte 12:
 
  `    proto(a, a);`
-  Near here ----^
+      ~~~~~~~~~~^~
 
 
 -- End --
@@ -133,7 +133,7 @@ Type error: Cannot set circular prototype
 In line 6, byte 12:
 
  `    proto(b, a);`
-  Near here ----^
+      ~~~~~~~~~~^~
 
 
 -- End --
@@ -158,7 +158,7 @@ Type error: Cannot set circular prototype
 In line 8, byte 12:
 
  `    proto(c, a);`
-  Near here ----^
+      ~~~~~~~~~~^~
 
 
 -- End --

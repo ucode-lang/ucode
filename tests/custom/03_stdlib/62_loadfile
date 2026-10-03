@@ -90,7 +90,7 @@ Runtime error: Unable to compile source file './files/test4.uc':
 In line 5, byte 3:
 
  `    });`
-       ^-- Near here
+  ~~~~~^~
 
 
 -- End --
@@ -142,7 +142,7 @@ Runtime error: Unable to compile source file './files/test6.uc':
 In line 2, byte 49:
 
  `    loadfile('./files/test6.uc', { raw_mode: true });`
-  Near here -----------------------------------------^
+      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~
 
 
 -- End --

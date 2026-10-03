@@ -79,7 +79,7 @@ Syntax error: Compile error
 In line 4, byte 16:
 
  `        regexp("foo(");`
-  Near here -----------^
+          ~~~~~~~~~~~~~^~
 
 
 -- End --
@@ -98,7 +98,7 @@ Type error: Given flags argument is not a string
 In line 2, byte 19:
 
  `    regexp(".*", true);`
-  Near here -----------^
+      ~~~~~~~~~~~~~~~~~^~
 
 
 -- End --
@@ -114,7 +114,7 @@ Type error: Unrecognized flag character 'z'
 In line 2, byte 20:
 
  `    regexp(".*", "igz");`
-  Near here ------------^
+      ~~~~~~~~~~~~~~~~~~^~
 
 
 -- End --

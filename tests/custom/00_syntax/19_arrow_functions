@@ -112,7 +112,7 @@ Expecting ';'
 In line 2, byte 10:
 
  `    (a + 1) => { print("test\n") }`
-  Near here --^
+      ~~~~~~~~^
 
 
 -- End --

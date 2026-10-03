@@ -19,7 +19,7 @@ Syntax error: Invalid assignment to constant 'a'
 In [stdin], line 3, byte 5:
 
  `a = 2;`
-      ^-- Near here
+  ~~~~^
 
 
 -- End --
@@ -46,7 +46,7 @@ Type error: object value is immutable
 In line 3, byte 9:
 
  `mod.a = 2;`
-          ^-- Near here
+  ~~~~~~~~^~
 
 
 -- End --

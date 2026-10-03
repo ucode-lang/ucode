@@ -174,7 +174,7 @@ uc_compiler_syntax_error(uc_compiler_t *compiler, size_t off, const char *fmt, .
 {
 	uc_source_t *source = uc_compiler_current_source(compiler);
 	uc_stringbuf_t *buf = compiler->parser->error;
-	size_t line = 0, byte = 0, len = 0;
+	size_t line = 0, byte = 0, len = 0, startoff = 0, endoff = 0;
 	va_list ap;
 	char *s;
 
@@ -220,7 +220,14 @@ uc_compiler_syntax_error(uc_compiler_t *compiler, size_t off, const char *fmt, .
 		ucv_stringbuf_printf(buf, "line %zu, byte %zu:\n", line, byte);
 	}
 
-	if (uc_error_context_format(buf, source, NULL, off))
+	/* underline the innermost statement being compiled rather than pointing at
+	 * the offending token alone; SIZE_MAX lies beyond the last instruction, so
+	 * no closed statement can cover it and the lookup comes down to the one
+	 * still open, i.e. the statement which the error aborted. Left at zero, and
+	 * so ignored, when there is no such statement. */
+	uc_program_function_stmt_bounds(compiler->function, SIZE_MAX, &startoff, &endoff);
+
+	if (uc_error_context_format(buf, source, NULL, startoff, endoff, off))
 		ucv_stringbuf_append(buf, "\n\n");
 }
 

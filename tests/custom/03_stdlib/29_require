@@ -90,7 +90,7 @@ Runtime error: Global require search path not set
 In line 4, byte 16:
 
  `    require("test");`
-  Near here --------^
+      ~~~~~~~~~~~~~~^~
 
 
 -- End --
@@ -109,7 +109,7 @@ Runtime error: No module named 'test' could be found
 In line 2, byte 16:
 
  `    require("test");`
-  Near here --------^
+      ~~~~~~~~~~~~~~^~
 
 
 -- End --
@@ -137,12 +137,12 @@ Runtime error: Unable to compile source file './files/require/test/broken.uc':
   | In line 3, byte 1:
   |
   |  `return {`
-  |           ^-- Near here
+  |   ~~~~~~~~^
 
 In line 4, byte 31:
 
  `    require("require.test.broken");`
-  Near here -----------------------^
+      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~
 
 
 -- End --

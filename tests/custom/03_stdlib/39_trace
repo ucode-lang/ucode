@@ -73,7 +73,7 @@ Type error: Invalid level specified
 In line 2, byte 15:
 
  `    trace("inval");`
-  Near here -------^
+      ~~~~~~~~~~~~~^~
 
 
 -- End --

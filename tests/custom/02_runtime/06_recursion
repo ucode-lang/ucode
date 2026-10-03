@@ -43,7 +43,7 @@ In test(), line 3, byte 8:
   called from anonymous function ([stdin]:6:7)
 
  `        test();`
-  Near here ---^
+          ~~~~~^~
 
 
 -- End --

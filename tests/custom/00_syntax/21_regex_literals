@@ -77,7 +77,7 @@ Catched syntax error
 In line 7, byte 30:
 
  `            die("Catched syntax error");`
-  Near here ----------------------------^
+              ~~~~~~~~~~~~~~~~~~~~~~~~~~^~
 
 
 -- End --

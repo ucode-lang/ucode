@@ -40,7 +40,7 @@ In [anonymous function](), line 3, byte 18:
   called from anonymous function ([stdin]:4:3)
 
  `        die("exception");`
-  Near here -------------^
+          ~~~~~~~~~~~~~~~^~
 
 
 -- End --
@@ -84,7 +84,7 @@ In a(), line 3, byte 18:
   called from anonymous function ([stdin]:14:4)
 
  `        die("exception");`
-  Near here -------------^
+          ~~~~~~~~~~~~~~~^~
 
 
 -- End --

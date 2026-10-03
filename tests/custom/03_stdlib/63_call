@@ -69,13 +69,13 @@ Hello world
 -- End --
 
 -- Expect stderr --
-Type error: left-hand side is not a function
+Type error: `print` is not a function, got null instead
 In fn(), line 3, byte 24:
   called from function call ([C])
   called from anonymous function ([stdin]:7:30)
 
  `        print("Hello world\n");`
-  Near here -------------------^
+          ~~~~~~~~~~~~~~~~~~~~~^~
 
 
 -- End --

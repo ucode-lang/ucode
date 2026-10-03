@@ -33,4 +33,6 @@ __hidden void uc_source_runpath_set(uc_source_t *source, const char *runpath);
 __hidden bool uc_source_export_add(uc_source_t *source, uc_value_t *name);
 __hidden ssize_t uc_source_export_lookup(uc_source_t *source, uc_value_t *name);
 
+__hidden const char *uc_source_callee_expr(uc_source_t *source, size_t end);
+
 #endif /* UCODE_INTERNAL_SOURCE_H */

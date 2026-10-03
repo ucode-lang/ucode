@@ -47,6 +47,6 @@ Caught exception: In [anonymous function](), line 4, byte 62:
   called from anonymous function ([stdin]:16:4)
 
  `        { tostring: function() { die("Exception while stringifying") } }`
-  Near here ---------------------------------------------------------^
+                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
 
 -- End --

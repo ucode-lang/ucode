@@ -71,7 +71,7 @@ Runtime error: Unable to compile source string:
 In line 5, byte 3:
 
  `    });`
-       ^-- Near here
+  ~~~~~^~
 
 
 -- End --
@@ -115,7 +115,7 @@ Runtime error: Unable to compile source string:
 In line 2, byte 38:
 
  `    loadstring('1 +', { raw_mode: true });`
-  Near here ------------------------------^
+      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~
 
 
 -- End --

@@ -293,7 +293,7 @@ In tailrec(), line 3, byte 11:
   called from anonymous function ([stdin]:6:10)
 
  `        tailrec();`
-  Near here ------^
+          ~~~~~~~~^~
 
 
 -- End --
@@ -317,7 +317,7 @@ In tailrec(), line 3, byte 18:
   called from anonymous function ([stdin]:6:10)
 
  `        return tailrec() + 1;`
-  Near here -------------^
+          ~~~~~~~~~~~~~~~^~~~~~
 
 
 -- End --

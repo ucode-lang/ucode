@@ -33,6 +33,9 @@ __hidden void uc_chunk_pop(uc_chunk_t *chunk);
 __hidden void uc_chunk_stmt_start(uc_chunk_t *chunk, size_t offset);
 __hidden void uc_chunk_stmt_end(uc_chunk_t *chunk, size_t offset);
 
+__hidden bool uc_chunk_debug_stmt_bounds(uc_chunk_t *chunk, size_t off,
+                                         size_t *startoff, size_t *endoff);
+
 size_t uc_chunk_debug_get_srcpos(uc_chunk_t *chunk, size_t offset);
 __hidden void uc_chunk_debug_add_variable(uc_chunk_t *chunk, size_t from, size_t to, size_t slot, bool upval, uc_value_t *name);
 uc_value_t *uc_chunk_debug_get_variable(uc_chunk_t *chunk, size_t offset, size_t slot, bool upval);

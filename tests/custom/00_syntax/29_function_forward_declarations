@@ -65,7 +65,7 @@ Syntax error: Invalid assignment to constant 'foo'
 In line 4, byte 8:
 
  `    foo = function() { return 2; };`
-            ^-- Near here
+      ~~~~~~^
 
 
 -- End --
@@ -186,11 +186,11 @@ In line 3, byte 11:
 9. Calling an unfilled forward declaration raises a runtime error.
 
 -- Expect stderr --
-Type error: left-hand side is not a function
+Type error: `foo` is not a function, got null instead
 In line 4, byte 6:
 
  `    foo();`
-          ^-- Near here
+      ~~~~^~
 
 
 -- End --

@@ -24,7 +24,7 @@ This should trigger
 In line 5, byte 45:
 
  `    let y = assert(false, "This should trigger");`
-  Near here -------------------------------------^
+      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~
 
 
 -- End --

@@ -83,7 +83,7 @@ Type error: Passed filename is not a string
 In line 2, byte 13:
 
  `    render(true);`
-  Near here -----^
+      ~~~~~~~~~~~^~
 
 
 -- End --
@@ -102,7 +102,7 @@ Type error: Passed scope value is not an object
 In line 2, byte 21:
 
  `    render("test", true);`
-  Near here -------------^
+      ~~~~~~~~~~~~~~~~~~~^~
 
 
 -- End --
@@ -121,7 +121,7 @@ Runtime error: Include file not found
 In line 2, byte 32:
 
  `    render("files/doesnotexist.uc");`
-  Near here ------------------------^
+      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~
 
 
 -- End --
@@ -149,12 +149,12 @@ Runtime error: Unable to compile source file './files/broken.uc':
   | In line 4, byte 1:
   |
   |  `    return {`
-  |   Near here --^
+  |       ~~~~~~~~^
 
 In line 2, byte 26:
 
  `    render("files/broken.uc");`
-  Near here ------------------^
+      ~~~~~~~~~~~~~~~~~~~~~~~~^~
 
 
 -- End --

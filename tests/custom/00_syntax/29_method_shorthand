@@ -110,7 +110,7 @@ Syntax error: Invalid identifier
 In line 2, byte 16:
 
  `    obj = { return() { } };`
-  Near here --------^
+      ~~~~~~~~~~~~~~^
 
 
 -- End --

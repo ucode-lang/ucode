@@ -41,7 +41,7 @@ Syntax error: Module ./files/test2.uc has no default export
 In [stdin], line 1, byte 15:
 
  `import y from "./files/test2.uc";`
-  Near here ----^
+  ~~~~~~~~~~~~~~^
 
 
 -- End --

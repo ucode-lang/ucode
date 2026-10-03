@@ -272,7 +272,7 @@ In test(), line 6, byte 8:
   called from anonymous function ([stdin]:17:14)
 
  `            die();`
-  Near here ------^
+              ~~~~^~
 
 
 -- End --

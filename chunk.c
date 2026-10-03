@@ -157,6 +157,88 @@ uc_chunk_pop(uc_chunk_t *chunk)
 	}
 }
 
+/* Resolve the innermost statement enclosing the instruction at `off`, storing
+ * the source offsets delimiting its extent into `startoff` and `endoff`.
+ * Returns false, leaving both untouched, if no statement covers that
+ * instruction - e.g. because it belongs to implicitly emitted code such as a
+ * function's trailing `return null`. A caller which only wants the best
+ * available bounds may therefore initialize them to an empty range and ignore
+ * the return value.
+ *
+ * An `off` beyond the last instruction - SIZE_MAX, say - resolves the innermost
+ * statement which was started but never closed, i.e. the one compilation was
+ * inside of when a syntax error aborted it. Since the error kept the end marker
+ * from being emitted, `endoff` then denotes the end of the emitted prefix
+ * rather than of the statement in the source text.
+ *
+ * Statement spans nest, but an inner one always closes before its enclosing
+ * one, so the first closed span found to cover `off` is the innermost match.
+ * Having passed a non-matching span, the next candidate can only ever be the
+ * span compiled around it, so remembering a single parent suffices: giving up
+ * more than one level out makes the walk come up empty, but never return a
+ * span which doesn't actually enclose `off`. The few instructions which fall
+ * through this - loop back-edges, function return tails and the like, none of
+ * which can be a failing expression - are left for the caller to render as a
+ * plain position marker. */
+bool
+uc_chunk_debug_stmt_bounds(uc_chunk_t *chunk, size_t off, size_t *startoff, size_t *endoff)
+{
+	uc_offsetinfo_t *offsets = &chunk->debuginfo.offsets;
+	struct { size_t pos, insn; } stack[2];
+	int depth = -1;
+	size_t i, bnum = 0, inum = 0, ins;
+
+	for (i = 0; i < offsets->count; i++) {
+		uc_offset_t *o = &offsets->entries[i];
+
+		/* the byte delta of an entry leads up to the position it describes,
+		 * while its instruction count covers instructions emitted afterwards,
+		 * since writing instructions bumps the last entry's counter; hence
+		 * `inum` is captured before, `bnum` after accumulating */
+		ins = inum;
+
+		bnum += OFFSETINFO_NUM_BYTES(o);
+		inum += OFFSETINFO_NUM_INSNS(o);
+
+		/* a set high bit in the byte count opens a statement */
+		if (o->bytes & 0x80) {
+			if (depth == 1)
+				stack[0] = stack[1];
+			else
+				depth++;
+
+			stack[depth].pos = bnum;
+			stack[depth].insn = ins;
+		}
+
+		/* a set high bit in the instruction count closes it again */
+		if (!(o->insns & 0x80) || depth < 0)
+			continue; /* unmatched end flag, ignore */
+
+		if (off >= stack[depth].insn && off < inum) {
+			*startoff = stack[depth].pos;
+			*endoff = bnum;
+
+			return true;
+		}
+
+		depth--;
+	}
+
+	/* No closed statement covered `off`. If one is still open at that point -
+	 * compilation aborted midway through it, leaving the end flag unemitted -
+	 * then its emitted prefix is the best match available. Since statements
+	 * are only ever pushed, `open` is the innermost one here. */
+	if (depth >= 0 && off >= stack[depth].insn) {
+		*startoff = stack[depth].pos;
+		*endoff = bnum;
+
+		return true;
+	}
+
+	return false;
+}
+
 size_t
 uc_chunk_debug_get_srcpos(uc_chunk_t *chunk, size_t off)
 {

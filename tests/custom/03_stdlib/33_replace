@@ -201,7 +201,7 @@ In [anonymous function](), line 2, byte 40:
   called from anonymous function ([stdin]:2:43)
 
  `    replace("foo", "o", function(m) { die() });`
-  Near here --------------------------------^
+                                        ~~~~^
 
 
 -- End --

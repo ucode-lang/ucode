@@ -39,11 +39,11 @@ Supplying an invalid callback will trigger an exception.
 -- End --
 
 -- Expect stderr --
-Type error: left-hand side is not a function
+Type error: left-hand side is not a function, got "not_a_function" instead
 In line 2, byte 36:
 
  `    filter([1, 2, 3], "not_a_function")`
-  Near here ----------------------------^
+      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
 
 
 -- End --
@@ -107,7 +107,7 @@ In [anonymous function](), line 2, byte 39:
   called from anonymous function ([stdin]:2:42)
 
  `    filter([ 1, 2, 3 ], function() { die() });`
-  Near here -------------------------------^
+                                       ~~~~^
 
 
 -- End --
