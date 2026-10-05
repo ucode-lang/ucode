@@ -1,0 +1,1677 @@
+<!DOCTYPE html><html lang="en" style="font-size:16px"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link type="text/css" rel="stylesheet" href="ucode.css"><title>Source: lib/serial.c</title><!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]--><script src="scripts/third-party/hljs.js" defer="defer"></script><script src="scripts/third-party/hljs-line-num.js" defer="defer"></script><script src="scripts/third-party/popper.js" defer="defer"></script><script src="scripts/third-party/tippy.js" defer="defer"></script><script src="scripts/third-party/tocbot.min.js"></script><script>var baseURL="/",locationPathname="";baseURL=(locationPathname=document.location.pathname).substr(0,locationPathname.lastIndexOf("/")+1)</script><link rel="stylesheet" href="styles/clean-jsdoc-theme.min.css"><svg aria-hidden="true" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="display:none"><defs><symbol id="copy-icon" viewbox="0 0 488.3 488.3"><g><path d="M314.25,85.4h-227c-21.3,0-38.6,17.3-38.6,38.6v325.7c0,21.3,17.3,38.6,38.6,38.6h227c21.3,0,38.6-17.3,38.6-38.6V124    C352.75,102.7,335.45,85.4,314.25,85.4z M325.75,449.6c0,6.4-5.2,11.6-11.6,11.6h-227c-6.4,0-11.6-5.2-11.6-11.6V124    c0-6.4,5.2-11.6,11.6-11.6h227c6.4,0,11.6,5.2,11.6,11.6V449.6z"/><path d="M401.05,0h-227c-21.3,0-38.6,17.3-38.6,38.6c0,7.5,6,13.5,13.5,13.5s13.5-6,13.5-13.5c0-6.4,5.2-11.6,11.6-11.6h227    c6.4,0,11.6,5.2,11.6,11.6v325.7c0,6.4-5.2,11.6-11.6,11.6c-7.5,0-13.5,6-13.5,13.5s6,13.5,13.5,13.5c21.3,0,38.6-17.3,38.6-38.6    V38.6C439.65,17.3,422.35,0,401.05,0z"/></g></symbol><symbol id="search-icon" viewBox="0 0 512 512"><g><g><path d="M225.474,0C101.151,0,0,101.151,0,225.474c0,124.33,101.151,225.474,225.474,225.474    c124.33,0,225.474-101.144,225.474-225.474C450.948,101.151,349.804,0,225.474,0z M225.474,409.323    c-101.373,0-183.848-82.475-183.848-183.848S124.101,41.626,225.474,41.626s183.848,82.475,183.848,183.848    S326.847,409.323,225.474,409.323z"/></g></g><g><g><path d="M505.902,476.472L386.574,357.144c-8.131-8.131-21.299-8.131-29.43,0c-8.131,8.124-8.131,21.306,0,29.43l119.328,119.328    c4.065,4.065,9.387,6.098,14.715,6.098c5.321,0,10.649-2.033,14.715-6.098C514.033,497.778,514.033,484.596,505.902,476.472z"/></g></g></symbol><symbol id="font-size-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M11.246 15H4.754l-2 5H.6L7 4h2l6.4 16h-2.154l-2-5zm-.8-2L8 6.885 5.554 13h4.892zM21 12.535V12h2v8h-2v-.535a4 4 0 1 1 0-6.93zM19 18a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></symbol><symbol id="add-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M11 11V5h2v6h6v2h-6v6h-2v-6H5v-2z"/></symbol><symbol id="minus-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M5 11h14v2H5z"/></symbol><symbol id="dark-theme-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M10 7a7 7 0 0 0 12 4.9v.1c0 5.523-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2h.1A6.979 6.979 0 0 0 10 7zm-6 5a8 8 0 0 0 15.062 3.762A9 9 0 0 1 8.238 4.938 7.999 7.999 0 0 0 4 12z"/></symbol><symbol id="light-theme-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M12 18a6 6 0 1 1 0-12 6 6 0 0 1 0 12zm0-2a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM11 1h2v3h-2V1zm0 19h2v3h-2v-3zM3.515 4.929l1.414-1.414L7.05 5.636 5.636 7.05 3.515 4.93zM16.95 18.364l1.414-1.414 2.121 2.121-1.414 1.414-2.121-2.121zm2.121-14.85l1.414 1.415-2.121 2.121-1.414-1.414 2.121-2.121zM5.636 16.95l1.414 1.414-2.121 2.121-1.414-1.414 2.121-2.121zM23 11v2h-3v-2h3zM4 11v2H1v-2h3z"/></symbol><symbol id="reset-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M18.537 19.567A9.961 9.961 0 0 1 12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10c0 2.136-.67 4.116-1.81 5.74L17 12h3a8 8 0 1 0-2.46 5.772l.997 1.795z"/></symbol><symbol id="down-icon" viewBox="0 0 16 16"><path fill-rule="evenodd" clip-rule="evenodd" d="M12.7803 6.21967C13.0732 6.51256 13.0732 6.98744 12.7803 7.28033L8.53033 11.5303C8.23744 11.8232 7.76256 11.8232 7.46967 11.5303L3.21967 7.28033C2.92678 6.98744 2.92678 6.51256 3.21967 6.21967C3.51256 5.92678 3.98744 5.92678 4.28033 6.21967L8 9.93934L11.7197 6.21967C12.0126 5.92678 12.4874 5.92678 12.7803 6.21967Z"></path></symbol><symbol id="codepen-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M16.5 13.202L13 15.535v3.596L19.197 15 16.5 13.202zM14.697 12L12 10.202 9.303 12 12 13.798 14.697 12zM20 10.869L18.303 12 20 13.131V10.87zM19.197 9L13 4.869v3.596l3.5 2.333L19.197 9zM7.5 10.798L11 8.465V4.869L4.803 9 7.5 10.798zM4.803 15L11 19.131v-3.596l-3.5-2.333L4.803 15zM4 13.131L5.697 12 4 10.869v2.262zM2 9a1 1 0 0 1 .445-.832l9-6a1 1 0 0 1 1.11 0l9 6A1 1 0 0 1 22 9v6a1 1 0 0 1-.445.832l-9 6a1 1 0 0 1-1.11 0l-9-6A1 1 0 0 1 2 15V9z"/></symbol><symbol id="close-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M12 10.586l4.95-4.95 1.414 1.414-4.95 4.95 4.95 4.95-1.414 1.414-4.95-4.95-4.95 4.95-1.414-1.414 4.95-4.95-4.95-4.95L7.05 5.636z"/></symbol><symbol id="menu-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M3 4h18v2H3V4zm0 7h18v2H3v-2zm0 7h18v2H3v-2z"/></symbol><symbol id="toc-icon" viewBox="0 0 460 460"><path d="M40 70a40 40 0 1 0 0 80 40 40 0 0 0 0-80zM40 190a40 40 0 1 0 0 80 40 40 0 0 0 0-80zM40 310a40 40 0 1 0 0 80 40 40 0 0 0 0-80zM430 80H145a30 30 0 0 0 0 60h285a30 30 0 0 0 0-60zM430 200H145a30 30 0 0 0 0 60h285a30 30 0 0 0 0-60zM430 320H145a30 30 0 0 0 0 60h285a30 30 0 0 0 0-60z"/></symbol></defs></svg></head><body data-theme="light"><div class="sidebar-container"><div class="sidebar" id="sidebar"><a href="/" class="sidebar-title sidebar-title-anchor">ucode Documentation</a><div class="sidebar-items-container"><div class="sidebar-section-title with-arrow" data-isopen="false" id="lL87eridqDa4sLS6cR_56"><div>Tutorials</div><svg><use xlink:href="#down-icon"></use></svg></div><div class="sidebar-section-children-container"><div class="sidebar-section-children"><a href="tutorial-01-usage.html">Usage</a></div><div class="sidebar-section-children"><a href="tutorial-02-syntax.html">Syntax</a></div><div class="sidebar-section-children"><a href="tutorial-03-memory.html">Memory Management</a></div><div class="sidebar-section-children"><a href="tutorial-04-arrays.html">Working with Arrays</a></div><div class="sidebar-section-children"><a href="tutorial-05-dictionaries.html">Working with Dictionaries</a></div><div class="sidebar-section-children"><a href="tutorial-06-metamethods.html">Metamethods</a></div></div><div class="sidebar-section-title with-arrow" data-isopen="false" id="kTnqrffBusP9atySX_Hbz"><div>Modules</div><svg><use xlink:href="#down-icon"></use></svg></div><div class="sidebar-section-children-container"><div class="sidebar-section-children"><a href="module-core.html">core</a></div><div class="sidebar-section-children"><a href="module-debug.html">debug</a></div><div class="sidebar-section-children"><a href="module-digest.html">digest</a></div><div class="sidebar-section-children"><a href="module-ffi.html">ffi</a></div><div class="sidebar-section-children"><a href="module-fs.html">fs</a></div><div class="sidebar-section-children"><a href="module-io.html">io</a></div><div class="sidebar-section-children"><a href="module-log.html">log</a></div><div class="sidebar-section-children"><a href="module-math.html">math</a></div><div class="sidebar-section-children"><a href="module-nl80211.html">nl80211</a></div><div class="sidebar-section-children"><a href="module-resolv.html">resolv</a></div><div class="sidebar-section-children"><a href="module-rtnl.html">rtnl</a></div><div class="sidebar-section-children"><a href="module-serial.html">serial</a></div><div class="sidebar-section-children"><a href="module-socket.html">socket</a></div><div class="sidebar-section-children"><a href="module-struct.html">struct</a></div><div class="sidebar-section-children"><a href="module-ubus.html">ubus</a></div><div class="sidebar-section-children"><a href="module-uci.html">uci</a></div><div class="sidebar-section-children"><a href="module-uloop.html">uloop</a></div><div class="sidebar-section-children"><a href="module-zlib.html">zlib</a></div></div></div></div></div><div class="navbar-container" id="VuAckcnZhf"><nav class="navbar"><div class="navbar-left-items"><div class="github-home navbar-item"><a id="" href="https://github.com/ucode-lang/ucode" target="">GitHub Project Page</a></div></div><div class="navbar-right-items"><div class="navbar-right-item"><button class="icon-button search-button" aria-label="open-search"><svg><use xlink:href="#search-icon"></use></svg></button></div><div class="navbar-right-item"><button class="icon-button theme-toggle" aria-label="toggle-theme"><svg><use class="theme-svg-use" xlink:href="#dark-theme-icon"></use></svg></button></div><div class="navbar-right-item"><button class="icon-button font-size" aria-label="change-font-size"><svg><use xlink:href="#font-size-icon"></use></svg></button></div><div class="navbar-right-item toc-item"><button class="icon-button toc" aria-label="open-table-of-contents"><svg><use xlink:href="#toc-icon"></use></svg></button></div></div><nav></nav></nav></div><div class="body-wrapper"><div class="main-content"><div class="main-wrapper"><section id="source-page" class="source-page"><header><h1 id="title" class="has-anchor">lib_serial.c</h1></header><article><pre class="prettyprint source lang-js"><code>/**
+ * # Serial Port Access
+ *
+ * The `serial` module provides raw access to the termios terminal API and
+ * the serial port modem control lines.
+ *
+ * Functions can be individually imported and directly accessed using the
+ * {@link https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/import#named_import named import}
+ * syntax:
+ *
+ *   ```
+ *   import { attr, B115200 } from 'serial';
+ *
+ *   let fd = io.open('/dev/ttyS0', io.O_RDWR);
+ *   print(attr(fd));
+ *   ```
+ *
+ * Alternatively, the module namespace can be imported
+ * using a wildcard import statement:
+ *
+ *   ```
+ *   import * as serial from 'serial';
+ *
+ *   let fd = io.open('/dev/ttyS0', io.O_RDWR);
+ *   print(serial.attr(fd));
+ *   ```
+ *
+ * Additionally, the serial module namespace may also be imported by invoking
+ * the `ucode` interpreter with the `-lserial` switch.
+ *
+ * @module serial
+ */
+
+#define _DEFAULT_SOURCE
+
+#include &lt;errno.h>
+#include &lt;limits.h>
+#include &lt;unistd.h>
+#include &lt;termios.h>
+#include &lt;sys/ioctl.h>
+
+#ifdef __linux__
+#include &lt;linux/serial.h>
+#endif
+
+#include "ucode/module.h"
+
+#ifndef TIOCINQ
+#define TIOCINQ FIONREAD
+#endif
+
+#define err_return(err) do { \
+	uc_vm_registry_set(vm, "serial.last_error", ucv_int64_new(err)); \
+	return NULL; \
+} while(0)
+
+static int
+get_fd(uc_vm_t *vm, uc_value_t *val)
+{
+	uc_value_t *fn = ucv_property_get(val, "fileno");
+	int64_t n;
+
+	errno = 0;
+
+	if (ucv_is_callable(fn)) {
+		uc_vm_stack_push(vm, ucv_get(val));
+		uc_vm_stack_push(vm, ucv_get(fn));
+
+		if (uc_vm_call(vm, true, 0) != EXCEPTION_NONE)
+			return -1;
+
+		val = uc_vm_stack_pop(vm);
+		n = ucv_int64_get(val);
+		ucv_put(val);
+	}
+	else {
+		n = ucv_int64_get(val);
+	}
+
+	if (errno || n &lt; 0 || n > (int64_t)INT_MAX)
+		return -1;
+
+	return (int)n;
+}
+
+/**
+ * Query error information.
+ *
+ * Returns a string containing a description of the last occurred error or
+ * `null` if there is no error information.
+ *
+ * @function module:serial#error
+ *
+ * @returns {?string}
+ */
+static uc_value_t *
+uc_serial_error(uc_vm_t *vm, size_t nargs)
+{
+	int last_error = ucv_int64_get(uc_vm_registry_get(vm, "serial.last_error"));
+
+	if (last_error == 0)
+		return NULL;
+
+	uc_vm_registry_set(vm, "serial.last_error", ucv_int64_new(0));
+
+	return ucv_string_new(strerror(last_error));
+}
+
+/**
+ * Check whether the file descriptor refers to a terminal.
+ *
+ * @function module:serial#isatty
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @returns {?boolean}
+ * Returns `true` if the file descriptor refers to a terminal device,
+ * `false` otherwise, or `null` if an error occurred.
+ */
+static uc_value_t *
+uc_serial_isatty(uc_vm_t *vm, size_t nargs)
+{
+	int fd = get_fd(vm, uc_fn_arg(0));
+
+	if (fd &lt; 0)
+		err_return(EBADF);
+
+	return ucv_boolean_new(isatty(fd) == 1);
+}
+
+/**
+ * Get terminal attributes.
+ *
+ * Retrieves the current termios attributes for the file descriptor.
+ *
+ * Returns an object containing the `iflag`, `oflag`, `cflag` and `lflag`
+ * flag values, the `ispeed` and `ospeed` baud rates, and a `cc` array of
+ * control character settings.
+ *
+ * Returns `null` if an error occurred or if the descriptor is not a terminal.
+ *
+ * @function module:serial#attr
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @returns {?object}
+ */
+static uc_value_t *
+uc_serial_attr(uc_vm_t *vm, size_t nargs)
+{
+	struct termios t;
+	uc_value_t *rv, *cc;
+	int fd, i;
+
+	fd = get_fd(vm, uc_fn_arg(0));
+
+	if (fd &lt; 0)
+		err_return(EBADF);
+
+	if (tcgetattr(fd, &amp;t) != 0)
+		err_return(errno);
+
+	rv = ucv_object_new(vm);
+
+	ucv_object_add(rv, "iflag", ucv_uint64_new(t.c_iflag));
+	ucv_object_add(rv, "oflag", ucv_uint64_new(t.c_oflag));
+	ucv_object_add(rv, "cflag", ucv_uint64_new(t.c_cflag));
+	ucv_object_add(rv, "lflag", ucv_uint64_new(t.c_lflag));
+	ucv_object_add(rv, "ispeed", ucv_uint64_new(cfgetispeed(&amp;t)));
+	ucv_object_add(rv, "ospeed", ucv_uint64_new(cfgetospeed(&amp;t)));
+
+	cc = ucv_array_new(vm);
+
+	for (i = 0; i &lt; NCCS; i++)
+		ucv_array_push(cc, ucv_uint64_new(t.c_cc[i]));
+
+	ucv_object_add(rv, "cc", cc);
+
+	return rv;
+}
+
+/**
+ * Set terminal attributes.
+ *
+ * Updates the termios attributes for the file descriptor. The given object
+ * may contain any of the following properties:
+ *
+ *  - `iflag`: input flags
+ *  - `oflag`: output flags
+ *  - `cflag`: control flags
+ *  - `lflag`: local flags
+ *  - `ispeed`: input baud rate
+ *  - `ospeed`: output baud rate
+ *  - `cc`: array of control character settings
+ *
+ * Only the provided properties are modified, all other attributes are left
+ * unchanged.
+ *
+ * Returns `true` on success, or `null` if an error occurred.
+ *
+ * @function module:serial#setattr
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @param {object} attrs
+ * The terminal attributes to set.
+ *
+ * @param {number} [when=0]
+ * When to apply the changes (`TCSANOW`, `TCSADRAIN` or `TCSAFLUSH`).
+ *
+ * @returns {?boolean}
+ */
+static uc_value_t *
+uc_serial_setattr(uc_vm_t *vm, size_t nargs)
+{
+	uc_value_t *attrs = uc_fn_arg(1);
+	uc_value_t *when = uc_fn_arg(2);
+	uc_value_t *v, *cc;
+	struct termios t;
+	int fd, act;
+	size_t i, n;
+
+	fd = get_fd(vm, uc_fn_arg(0));
+
+	if (fd &lt; 0)
+		err_return(EBADF);
+
+	if (ucv_type(attrs) != UC_OBJECT)
+		err_return(EINVAL);
+
+	if (tcgetattr(fd, &amp;t) != 0)
+		err_return(errno);
+
+	v = ucv_object_get(attrs, "iflag", NULL);
+	if (v) t.c_iflag = (tcflag_t)ucv_to_unsigned(v);
+
+	v = ucv_object_get(attrs, "oflag", NULL);
+	if (v) t.c_oflag = (tcflag_t)ucv_to_unsigned(v);
+
+	v = ucv_object_get(attrs, "cflag", NULL);
+	if (v) t.c_cflag = (tcflag_t)ucv_to_unsigned(v);
+
+	v = ucv_object_get(attrs, "lflag", NULL);
+	if (v) t.c_lflag = (tcflag_t)ucv_to_unsigned(v);
+
+	v = ucv_object_get(attrs, "ispeed", NULL);
+	if (v) cfsetispeed(&amp;t, (speed_t)ucv_to_unsigned(v));
+
+	v = ucv_object_get(attrs, "ospeed", NULL);
+	if (v) cfsetospeed(&amp;t, (speed_t)ucv_to_unsigned(v));
+
+	cc = ucv_object_get(attrs, "cc", NULL);
+
+	if (ucv_type(cc) == UC_ARRAY) {
+		n = ucv_array_length(cc);
+
+		for (i = 0; i &lt; n &amp;&amp; i &lt; NCCS; i++) {
+			v = ucv_array_get(cc, i);
+			if (v) t.c_cc[i] = (cc_t)ucv_to_unsigned(v);
+		}
+	}
+
+	act = (ucv_type(when) == UC_INTEGER) ? (int)ucv_int64_get(when) : TCSANOW;
+
+	if (tcsetattr(fd, act, &amp;t) != 0)
+		err_return(errno);
+
+	return ucv_boolean_new(true);
+}
+
+/**
+ * Set the terminal baud rate.
+ *
+ * Sets both the input and output baud rate of the file descriptor to the
+ * given speed.
+ *
+ * Returns `true` on success, or `null` if an error occurred.
+ *
+ * @function module:serial#setspeed
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @param {number} speed
+ * The baud rate to set, e.g. `B115200`.
+ *
+ * @param {number} [when=0]
+ * When to apply the changes (`TCSANOW`, `TCSADRAIN` or `TCSAFLUSH`).
+ *
+ * @returns {?boolean}
+ */
+static uc_value_t *
+uc_serial_setspeed(uc_vm_t *vm, size_t nargs)
+{
+	uc_value_t *speed = uc_fn_arg(1);
+	uc_value_t *when = uc_fn_arg(2);
+	struct termios t;
+	speed_t spd;
+	int fd, act;
+
+	fd = get_fd(vm, uc_fn_arg(0));
+
+	if (fd &lt; 0)
+		err_return(EBADF);
+
+	if (ucv_type(speed) != UC_INTEGER)
+		err_return(EINVAL);
+
+	spd = (speed_t)ucv_to_unsigned(speed);
+
+	if (tcgetattr(fd, &amp;t) != 0)
+		err_return(errno);
+
+	if (cfsetispeed(&amp;t, spd) != 0 || cfsetospeed(&amp;t, spd) != 0)
+		err_return(errno);
+
+	act = (ucv_type(when) == UC_INTEGER) ? (int)ucv_int64_get(when) : TCSANOW;
+
+	if (tcsetattr(fd, act, &amp;t) != 0)
+		err_return(errno);
+
+	return ucv_boolean_new(true);
+}
+
+/**
+ * Put the terminal into raw mode.
+ *
+ * Disables input and output processing, canonical mode, signal generation
+ * and echo, following the behaviour of `cfmakeraw()`.
+ *
+ * Returns `true` on success, or `null` if an error occurred.
+ *
+ * @function module:serial#setraw
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @param {number} [when=0]
+ * When to apply the changes (`TCSANOW`, `TCSADRAIN` or `TCSAFLUSH`).
+ *
+ * @returns {?boolean}
+ */
+static uc_value_t *
+uc_serial_setraw(uc_vm_t *vm, size_t nargs)
+{
+	uc_value_t *when = uc_fn_arg(1);
+	struct termios t;
+	int fd, act;
+
+	fd = get_fd(vm, uc_fn_arg(0));
+
+	if (fd &lt; 0)
+		err_return(EBADF);
+
+	if (tcgetattr(fd, &amp;t) != 0)
+		err_return(errno);
+
+	cfmakeraw(&amp;t);
+
+	act = (ucv_type(when) == UC_INTEGER) ? (int)ucv_int64_get(when) : TCSANOW;
+
+	if (tcsetattr(fd, act, &amp;t) != 0)
+		err_return(errno);
+
+	return ucv_boolean_new(true);
+}
+
+/**
+ * Configure the terminal read blocking behaviour.
+ *
+ * Sets the `VMIN` and `VTIME` control character settings which determine
+ * how reads from the terminal block:
+ *
+ *  - `vmin = 0`, `vtime = 0`: non-blocking reads
+ *  - `vmin = 0`, `vtime > 0`: reads time out after `vtime` tenths of a second
+ *  - `vmin > 0`, `vtime = 0`: reads block until at least `vmin` bytes arrive
+ *  - `vmin > 0`, `vtime > 0`: reads block until `vmin` bytes arrive or the
+ *    inter-byte `vtime` timeout expires
+ *
+ * Returns `true` on success, or `null` if an error occurred.
+ *
+ * @function module:serial#setblocking
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @param {number} vmin
+ * Minimum number of bytes to read before a read operation returns.
+ *
+ * @param {number} vtime
+ * Read timeout in tenths of a second.
+ *
+ * @param {number} [when=0]
+ * When to apply the changes (`TCSANOW`, `TCSADRAIN` or `TCSAFLUSH`).
+ *
+ * @returns {?boolean}
+ */
+static uc_value_t *
+uc_serial_setblocking(uc_vm_t *vm, size_t nargs)
+{
+	uc_value_t *vmin = uc_fn_arg(1);
+	uc_value_t *vtime = uc_fn_arg(2);
+	uc_value_t *when = uc_fn_arg(3);
+	struct termios t;
+	int fd, act;
+
+	fd = get_fd(vm, uc_fn_arg(0));
+
+	if (fd &lt; 0)
+		err_return(EBADF);
+
+	if (ucv_type(vmin) != UC_INTEGER || ucv_type(vtime) != UC_INTEGER)
+		err_return(EINVAL);
+
+	if (tcgetattr(fd, &amp;t) != 0)
+		err_return(errno);
+
+	t.c_cc[VMIN] = (cc_t)ucv_to_unsigned(vmin);
+	t.c_cc[VTIME] = (cc_t)ucv_to_unsigned(vtime);
+
+	act = (ucv_type(when) == UC_INTEGER) ? (int)ucv_int64_get(when) : TCSANOW;
+
+	if (tcsetattr(fd, act, &amp;t) != 0)
+		err_return(errno);
+
+	return ucv_boolean_new(true);
+}
+
+/**
+ * Get the serial port modem control line status.
+ *
+ * Returns a bitmask of the current modem control line states, using the
+ * `TIOCM_*` constants to test individual lines.
+ *
+ * Returns `null` if an error occurred.
+ *
+ * @function module:serial#mget
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @returns {?number}
+ */
+static uc_value_t *
+uc_serial_mget(uc_vm_t *vm, size_t nargs)
+{
+	int fd, bits;
+
+	fd = get_fd(vm, uc_fn_arg(0));
+
+	if (fd &lt; 0)
+		err_return(EBADF);
+
+	if (ioctl(fd, TIOCMGET, &amp;bits) != 0)
+		err_return(errno);
+
+	return ucv_int64_new(bits);
+}
+
+/**
+ * Set the serial port modem control line states.
+ *
+ * Replaces the full set of modem control line states with the given bitmask.
+ *
+ * Returns `true` on success, or `null` if an error occurred.
+ *
+ * @function module:serial#mset
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @param {number} bits
+ * The modem control line states to set, as a bitmask of `TIOCM_*` constants.
+ *
+ * @returns {?boolean}
+ */
+static uc_value_t *
+uc_serial_mset(uc_vm_t *vm, size_t nargs)
+{
+	uc_value_t *b = uc_fn_arg(1);
+	int fd, bits;
+
+	fd = get_fd(vm, uc_fn_arg(0));
+
+	if (fd &lt; 0)
+		err_return(EBADF);
+
+	if (ucv_type(b) != UC_INTEGER)
+		err_return(EINVAL);
+
+	bits = (int)ucv_int64_get(b);
+
+	if (ioctl(fd, TIOCMSET, &amp;bits) != 0)
+		err_return(errno);
+
+	return ucv_boolean_new(true);
+}
+
+static uc_value_t *
+serial_modem_change(uc_vm_t *vm, size_t nargs, unsigned long req)
+{
+	uc_value_t *b = uc_fn_arg(1);
+	int fd, bits;
+
+	fd = get_fd(vm, uc_fn_arg(0));
+
+	if (fd &lt; 0)
+		err_return(EBADF);
+
+	if (ucv_type(b) != UC_INTEGER)
+		err_return(EINVAL);
+
+	bits = (int)ucv_int64_get(b);
+
+	if (ioctl(fd, req, &amp;bits) != 0)
+		err_return(errno);
+
+	return ucv_boolean_new(true);
+}
+
+/**
+ * Set individual serial port modem control lines.
+ *
+ * Sets the modem control lines selected by the given bitmask, leaving all
+ * other lines unchanged.
+ *
+ * Returns `true` on success, or `null` if an error occurred.
+ *
+ * @function module:serial#mbis
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @param {number} bits
+ * The modem control lines to set, as a bitmask of `TIOCM_*` constants.
+ *
+ * @returns {?boolean}
+ */
+static uc_value_t *
+uc_serial_mbis(uc_vm_t *vm, size_t nargs)
+{
+	return serial_modem_change(vm, nargs, TIOCMBIS);
+}
+
+/**
+ * Clear individual serial port modem control lines.
+ *
+ * Clears the modem control lines selected by the given bitmask, leaving all
+ * other lines unchanged.
+ *
+ * Returns `true` on success, or `null` if an error occurred.
+ *
+ * @function module:serial#mbic
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @param {number} bits
+ * The modem control lines to clear, as a bitmask of `TIOCM_*` constants.
+ *
+ * @returns {?boolean}
+ */
+static uc_value_t *
+uc_serial_mbic(uc_vm_t *vm, size_t nargs)
+{
+	return serial_modem_change(vm, nargs, TIOCMBIC);
+}
+
+static uc_value_t *
+serial_modem_line(uc_vm_t *vm, size_t nargs, int bit)
+{
+	uc_value_t *on = uc_fn_arg(1);
+	int fd;
+
+	fd = get_fd(vm, uc_fn_arg(0));
+
+	if (fd &lt; 0)
+		err_return(EBADF);
+
+	if (ioctl(fd, ucv_is_truish(on) ? TIOCMBIS : TIOCMBIC, &amp;bit) != 0)
+		err_return(errno);
+
+	return ucv_boolean_new(true);
+}
+
+/**
+ * Assert or deassert the DTR (Data Terminal Ready) modem control line.
+ *
+ * Returns `true` on success, or `null` if an error occurred.
+ *
+ * @function module:serial#dtr
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @param {boolean} on
+ * Whether to assert (`true`) or deassert (`false`) the line.
+ *
+ * @returns {?boolean}
+ */
+static uc_value_t *
+uc_serial_dtr(uc_vm_t *vm, size_t nargs)
+{
+	return serial_modem_line(vm, nargs, TIOCM_DTR);
+}
+
+/**
+ * Assert or deassert the RTS (Request To Send) modem control line.
+ *
+ * Returns `true` on success, or `null` if an error occurred.
+ *
+ * @function module:serial#rts
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @param {boolean} on
+ * Whether to assert (`true`) or deassert (`false`) the line.
+ *
+ * @returns {?boolean}
+ */
+static uc_value_t *
+uc_serial_rts(uc_vm_t *vm, size_t nargs)
+{
+	return serial_modem_line(vm, nargs, TIOCM_RTS);
+}
+
+/**
+ * Send a break signal on the serial line.
+ *
+ * If the terminal is in canonical mode, the break is sent after the current
+ * input line has been processed, otherwise it is sent immediately.
+ *
+ * Returns `true` on success, or `null` if an error occurred.
+ *
+ * @function module:serial#sendbreak
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @param {number} [duration=0]
+ * The break duration in seconds, or `0` to send a standard length break.
+ *
+ * @returns {?boolean}
+ */
+static uc_value_t *
+uc_serial_sendbreak(uc_vm_t *vm, size_t nargs)
+{
+	uc_value_t *dur = uc_fn_arg(1);
+	int fd, d;
+
+	fd = get_fd(vm, uc_fn_arg(0));
+
+	if (fd &lt; 0)
+		err_return(EBADF);
+
+	d = (ucv_type(dur) == UC_INTEGER) ? (int)ucv_int64_get(dur) : 0;
+
+	if (tcsendbreak(fd, d) != 0)
+		err_return(errno);
+
+	return ucv_boolean_new(true);
+}
+
+/**
+ * Wait for pending output to be written.
+ *
+ * Blocks until all output written to the file descriptor has been
+ * transmitted.
+ *
+ * Returns `true` on success, or `null` if an error occurred.
+ *
+ * @function module:serial#drain
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @returns {?boolean}
+ */
+static uc_value_t *
+uc_serial_drain(uc_vm_t *vm, size_t nargs)
+{
+	int fd = get_fd(vm, uc_fn_arg(0));
+
+	if (fd &lt; 0)
+		err_return(EBADF);
+
+	if (tcdrain(fd) != 0)
+		err_return(errno);
+
+	return ucv_boolean_new(true);
+}
+
+/**
+ * Flush the terminal input and/or output queues.
+ *
+ * Returns `true` on success, or `null` if an error occurred.
+ *
+ * @function module:serial#flush
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @param {number} [queue=TCIOFLUSH]
+ * The queue(s) to flush: `TCIFLUSH` for input, `TCOFLUSH` for output, or
+ * `TCIOFLUSH` for both.
+ *
+ * @returns {?boolean}
+ */
+static uc_value_t *
+uc_serial_flush(uc_vm_t *vm, size_t nargs)
+{
+	uc_value_t *q = uc_fn_arg(1);
+	int fd, queue;
+
+	fd = get_fd(vm, uc_fn_arg(0));
+
+	if (fd &lt; 0)
+		err_return(EBADF);
+
+	queue = (ucv_type(q) == UC_INTEGER) ? (int)ucv_int64_get(q) : TCIOFLUSH;
+
+	if (tcflush(fd, queue) != 0)
+		err_return(errno);
+
+	return ucv_boolean_new(true);
+}
+
+static uc_value_t *
+serial_queue_count(uc_vm_t *vm, size_t nargs, unsigned long req)
+{
+	int fd, n = 0;
+
+	fd = get_fd(vm, uc_fn_arg(0));
+
+	if (fd &lt; 0)
+		err_return(EBADF);
+
+	if (ioctl(fd, req, &amp;n) != 0)
+		err_return(errno);
+
+	return ucv_int64_new(n);
+}
+
+/**
+ * Get the number of bytes waiting in the input queue.
+ *
+ * Returns the number of bytes available for reading without blocking, or
+ * `null` if an error occurred.
+ *
+ * @function module:serial#input_waiting
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @returns {?number}
+ */
+static uc_value_t *
+uc_serial_input_waiting(uc_vm_t *vm, size_t nargs)
+{
+	return serial_queue_count(vm, nargs, TIOCINQ);
+}
+
+/**
+ * Get the number of bytes waiting in the output queue.
+ *
+ * Returns the number of bytes pending transmission, or `null` if an error
+ * occurred.
+ *
+ * @function module:serial#output_waiting
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @returns {?number}
+ */
+static uc_value_t *
+uc_serial_output_waiting(uc_vm_t *vm, size_t nargs)
+{
+	return serial_queue_count(vm, nargs, TIOCOUTQ);
+}
+
+#ifdef __linux__
+/**
+ * Get the serial port configuration.
+ *
+ * Retrieves the serial port specific configuration (setserial style) for
+ * the file descriptor.
+ *
+ * Returns an object containing the `type`, `line`, `port`, `irq`, `flags`,
+ * `xmit_fifo_size`, `custom_divisor`, `baud_base`, `close_delay`,
+ * `closing_wait`, `hub6`, `io_type`, `port_high` and `iomem_reg_shift`
+ * properties, or `null` if an error occurred.
+ *
+ * @function module:serial#getinfo
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @returns {?object}
+ */
+static uc_value_t *
+uc_serial_getinfo(uc_vm_t *vm, size_t nargs)
+{
+	struct serial_struct ss;
+	uc_value_t *rv;
+	int fd;
+
+	fd = get_fd(vm, uc_fn_arg(0));
+
+	if (fd &lt; 0)
+		err_return(EBADF);
+
+	if (ioctl(fd, TIOCGSERIAL, &amp;ss) != 0)
+		err_return(errno);
+
+	rv = ucv_object_new(vm);
+
+	ucv_object_add(rv, "type", ucv_int64_new(ss.type));
+	ucv_object_add(rv, "line", ucv_int64_new(ss.line));
+	ucv_object_add(rv, "port", ucv_uint64_new(ss.port));
+	ucv_object_add(rv, "irq", ucv_int64_new(ss.irq));
+	ucv_object_add(rv, "flags", ucv_int64_new(ss.flags));
+	ucv_object_add(rv, "xmit_fifo_size", ucv_int64_new(ss.xmit_fifo_size));
+	ucv_object_add(rv, "custom_divisor", ucv_int64_new(ss.custom_divisor));
+	ucv_object_add(rv, "baud_base", ucv_int64_new(ss.baud_base));
+	ucv_object_add(rv, "close_delay", ucv_int64_new(ss.close_delay));
+	ucv_object_add(rv, "closing_wait", ucv_int64_new(ss.closing_wait));
+	ucv_object_add(rv, "hub6", ucv_int64_new(ss.hub6));
+	ucv_object_add(rv, "io_type", ucv_int64_new(ss.io_type));
+	ucv_object_add(rv, "port_high", ucv_uint64_new(ss.port_high));
+	ucv_object_add(rv, "iomem_reg_shift", ucv_int64_new(ss.iomem_reg_shift));
+
+	return rv;
+}
+
+/**
+ * Set the serial port configuration.
+ *
+ * Updates the serial port specific configuration (setserial style) for the
+ * file descriptor. The given object may contain any of the following
+ * properties:
+ *
+ *  - `type`: port type
+ *  - `port`: I/O port address
+ *  - `irq`: interrupt line
+ *  - `flags`: port flags
+ *  - `xmit_fifo_size`: transmit FIFO size
+ *  - `custom_divisor`: custom baud rate divisor
+ *  - `baud_base`: base clock frequency
+ *  - `close_delay`: delay before closing the port
+ *  - `closing_wait`: wait time when closing the port
+ *  - `hub6`: HUB6 port selection
+ *  - `port_high`: high I/O port address
+ *  - `iomem_reg_shift`: I/O memory register shift
+ *
+ * Only the provided properties are modified, all other settings are left
+ * unchanged.
+ *
+ * Returns `true` on success, or `null` if an error occurred.
+ *
+ * @function module:serial#setinfo
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @param {object} opts
+ * The serial port configuration options to set.
+ *
+ * @returns {?boolean}
+ */
+static uc_value_t *
+uc_serial_setinfo(uc_vm_t *vm, size_t nargs)
+{
+	uc_value_t *opts = uc_fn_arg(1);
+	uc_value_t *v;
+	struct serial_struct ss;
+	int fd;
+
+	fd = get_fd(vm, uc_fn_arg(0));
+
+	if (fd &lt; 0)
+		err_return(EBADF);
+
+	if (ucv_type(opts) != UC_OBJECT)
+		err_return(EINVAL);
+
+	if (ioctl(fd, TIOCGSERIAL, &amp;ss) != 0)
+		err_return(errno);
+
+	v = ucv_object_get(opts, "type", NULL);
+	if (v) ss.type = (int)ucv_int64_get(v);
+
+	v = ucv_object_get(opts, "port", NULL);
+	if (v) ss.port = (unsigned int)ucv_to_unsigned(v);
+
+	v = ucv_object_get(opts, "irq", NULL);
+	if (v) ss.irq = (int)ucv_int64_get(v);
+
+	v = ucv_object_get(opts, "flags", NULL);
+	if (v) ss.flags = (int)ucv_int64_get(v);
+
+	v = ucv_object_get(opts, "xmit_fifo_size", NULL);
+	if (v) ss.xmit_fifo_size = (int)ucv_int64_get(v);
+
+	v = ucv_object_get(opts, "custom_divisor", NULL);
+	if (v) ss.custom_divisor = (int)ucv_int64_get(v);
+
+	v = ucv_object_get(opts, "baud_base", NULL);
+	if (v) ss.baud_base = (int)ucv_int64_get(v);
+
+	v = ucv_object_get(opts, "close_delay", NULL);
+	if (v) ss.close_delay = (unsigned short)ucv_to_unsigned(v);
+
+	v = ucv_object_get(opts, "closing_wait", NULL);
+	if (v) ss.closing_wait = (unsigned short)ucv_to_unsigned(v);
+
+	v = ucv_object_get(opts, "hub6", NULL);
+	if (v) ss.hub6 = (int)ucv_int64_get(v);
+
+	v = ucv_object_get(opts, "port_high", NULL);
+	if (v) ss.port_high = (unsigned int)ucv_to_unsigned(v);
+
+	v = ucv_object_get(opts, "iomem_reg_shift", NULL);
+	if (v) ss.iomem_reg_shift = (unsigned short)ucv_to_unsigned(v);
+
+	if (ioctl(fd, TIOCSSERIAL, &amp;ss) != 0)
+		err_return(errno);
+
+	return ucv_boolean_new(true);
+}
+
+/**
+ * Enable or disable the low latency mode.
+ *
+ * Toggles the `ASYNC_LOW_LATENCY` flag in the serial port configuration,
+ * which reduces the latency of the serial port at the cost of increased
+ * CPU usage.
+ *
+ * Returns `true` on success, or `null` if an error occurred.
+ *
+ * @function module:serial#lowlatency
+ *
+ * @param {number|object} fd
+ * The file descriptor, or an object with a `fileno()` method.
+ *
+ * @param {boolean} on
+ * Whether to enable (`true`) or disable (`false`) the low latency mode.
+ *
+ * @returns {?boolean}
+ */
+static uc_value_t *
+uc_serial_lowlatency(uc_vm_t *vm, size_t nargs)
+{
+	uc_value_t *on = uc_fn_arg(1);
+	struct serial_struct ss;
+	int fd;
+
+	fd = get_fd(vm, uc_fn_arg(0));
+
+	if (fd &lt; 0)
+		err_return(EBADF);
+
+	if (ioctl(fd, TIOCGSERIAL, &amp;ss) != 0)
+		err_return(errno);
+
+	if (ucv_is_truish(on))
+		ss.flags |= ASYNC_LOW_LATENCY;
+	else
+		ss.flags &amp;= ~ASYNC_LOW_LATENCY;
+
+	if (ioctl(fd, TIOCSSERIAL, &amp;ss) != 0)
+		err_return(errno);
+
+	return ucv_boolean_new(true);
+}
+#endif
+
+static const uc_function_list_t global_fns[] = {
+	{ "error",       uc_serial_error },
+	{ "isatty",      uc_serial_isatty },
+	{ "attr",        uc_serial_attr },
+	{ "setattr",     uc_serial_setattr },
+	{ "setspeed",    uc_serial_setspeed },
+	{ "setraw",      uc_serial_setraw },
+	{ "setblocking", uc_serial_setblocking },
+	{ "mget",        uc_serial_mget },
+	{ "mset",        uc_serial_mset },
+	{ "mbis",        uc_serial_mbis },
+	{ "mbic",        uc_serial_mbic },
+	{ "dtr",         uc_serial_dtr },
+	{ "rts",         uc_serial_rts },
+	{ "sendbreak",      uc_serial_sendbreak },
+	{ "drain",          uc_serial_drain },
+	{ "flush",          uc_serial_flush },
+	{ "input_waiting",  uc_serial_input_waiting },
+	{ "output_waiting", uc_serial_output_waiting },
+#ifdef __linux__
+	{ "getinfo",        uc_serial_getinfo },
+	{ "setinfo",        uc_serial_setinfo },
+	{ "lowlatency",     uc_serial_lowlatency },
+#endif
+};
+
+void uc_module_init(uc_vm_t *vm, uc_value_t *scope)
+{
+	uc_function_list_register(scope, global_fns);
+
+	#define ADD_CONST(x) ucv_object_add(scope, #x, ucv_int64_new(x))
+
+	/**
+	 * @typedef
+	 * @name Apply Modes
+	 * @description
+	 * The `TCS*` constants are used as the optional *when* argument of
+	 * {@link module:serial#setattr|setattr()},
+	 * {@link module:serial#setspeed|setspeed()},
+	 * {@link module:serial#setraw|setraw()} and
+	 * {@link module:serial#setblocking|setblocking()} to control when the
+	 * attribute changes take effect.
+	 * @property {number} TCSANOW - Apply the changes immediately.
+	 * @property {number} TCSADRAIN - Apply the changes after all pending output has been transmitted (default).
+	 * @property {number} TCSAFLUSH - Apply the changes after all pending output has been transmitted, discarding any unread input.
+	 */
+#ifdef TCSANOW
+	ADD_CONST(TCSANOW);
+#endif
+#ifdef TCSADRAIN
+	ADD_CONST(TCSADRAIN);
+#endif
+#ifdef TCSAFLUSH
+	ADD_CONST(TCSAFLUSH);
+#endif
+
+	/**
+	 * @typedef
+	 * @name Flush Queues
+	 * @description
+	 * The `TC*FLUSH` constants are used as the optional *queue* argument of
+	 * {@link module:serial#flush|flush()} to select the queue(s) to flush.
+	 * @property {number} TCIFLUSH - Flush data received but not read.
+	 * @property {number} TCOFLUSH - Flush data written but not yet transmitted.
+	 * @property {number} TCIOFLUSH - Flush both received and written data (default).
+	 */
+#ifdef TCIFLUSH
+	ADD_CONST(TCIFLUSH);
+#endif
+#ifdef TCOFLUSH
+	ADD_CONST(TCOFLUSH);
+#endif
+#ifdef TCIOFLUSH
+	ADD_CONST(TCIOFLUSH);
+#endif
+
+	/**
+	 * @typedef
+	 * @name Control Flags
+	 * @description
+	 * The `cflag` constants select the control mode of the port and are used
+	 * with the `cflag` property of {@link module:serial#setattr|setattr()}.
+	 * @property {number} CSIZE - Mask for the character size bits.
+	 * @property {number} CS5 - Use 5 data bits per character.
+	 * @property {number} CS6 - Use 6 data bits per character.
+	 * @property {number} CS7 - Use 7 data bits per character.
+	 * @property {number} CS8 - Use 8 data bits per character.
+	 * @property {number} CSTOPB - Use two stop bits (one if clear).
+	 * @property {number} CREAD - Enable the receiver.
+	 * @property {number} PARENB - Enable parity generation and detection.
+	 * @property {number} PARODD - Use odd parity (even if clear).
+	 * @property {number} HUPCL - Hang up (drop the carrier) when the last file descriptor is closed.
+	 * @property {number} CLOCAL - Ignore the modem status lines.
+	 * @property {number} CRTSCTS - Enable in-band (hardware) flow control.
+	 * @property {number} CMSPAR - Use "stick" (space/mark) parity.
+	 * @property {number} CBAUD - Mask for the baud rate bits.
+	 * @property {number} CBAUDEX - Extended baud rate bits.
+	 */
+#ifdef CSIZE
+	ADD_CONST(CSIZE);
+#endif
+#ifdef CS5
+	ADD_CONST(CS5);
+#endif
+#ifdef CS6
+	ADD_CONST(CS6);
+#endif
+#ifdef CS7
+	ADD_CONST(CS7);
+#endif
+#ifdef CS8
+	ADD_CONST(CS8);
+#endif
+#ifdef CSTOPB
+	ADD_CONST(CSTOPB);
+#endif
+#ifdef CREAD
+	ADD_CONST(CREAD);
+#endif
+#ifdef PARENB
+	ADD_CONST(PARENB);
+#endif
+#ifdef PARODD
+	ADD_CONST(PARODD);
+#endif
+#ifdef HUPCL
+	ADD_CONST(HUPCL);
+#endif
+#ifdef CLOCAL
+	ADD_CONST(CLOCAL);
+#endif
+#ifdef CRTSCTS
+	ADD_CONST(CRTSCTS);
+#endif
+#ifdef CMSPAR
+	ADD_CONST(CMSPAR);
+#endif
+#ifdef CBAUD
+	ADD_CONST(CBAUD);
+#endif
+#ifdef CBAUDEX
+	ADD_CONST(CBAUDEX);
+#endif
+
+	/**
+	 * @typedef
+	 * @name Input Flags
+	 * @description
+	 * The `iflag` constants control input processing and are used with the
+	 * `iflag` property of {@link module:serial#setattr|setattr()}.
+	 * @property {number} IGNBRK - Ignore the break condition.
+	 * @property {number} BRKINT - If IGNBRK is not set, a break causes an interrupt signal.
+	 * @property {number} IGNPAR - Ignore characters with parity errors.
+	 * @property {number} PARMRK - Mark parity errors with a three-byte sequence.
+	 * @property {number} INPCK - Enable input parity checking.
+	 * @property {number} ISTRIP - Strip the eighth bit of input characters.
+	 * @property {number} INLCR - Map NL to CR on input.
+	 * @property {number} IGNCR - Ignore CR on input.
+	 * @property {number} ICRNL - Map CR to NL on input.
+	 * @property {number} IUCLC - Map uppercase to lowercase on input.
+	 * @property {number} IXON - Enable XON/XOFF flow control output.
+	 * @property {number} IXANY - Allow any character to restart output.
+	 * @property {number} IXOFF - Enable XON/XOFF flow control input.
+	 * @property {number} IMAXBEL - Ring the bell when the input queue is full.
+	 * @property {number} IUTF8 - Input characters are UTF-8 encoded.
+	 */
+#ifdef IGNBRK
+	ADD_CONST(IGNBRK);
+#endif
+#ifdef BRKINT
+	ADD_CONST(BRKINT);
+#endif
+#ifdef IGNPAR
+	ADD_CONST(IGNPAR);
+#endif
+#ifdef PARMRK
+	ADD_CONST(PARMRK);
+#endif
+#ifdef INPCK
+	ADD_CONST(INPCK);
+#endif
+#ifdef ISTRIP
+	ADD_CONST(ISTRIP);
+#endif
+#ifdef INLCR
+	ADD_CONST(INLCR);
+#endif
+#ifdef IGNCR
+	ADD_CONST(IGNCR);
+#endif
+#ifdef ICRNL
+	ADD_CONST(ICRNL);
+#endif
+#ifdef IUCLC
+	ADD_CONST(IUCLC);
+#endif
+#ifdef IXON
+	ADD_CONST(IXON);
+#endif
+#ifdef IXANY
+	ADD_CONST(IXANY);
+#endif
+#ifdef IXOFF
+	ADD_CONST(IXOFF);
+#endif
+#ifdef IMAXBEL
+	ADD_CONST(IMAXBEL);
+#endif
+#ifdef IUTF8
+	ADD_CONST(IUTF8);
+#endif
+
+	/**
+	 * @typedef
+	 * @name Output Flags
+	 * @description
+	 * The `oflag` constants control output processing and are used with the
+	 * `oflag` property of {@link module:serial#setattr|setattr()}.
+	 * @property {number} OPOST - Enable implementation-defined output processing.
+	 * @property {number} OLCUC - Map lowercase to uppercase on output.
+	 * @property {number} ONLCR - Map NL to CR-NL on output.
+	 * @property {number} OCRNL - Map CR to NL on output.
+	 * @property {number} ONOCR - Translate CR to NUL in the first column.
+	 * @property {number} ONLRET - Do not transmit CR.
+	 * @property {number} OFILL - Use fill characters for timing.
+	 * @property {number} OFDEL - Use DEL characters for fill (NUL if clear).
+	 */
+#ifdef OPOST
+	ADD_CONST(OPOST);
+#endif
+#ifdef OLCUC
+	ADD_CONST(OLCUC);
+#endif
+#ifdef ONLCR
+	ADD_CONST(ONLCR);
+#endif
+#ifdef OCRNL
+	ADD_CONST(OCRNL);
+#endif
+#ifdef ONOCR
+	ADD_CONST(ONOCR);
+#endif
+#ifdef ONLRET
+	ADD_CONST(ONLRET);
+#endif
+#ifdef OFILL
+	ADD_CONST(OFILL);
+#endif
+#ifdef OFDEL
+	ADD_CONST(OFDEL);
+#endif
+
+	/**
+	 * @typedef
+	 * @name Local Flags
+	 * @description
+	 * The `lflag` constants control local (non-modem) behaviour and are used
+	 * with the `lflag` property of {@link module:serial#setattr|setattr()}.
+	 * @property {number} ISIG - Enable signal generation (INTR, QUIT, SUSP).
+	 * @property {number} ICANON - Enable canonical mode (line-buffered input).
+	 * @property {number} ECHO - Enable echoing of input characters.
+	 * @property {number} ECHOE - Erase the last character on ERASE.
+	 * @property {number} ECHOK - Ring the bell on the kill character.
+	 * @property {number} ECHONL - Echo NL even if ECHO is not set.
+	 * @property {number} ECHOCTL - Echo control characters in hat notation.
+	 * @property {number} ECHOKE - Erase a killed line.
+	 * @property {number} NOFLSH - Disable flushing on signal.
+	 * @property {number} TOSTOP - Generate SIGTTOU for background writes.
+	 * @property {number} IEXTEN - Enable implementation-defined input extensions.
+	 */
+#ifdef ISIG
+	ADD_CONST(ISIG);
+#endif
+#ifdef ICANON
+	ADD_CONST(ICANON);
+#endif
+#ifdef ECHO
+	ADD_CONST(ECHO);
+#endif
+#ifdef ECHOE
+	ADD_CONST(ECHOE);
+#endif
+#ifdef ECHOK
+	ADD_CONST(ECHOK);
+#endif
+#ifdef ECHONL
+	ADD_CONST(ECHONL);
+#endif
+#ifdef ECHOCTL
+	ADD_CONST(ECHOCTL);
+#endif
+#ifdef ECHOKE
+	ADD_CONST(ECHOKE);
+#endif
+#ifdef NOFLSH
+	ADD_CONST(NOFLSH);
+#endif
+#ifdef TOSTOP
+	ADD_CONST(TOSTOP);
+#endif
+#ifdef IEXTEN
+	ADD_CONST(IEXTEN);
+#endif
+
+	/**
+	 * @typedef
+	 * @name Control Character Indices
+	 * @description
+	 * The `V*` constants are indices into the `cc` array returned by
+	 * {@link module:serial#attr|attr()} and accepted by
+	 * {@link module:serial#setattr|setattr()}. `NCCS` is the number of
+	 * control characters in the array.
+	 * @property {number} VINTR - Interrupt character (sends SIGINT).
+	 * @property {number} VQUIT - Quit character (sends SIGQUIT).
+	 * @property {number} VERASE - Erase character (erases the last character).
+	 * @property {number} VKILL - Kill character (erases the current line).
+	 * @property {number} VEOF - End-of-file character.
+	 * @property {number} VTIME - Read timeout in tenths of a second.
+	 * @property {number} VMIN - Minimum number of bytes for a read.
+	 * @property {number} VSWTC - Switch character (XON/XOFF switching).
+	 * @property {number} VSTART - Restart character (XON).
+	 * @property {number} VSTOP - Stop character (XOFF).
+	 * @property {number} VSUSP - Suspend character (sends SIGTSTP).
+	 * @property {number} VEOL - End-of-line character (first).
+	 * @property {number} VREPRINT - Reprint character (reprints the line).
+	 * @property {number} VDISCARD - Discard mode toggle character.
+	 * @property {number} VWERASE - Word-erase character.
+	 * @property {number} VLNEXT - Literal next character (disables special characters).
+	 * @property {number} VEOL2 - End-of-line character (second).
+	 * @property {number} NCCS - Number of control characters.
+	 */
+#ifdef VINTR
+	ADD_CONST(VINTR);
+#endif
+#ifdef VQUIT
+	ADD_CONST(VQUIT);
+#endif
+#ifdef VERASE
+	ADD_CONST(VERASE);
+#endif
+#ifdef VKILL
+	ADD_CONST(VKILL);
+#endif
+#ifdef VEOF
+	ADD_CONST(VEOF);
+#endif
+#ifdef VTIME
+	ADD_CONST(VTIME);
+#endif
+#ifdef VMIN
+	ADD_CONST(VMIN);
+#endif
+#ifdef VSWTC
+	ADD_CONST(VSWTC);
+#endif
+#ifdef VSTART
+	ADD_CONST(VSTART);
+#endif
+#ifdef VSTOP
+	ADD_CONST(VSTOP);
+#endif
+#ifdef VSUSP
+	ADD_CONST(VSUSP);
+#endif
+#ifdef VEOL
+	ADD_CONST(VEOL);
+#endif
+#ifdef VREPRINT
+	ADD_CONST(VREPRINT);
+#endif
+#ifdef VDISCARD
+	ADD_CONST(VDISCARD);
+#endif
+#ifdef VWERASE
+	ADD_CONST(VWERASE);
+#endif
+#ifdef VLNEXT
+	ADD_CONST(VLNEXT);
+#endif
+#ifdef VEOL2
+	ADD_CONST(VEOL2);
+#endif
+#ifdef NCCS
+	ADD_CONST(NCCS);
+#endif
+
+	/**
+	 * @typedef
+	 * @name Baud Rates
+	 * @description
+	 * The `B*` constants select the port baud rate and are used with the
+	 * `ispeed`/`ospeed` properties of {@link module:serial#setattr|setattr()}
+	 * or as the *speed* argument of
+	 * {@link module:serial#setspeed|setspeed()}.
+	 * @property {number} B0 - Hang up (no carrier).
+	 * @property {number} B50 - 50 baud.
+	 * @property {number} B75 - 75 baud.
+	 * @property {number} B110 - 110 baud.
+	 * @property {number} B134 - 134.5 baud.
+	 * @property {number} B150 - 150 baud.
+	 * @property {number} B200 - 200 baud.
+	 * @property {number} B300 - 300 baud.
+	 * @property {number} B600 - 600 baud.
+	 * @property {number} B1200 - 1200 baud.
+	 * @property {number} B1800 - 1800 baud.
+	 * @property {number} B2400 - 2400 baud.
+	 * @property {number} B4800 - 4800 baud.
+	 * @property {number} B9600 - 9600 baud.
+	 * @property {number} B19200 - 19200 baud.
+	 * @property {number} B38400 - 38400 baud.
+	 * @property {number} B57600 - 57600 baud.
+	 * @property {number} B115200 - 115200 baud.
+	 * @property {number} B230400 - 230400 baud.
+	 * @property {number} B460800 - 460800 baud.
+	 * @property {number} B500000 - 500000 baud.
+	 * @property {number} B576000 - 576000 baud.
+	 * @property {number} B921600 - 921600 baud.
+	 * @property {number} B1000000 - 1000000 baud.
+	 * @property {number} B1152000 - 1152000 baud.
+	 * @property {number} B1500000 - 1500000 baud.
+	 * @property {number} B2000000 - 2000000 baud.
+	 * @property {number} B2500000 - 2500000 baud.
+	 * @property {number} B3000000 - 3000000 baud.
+	 * @property {number} B3500000 - 3500000 baud.
+	 * @property {number} B4000000 - 4000000 baud.
+	 */
+#ifdef B0
+	ADD_CONST(B0);
+#endif
+#ifdef B50
+	ADD_CONST(B50);
+#endif
+#ifdef B75
+	ADD_CONST(B75);
+#endif
+#ifdef B110
+	ADD_CONST(B110);
+#endif
+#ifdef B134
+	ADD_CONST(B134);
+#endif
+#ifdef B150
+	ADD_CONST(B150);
+#endif
+#ifdef B200
+	ADD_CONST(B200);
+#endif
+#ifdef B300
+	ADD_CONST(B300);
+#endif
+#ifdef B600
+	ADD_CONST(B600);
+#endif
+#ifdef B1200
+	ADD_CONST(B1200);
+#endif
+#ifdef B1800
+	ADD_CONST(B1800);
+#endif
+#ifdef B2400
+	ADD_CONST(B2400);
+#endif
+#ifdef B4800
+	ADD_CONST(B4800);
+#endif
+#ifdef B9600
+	ADD_CONST(B9600);
+#endif
+#ifdef B19200
+	ADD_CONST(B19200);
+#endif
+#ifdef B38400
+	ADD_CONST(B38400);
+#endif
+#ifdef B57600
+	ADD_CONST(B57600);
+#endif
+#ifdef B115200
+	ADD_CONST(B115200);
+#endif
+#ifdef B230400
+	ADD_CONST(B230400);
+#endif
+#ifdef B460800
+	ADD_CONST(B460800);
+#endif
+#ifdef B500000
+	ADD_CONST(B500000);
+#endif
+#ifdef B576000
+	ADD_CONST(B576000);
+#endif
+#ifdef B921600
+	ADD_CONST(B921600);
+#endif
+#ifdef B1000000
+	ADD_CONST(B1000000);
+#endif
+#ifdef B1152000
+	ADD_CONST(B1152000);
+#endif
+#ifdef B1500000
+	ADD_CONST(B1500000);
+#endif
+#ifdef B2000000
+	ADD_CONST(B2000000);
+#endif
+#ifdef B2500000
+	ADD_CONST(B2500000);
+#endif
+#ifdef B3000000
+	ADD_CONST(B3000000);
+#endif
+#ifdef B3500000
+	ADD_CONST(B3500000);
+#endif
+#ifdef B4000000
+	ADD_CONST(B4000000);
+#endif
+
+	/**
+	 * @typedef
+	 * @name Modem Control Line Bits
+	 * @description
+	 * The `TIOCM_*` constants identify the serial port modem control lines
+	 * and are used with {@link module:serial#mget|mget()},
+	 * {@link module:serial#mset|mset()},
+	 * {@link module:serial#mbis|mbis()} and
+	 * {@link module:serial#mbic|mbic()}.
+	 * @property {number} TIOCM_LE - Loopback output.
+	 * @property {number} TIOCM_DTR - Data Terminal Ready.
+	 * @property {number} TIOCM_RTS - Request To Send.
+	 * @property {number} TIOCM_ST - Secondary transmit (TX2).
+	 * @property {number} TIOCM_SR - Secondary receive (RX2).
+	 * @property {number} TIOCM_CTS - Clear To Send.
+	 * @property {number} TIOCM_CAR - Carrier Detect.
+	 * @property {number} TIOCM_CD - Carrier Detect (alias).
+	 * @property {number} TIOCM_RNG - Ring Indicator.
+	 * @property {number} TIOCM_RI - Ring Indicator (alias).
+	 * @property {number} TIOCM_DSR - Data Set Ready.
+	 */
+#ifdef TIOCM_LE
+	ADD_CONST(TIOCM_LE);
+#endif
+#ifdef TIOCM_DTR
+	ADD_CONST(TIOCM_DTR);
+#endif
+#ifdef TIOCM_RTS
+	ADD_CONST(TIOCM_RTS);
+#endif
+#ifdef TIOCM_ST
+	ADD_CONST(TIOCM_ST);
+#endif
+#ifdef TIOCM_SR
+	ADD_CONST(TIOCM_SR);
+#endif
+#ifdef TIOCM_CTS
+	ADD_CONST(TIOCM_CTS);
+#endif
+#ifdef TIOCM_CAR
+	ADD_CONST(TIOCM_CAR);
+#endif
+#ifdef TIOCM_CD
+	ADD_CONST(TIOCM_CD);
+#endif
+#ifdef TIOCM_RNG
+	ADD_CONST(TIOCM_RNG);
+#endif
+#ifdef TIOCM_RI
+	ADD_CONST(TIOCM_RI);
+#endif
+#ifdef TIOCM_DSR
+	ADD_CONST(TIOCM_DSR);
+#endif
+
+#ifdef __linux__
+	/**
+	 * @typedef
+	 * @name Serial Port Flags
+	 * @description
+	 * The `ASYNC_*` constants are flags of the `flags` property returned by
+	 * {@link module:serial#getinfo|getinfo()} and accepted by
+	 * {@link module:serial#setinfo|setinfo()}.
+	 * @property {number} ASYNC_HUP_NOTIFY - Send SIGHUP when the port is closed.
+	 * @property {number} ASYNC_FOURPORT - Enable four-port mode.
+	 * @property {number} ASYNC_SAK - Enable special "SAK" character handling.
+	 * @property {number} ASYNC_SPD_HI - High speed serial support (> 115200).
+	 * @property {number} ASYNC_SPD_VHI - Very high speed serial support (> 230400).
+	 * @property {number} ASYNC_SPD_SHI - Shigh speed serial support (1.5-3 Mbit).
+	 * @property {number} ASYNC_SPD_CUST - Custom divisor baud rate.
+	 * @property {number} ASYNC_SPD_WARP - Warp speed serial (bit-banged).
+	 * @property {number} ASYNC_SPD_MASK - Mask for the speed selection bits.
+	 * @property {number} ASYNC_SKIP_TEST - Skip the UART presence test.
+	 * @property {number} ASYNC_AUTO_IRQ - Auto-detect the IRQ line.
+	 * @property {number} ASYNC_CALLOUT_NOHUP - Do not send SIGHUP on close.
+	 * @property {number} ASYNC_LOW_LATENCY - Enable low latency mode.
+	 * @property {number} ASYNC_BUGGY_UART - Workaround for buggy UARTs.
+	 * @property {number} ASYNC_CLOSING_WAIT_INF - Infinite closing wait.
+	 * @property {number} ASYNC_CLOSING_WAIT_NONE - No closing wait.
+	 */
+#ifdef ASYNC_HUP_NOTIFY
+	ADD_CONST(ASYNC_HUP_NOTIFY);
+#endif
+#ifdef ASYNC_FOURPORT
+	ADD_CONST(ASYNC_FOURPORT);
+#endif
+#ifdef ASYNC_SAK
+	ADD_CONST(ASYNC_SAK);
+#endif
+#ifdef ASYNC_SPD_HI
+	ADD_CONST(ASYNC_SPD_HI);
+#endif
+#ifdef ASYNC_SPD_VHI
+	ADD_CONST(ASYNC_SPD_VHI);
+#endif
+#ifdef ASYNC_SPD_SHI
+	ADD_CONST(ASYNC_SPD_SHI);
+#endif
+#ifdef ASYNC_SPD_CUST
+	ADD_CONST(ASYNC_SPD_CUST);
+#endif
+#ifdef ASYNC_SPD_WARP
+	ADD_CONST(ASYNC_SPD_WARP);
+#endif
+#ifdef ASYNC_SPD_MASK
+	ADD_CONST(ASYNC_SPD_MASK);
+#endif
+#ifdef ASYNC_SKIP_TEST
+	ADD_CONST(ASYNC_SKIP_TEST);
+#endif
+#ifdef ASYNC_AUTO_IRQ
+	ADD_CONST(ASYNC_AUTO_IRQ);
+#endif
+#ifdef ASYNC_CALLOUT_NOHUP
+	ADD_CONST(ASYNC_CALLOUT_NOHUP);
+#endif
+#ifdef ASYNC_LOW_LATENCY
+	ADD_CONST(ASYNC_LOW_LATENCY);
+#endif
+#ifdef ASYNC_BUGGY_UART
+	ADD_CONST(ASYNC_BUGGY_UART);
+#endif
+#ifdef ASYNC_CLOSING_WAIT_INF
+	ADD_CONST(ASYNC_CLOSING_WAIT_INF);
+#endif
+#ifdef ASYNC_CLOSING_WAIT_NONE
+	ADD_CONST(ASYNC_CLOSING_WAIT_NONE);
+#endif
+
+	/**
+	 * @typedef
+	 * @name Serial Port Types
+	 * @description
+	 * The `PORT_*` constants identify the serial port type of the `type`
+	 * property returned by {@link module:serial#getinfo|getinfo()} and
+	 * accepted by {@link module:serial#setinfo|setinfo()}.
+	 * @property {number} PORT_UNKNOWN - Unknown port type.
+	 * @property {number} PORT_8250 - Generic 8250 UART.
+	 * @property {number} PORT_16450 - 16450 UART.
+	 * @property {number} PORT_16550 - 16550 UART.
+	 * @property {number} PORT_16550A - 16550A UART.
+	 * @property {number} PORT_16650 - 16650 UART.
+	 * @property {number} PORT_16650V2 - 16650V2 UART.
+	 * @property {number} PORT_16750 - 16750 UART.
+	 */
+#ifdef PORT_UNKNOWN
+	ADD_CONST(PORT_UNKNOWN);
+#endif
+#ifdef PORT_8250
+	ADD_CONST(PORT_8250);
+#endif
+#ifdef PORT_16450
+	ADD_CONST(PORT_16450);
+#endif
+#ifdef PORT_16550
+	ADD_CONST(PORT_16550);
+#endif
+#ifdef PORT_16550A
+	ADD_CONST(PORT_16550A);
+#endif
+#ifdef PORT_16650
+	ADD_CONST(PORT_16650);
+#endif
+#ifdef PORT_16650V2
+	ADD_CONST(PORT_16650V2);
+#endif
+#ifdef PORT_16750
+	ADD_CONST(PORT_16750);
+#endif
+#endif
+
+	#undef ADD_CONST
+}
+</code></pre></article></section></div></div></div><div class="search-container" id="PkfLWpAbet" style="display:none"><div class="wrapper" id="iCxFxjkHbP"><button class="icon-button search-close-button" id="VjLlGakifb" aria-label="close search"><svg><use xlink:href="#close-icon"></use></svg></button><div class="search-box-c"><svg><use xlink:href="#search-icon"></use></svg> <input type="text" id="vpcKVYIppa" class="search-input" placeholder="Search..." autofocus></div><div class="search-result-c" id="fWwVHRuDuN"><span class="search-result-c-text">Type anything to view search result</span></div></div></div><div class="mobile-menu-icon-container"><button class="icon-button" id="mobile-menu" data-isopen="false" aria-label="menu"><svg><use xlink:href="#menu-icon"></use></svg></button> <button class="icon-button" id="mobile-toc" data-isopen="false" aria-label="toc"><svg><use xlink:href="#toc-icon"></use></svg></button></div><div id="mobile-sidebar" class="mobile-sidebar-container"><div class="mobile-sidebar-wrapper"><a href="/" class="sidebar-title sidebar-title-anchor">ucode Documentation</a><div class="mobile-nav-links"><div class="github-home navbar-item"><a id="" href="https://github.com/ucode-lang/ucode" target="">GitHub Project Page</a></div></div><div class="mobile-sidebar-items-c"><div class="sidebar-section-title with-arrow" data-isopen="false" id="lL87eridqDa4sLS6cR_56"><div>Tutorials</div><svg><use xlink:href="#down-icon"></use></svg></div><div class="sidebar-section-children-container"><div class="sidebar-section-children"><a href="tutorial-01-usage.html">Usage</a></div><div class="sidebar-section-children"><a href="tutorial-02-syntax.html">Syntax</a></div><div class="sidebar-section-children"><a href="tutorial-03-memory.html">Memory Management</a></div><div class="sidebar-section-children"><a href="tutorial-04-arrays.html">Working with Arrays</a></div><div class="sidebar-section-children"><a href="tutorial-05-dictionaries.html">Working with Dictionaries</a></div><div class="sidebar-section-children"><a href="tutorial-06-metamethods.html">Metamethods</a></div></div><div class="sidebar-section-title with-arrow" data-isopen="false" id="kTnqrffBusP9atySX_Hbz"><div>Modules</div><svg><use xlink:href="#down-icon"></use></svg></div><div class="sidebar-section-children-container"><div class="sidebar-section-children"><a href="module-core.html">core</a></div><div class="sidebar-section-children"><a href="module-debug.html">debug</a></div><div class="sidebar-section-children"><a href="module-digest.html">digest</a></div><div class="sidebar-section-children"><a href="module-ffi.html">ffi</a></div><div class="sidebar-section-children"><a href="module-fs.html">fs</a></div><div class="sidebar-section-children"><a href="module-io.html">io</a></div><div class="sidebar-section-children"><a href="module-log.html">log</a></div><div class="sidebar-section-children"><a href="module-math.html">math</a></div><div class="sidebar-section-children"><a href="module-nl80211.html">nl80211</a></div><div class="sidebar-section-children"><a href="module-resolv.html">resolv</a></div><div class="sidebar-section-children"><a href="module-rtnl.html">rtnl</a></div><div class="sidebar-section-children"><a href="module-serial.html">serial</a></div><div class="sidebar-section-children"><a href="module-socket.html">socket</a></div><div class="sidebar-section-children"><a href="module-struct.html">struct</a></div><div class="sidebar-section-children"><a href="module-ubus.html">ubus</a></div><div class="sidebar-section-children"><a href="module-uci.html">uci</a></div><div class="sidebar-section-children"><a href="module-uloop.html">uloop</a></div><div class="sidebar-section-children"><a href="module-zlib.html">zlib</a></div></div></div><div class="mobile-navbar-actions"><div class="navbar-right-item"><button class="icon-button search-button" aria-label="open-search"><svg><use xlink:href="#search-icon"></use></svg></button></div><div class="navbar-right-item"><button class="icon-button theme-toggle" aria-label="toggle-theme"><svg><use class="theme-svg-use" xlink:href="#dark-theme-icon"></use></svg></button></div><div class="navbar-right-item"><button class="icon-button font-size" aria-label="change-font-size"><svg><use xlink:href="#font-size-icon"></use></svg></button></div><div class="navbar-right-item toc-item"><button class="icon-button toc" aria-label="open-table-of-contents"><svg><use xlink:href="#toc-icon"></use></svg></button></div></div></div></div><div id="mobile-tocbar" class="mobile-sidebar-container"><div class="mobile-sidebar-wrapper"><span class="sidebar-title">Table of Contents</span><div class="toc-contents"></div></div></div><script type="text/javascript" src="scripts/core.min.js"></script><script src="scripts/search.min.js" defer="defer"></script><script src="scripts/third-party/fuse.js" defer="defer"></script><script type="text/javascript">var tocbotInstance=tocbot.init({tocSelector:"#mobile-tocbar > .mobile-sidebar-wrapper > .toc-contents",contentSelector:".main-content",headingSelector:"h1, h2, h3",hasInnerContainers:!0,scrollContainer:".main-content",headingsOffset:130,onClick:(...e)=>{hideMobileMenu(),bringLinkToView(...e)},includeHtml:!0})</script></body></html>
