@@ -396,9 +396,31 @@ delete o.ghost;      // not an own key, routed to __delete__
 print(log);            // [ "ghost" ]
 ```
 
-Deleting an own key never dispatches; it is a direct delete. `delete` on
-arrays is not supported (it raises "left-hand side expression is not an
-array or object"), so `__delete__` never fires for array elements.
+Deleting an own key never dispatches; it is a direct delete.
+
+Arrays and resources have no own-key storage, so for them a `__delete__`
+metamethod is the only way a key can be removed at all - it is consulted for
+non-index keys exactly like `__get__` and `__set__` are:
+
+```
+let store = {};
+
+let a = proto([1, 2], {
+	__set__(key, val) { store[key] = val; },
+	__get__(key) { return store[key]; },
+	__delete__(key) { return delete store[key]; }
+});
+
+a.tag = "lan";       // __set__
+a.tag;               // "lan", __get__
+delete a.tag;        // true, __delete__
+```
+
+Array elements are positional and are not deletable (`splice()` removes them),
+so a key which is an array index is refused without consulting the metamethod.
+When no `__delete__` is in effect there is nothing left which could remove the
+key, and the delete raises "left-hand side expression is not an object", as it
+does for any value kind which cannot carry a metamethod.
 
 ## The `__tostring__` Metamethod
 
@@ -480,9 +502,9 @@ Adding a `__set__` metamethod to the array's prototype silences the error
 and gives the script a chance to route the value to its own storage.
 
 This keeps integer-indexed access a fast O(1) slot read and reserves
-`__get__`/`__set__` for the "array as a named-field container" case. Sparse
-or numeric virtual properties are not supported on arrays; use an object for
-that.
+`__get__`/`__set__`/`__delete__` for the "array as a named-field container"
+case. Sparse or numeric virtual properties are not supported on arrays; use an
+object for that.
 
 The array builtins `push()`, `unshift()`, `pop()`, `shift()` and `splice()`
 are bulk structural operations and do not dispatch metamethods either.
@@ -627,7 +649,8 @@ much recursion".
 | `foo(...)` where `foo` has `__call__`           | `__call__(...)`, `this` = `foo`              |
 | `print(foo)` with `__tostring__`                | `__tostring__()` result                      |
 | `print(foo)` with legacy `tostring`             | still works (alias)                          |
-| `arr[i] = x`, `arr[i]`, `delete arr[i]`         | raw index store/read; delete is not supported |
+| `arr[i] = x`, `arr[i]`, `delete arr[i]`         | raw index store/read; index delete is refused |
 | `arr["name"] = x`, `arr["name"]`                | `__set__("name", x)` / `__get__("name")`     |
+| `delete arr["name"]`                            | `__delete__("name")`, refused without it     |
 | `x in foo`                                      | key/element test, never dispatches           |
 | `rawget`/`rawset`/`rawdelete`                   | storage access without dispatch              |
