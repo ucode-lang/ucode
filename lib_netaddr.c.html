@@ -1,0 +1,2513 @@
+<!DOCTYPE html><html lang="en" style="font-size:16px"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link type="text/css" rel="stylesheet" href="ucode.css"><title>Source: lib/netaddr.c</title><!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]--><script src="scripts/third-party/hljs.js" defer="defer"></script><script src="scripts/third-party/hljs-line-num.js" defer="defer"></script><script src="scripts/third-party/popper.js" defer="defer"></script><script src="scripts/third-party/tippy.js" defer="defer"></script><script src="scripts/third-party/tocbot.min.js"></script><script>var baseURL="/",locationPathname="";baseURL=(locationPathname=document.location.pathname).substr(0,locationPathname.lastIndexOf("/")+1)</script><link rel="stylesheet" href="styles/clean-jsdoc-theme.min.css"><svg aria-hidden="true" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="display:none"><defs><symbol id="copy-icon" viewbox="0 0 488.3 488.3"><g><path d="M314.25,85.4h-227c-21.3,0-38.6,17.3-38.6,38.6v325.7c0,21.3,17.3,38.6,38.6,38.6h227c21.3,0,38.6-17.3,38.6-38.6V124    C352.75,102.7,335.45,85.4,314.25,85.4z M325.75,449.6c0,6.4-5.2,11.6-11.6,11.6h-227c-6.4,0-11.6-5.2-11.6-11.6V124    c0-6.4,5.2-11.6,11.6-11.6h227c6.4,0,11.6,5.2,11.6,11.6V449.6z"/><path d="M401.05,0h-227c-21.3,0-38.6,17.3-38.6,38.6c0,7.5,6,13.5,13.5,13.5s13.5-6,13.5-13.5c0-6.4,5.2-11.6,11.6-11.6h227    c6.4,0,11.6,5.2,11.6,11.6v325.7c0,6.4-5.2,11.6-11.6,11.6c-7.5,0-13.5,6-13.5,13.5s6,13.5,13.5,13.5c21.3,0,38.6-17.3,38.6-38.6    V38.6C439.65,17.3,422.35,0,401.05,0z"/></g></symbol><symbol id="search-icon" viewBox="0 0 512 512"><g><g><path d="M225.474,0C101.151,0,0,101.151,0,225.474c0,124.33,101.151,225.474,225.474,225.474    c124.33,0,225.474-101.144,225.474-225.474C450.948,101.151,349.804,0,225.474,0z M225.474,409.323    c-101.373,0-183.848-82.475-183.848-183.848S124.101,41.626,225.474,41.626s183.848,82.475,183.848,183.848    S326.847,409.323,225.474,409.323z"/></g></g><g><g><path d="M505.902,476.472L386.574,357.144c-8.131-8.131-21.299-8.131-29.43,0c-8.131,8.124-8.131,21.306,0,29.43l119.328,119.328    c4.065,4.065,9.387,6.098,14.715,6.098c5.321,0,10.649-2.033,14.715-6.098C514.033,497.778,514.033,484.596,505.902,476.472z"/></g></g></symbol><symbol id="font-size-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M11.246 15H4.754l-2 5H.6L7 4h2l6.4 16h-2.154l-2-5zm-.8-2L8 6.885 5.554 13h4.892zM21 12.535V12h2v8h-2v-.535a4 4 0 1 1 0-6.93zM19 18a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></symbol><symbol id="add-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M11 11V5h2v6h6v2h-6v6h-2v-6H5v-2z"/></symbol><symbol id="minus-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M5 11h14v2H5z"/></symbol><symbol id="dark-theme-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M10 7a7 7 0 0 0 12 4.9v.1c0 5.523-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2h.1A6.979 6.979 0 0 0 10 7zm-6 5a8 8 0 0 0 15.062 3.762A9 9 0 0 1 8.238 4.938 7.999 7.999 0 0 0 4 12z"/></symbol><symbol id="light-theme-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M12 18a6 6 0 1 1 0-12 6 6 0 0 1 0 12zm0-2a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM11 1h2v3h-2V1zm0 19h2v3h-2v-3zM3.515 4.929l1.414-1.414L7.05 5.636 5.636 7.05 3.515 4.93zM16.95 18.364l1.414-1.414 2.121 2.121-1.414 1.414-2.121-2.121zm2.121-14.85l1.414 1.415-2.121 2.121-1.414-1.414 2.121-2.121zM5.636 16.95l1.414 1.414-2.121 2.121-1.414-1.414 2.121-2.121zM23 11v2h-3v-2h3zM4 11v2H1v-2h3z"/></symbol><symbol id="reset-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M18.537 19.567A9.961 9.961 0 0 1 12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10c0 2.136-.67 4.116-1.81 5.74L17 12h3a8 8 0 1 0-2.46 5.772l.997 1.795z"/></symbol><symbol id="down-icon" viewBox="0 0 16 16"><path fill-rule="evenodd" clip-rule="evenodd" d="M12.7803 6.21967C13.0732 6.51256 13.0732 6.98744 12.7803 7.28033L8.53033 11.5303C8.23744 11.8232 7.76256 11.8232 7.46967 11.5303L3.21967 7.28033C2.92678 6.98744 2.92678 6.51256 3.21967 6.21967C3.51256 5.92678 3.98744 5.92678 4.28033 6.21967L8 9.93934L11.7197 6.21967C12.0126 5.92678 12.4874 5.92678 12.7803 6.21967Z"></path></symbol><symbol id="codepen-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M16.5 13.202L13 15.535v3.596L19.197 15 16.5 13.202zM14.697 12L12 10.202 9.303 12 12 13.798 14.697 12zM20 10.869L18.303 12 20 13.131V10.87zM19.197 9L13 4.869v3.596l3.5 2.333L19.197 9zM7.5 10.798L11 8.465V4.869L4.803 9 7.5 10.798zM4.803 15L11 19.131v-3.596l-3.5-2.333L4.803 15zM4 13.131L5.697 12 4 10.869v2.262zM2 9a1 1 0 0 1 .445-.832l9-6a1 1 0 0 1 1.11 0l9 6A1 1 0 0 1 22 9v6a1 1 0 0 1-.445.832l-9 6a1 1 0 0 1-1.11 0l-9-6A1 1 0 0 1 2 15V9z"/></symbol><symbol id="close-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M12 10.586l4.95-4.95 1.414 1.414-4.95 4.95 4.95 4.95-1.414 1.414-4.95-4.95-4.95 4.95-1.414-1.414 4.95-4.95-4.95-4.95L7.05 5.636z"/></symbol><symbol id="menu-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M3 4h18v2H3V4zm0 7h18v2H3v-2zm0 7h18v2H3v-2z"/></symbol><symbol id="toc-icon" viewBox="0 0 460 460"><path d="M40 70a40 40 0 1 0 0 80 40 40 0 0 0 0-80zM40 190a40 40 0 1 0 0 80 40 40 0 0 0 0-80zM40 310a40 40 0 1 0 0 80 40 40 0 0 0 0-80zM430 80H145a30 30 0 0 0 0 60h285a30 30 0 0 0 0-60zM430 200H145a30 30 0 0 0 0 60h285a30 30 0 0 0 0-60zM430 320H145a30 30 0 0 0 0 60h285a30 30 0 0 0 0-60z"/></symbol></defs></svg></head><body data-theme="light"><div class="sidebar-container"><div class="sidebar" id="sidebar"><a href="/" class="sidebar-title sidebar-title-anchor">ucode Documentation</a><div class="sidebar-items-container"><div class="sidebar-section-title with-arrow" data-isopen="false" id="DtFUGG9S48OF-nQ6JVzhu"><div>Tutorials</div><svg><use xlink:href="#down-icon"></use></svg></div><div class="sidebar-section-children-container"><div class="sidebar-section-children"><a href="tutorial-01-usage.html">Usage</a></div><div class="sidebar-section-children"><a href="tutorial-02-syntax.html">Syntax</a></div><div class="sidebar-section-children"><a href="tutorial-03-memory.html">Memory Management</a></div><div class="sidebar-section-children"><a href="tutorial-04-arrays.html">Working with Arrays</a></div><div class="sidebar-section-children"><a href="tutorial-05-dictionaries.html">Working with Dictionaries</a></div><div class="sidebar-section-children"><a href="tutorial-06-metamethods.html">Metamethods</a></div></div><div class="sidebar-section-title with-arrow" data-isopen="false" id="j0PNuOZSHIEjvhC6fFuGd"><div>Modules</div><svg><use xlink:href="#down-icon"></use></svg></div><div class="sidebar-section-children-container"><div class="sidebar-section-children"><a href="module-core.html">core</a></div><div class="sidebar-section-children"><a href="module-debug.html">debug</a></div><div class="sidebar-section-children"><a href="module-digest.html">digest</a></div><div class="sidebar-section-children"><a href="module-ffi.html">ffi</a></div><div class="sidebar-section-children"><a href="module-fs.html">fs</a></div><div class="sidebar-section-children"><a href="module-io.html">io</a></div><div class="sidebar-section-children"><a href="module-log.html">log</a></div><div class="sidebar-section-children"><a href="module-math.html">math</a></div><div class="sidebar-section-children"><a href="module-netaddr.html">netaddr</a></div><div class="sidebar-section-children"><a href="module-nl80211.html">nl80211</a></div><div class="sidebar-section-children"><a href="module-resolv.html">resolv</a></div><div class="sidebar-section-children"><a href="module-rtnl.html">rtnl</a></div><div class="sidebar-section-children"><a href="module-serial.html">serial</a></div><div class="sidebar-section-children"><a href="module-socket.html">socket</a></div><div class="sidebar-section-children"><a href="module-struct.html">struct</a></div><div class="sidebar-section-children"><a href="module-ubus.html">ubus</a></div><div class="sidebar-section-children"><a href="module-uci.html">uci</a></div><div class="sidebar-section-children"><a href="module-uloop.html">uloop</a></div><div class="sidebar-section-children"><a href="module-zlib.html">zlib</a></div></div></div></div></div><div class="navbar-container" id="VuAckcnZhf"><nav class="navbar"><div class="navbar-left-items"><div class="github-home navbar-item"><a id="" href="https://github.com/ucode-lang/ucode" target="">GitHub Project Page</a></div></div><div class="navbar-right-items"><div class="navbar-right-item"><button class="icon-button search-button" aria-label="open-search"><svg><use xlink:href="#search-icon"></use></svg></button></div><div class="navbar-right-item"><button class="icon-button theme-toggle" aria-label="toggle-theme"><svg><use class="theme-svg-use" xlink:href="#dark-theme-icon"></use></svg></button></div><div class="navbar-right-item"><button class="icon-button font-size" aria-label="change-font-size"><svg><use xlink:href="#font-size-icon"></use></svg></button></div><div class="navbar-right-item toc-item"><button class="icon-button toc" aria-label="open-table-of-contents"><svg><use xlink:href="#toc-icon"></use></svg></button></div></div><nav></nav></nav></div><div class="body-wrapper"><div class="main-content"><div class="main-wrapper"><section id="source-page" class="source-page"><header><h1 id="title" class="has-anchor">lib_netaddr.c</h1></header><article><pre class="prettyprint source lang-js"><code>/*
+Copyright 2015-2018 Jo-Philipp Wich &lt;jo@mein.io>
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+/**
+ * # Network Address
+ *
+ * The `netaddr` module provides functions and the `netaddr.range` object type
+ * for parsing, validating and manipulating IP addresses, network prefixes and
+ * MAC addresses.
+ *
+ * Address ranges are represented by `netaddr.range` instances which carry the
+ * address, its family and a prefix size (CIDR notation). Instances are
+ * created with the `new()`, `IPv4()`, `IPv6()` or `MAC()` functions:
+ *
+ *   ```javascript
+ *   import * as netaddr from 'netaddr';
+ *
+ *   const addr = netaddr.new('10.24.0.1/24');
+ *   const addr = netaddr.new('10.24.0.1/255.255.255.0');
+ *   const addr = netaddr.new('10.24.0.1', '255.255.255.0');  // separate netmask
+ *   const addr = netaddr.new('10.24.0.1/24', 16);            // override netmask
+ *
+ *   const addr6 = netaddr.new('fe80::221:63ff:fe75:aa17/64');
+ *   const addr6 = netaddr.new('fe80::221:63ff:fe75:aa17/ffff:ffff:ffff:ffff::');
+ *
+ *   const mac = netaddr.new('00:11:22:cc:dd:ee');
+ *   const mac = netaddr.MAC('C0:B6:F9:00:00:00/24');
+ *   ```
+ *
+ * The `checkv4()`, `checkv6()` and `checkmac()` functions provide
+ * non-throwing validation, returning the canonical string representation of
+ * the given address or `null` if the argument is not a valid address of the
+ * respective family:
+ *
+ *   ```javascript
+ *   netaddr.checkv4('127.0.0.1');  // "127.0.0.1"
+ *   netaddr.checkv6('::1');        // "::1"
+ *   netaddr.checkmac('00:11:22:cc:dd:ee');  // "00:11:22:CC:DD:EE"
+ *   netaddr.checkv4('nonsense');   // null
+ *   ```
+ *
+ * @module netaddr
+ */
+
+#include &lt;stdio.h>
+#include &lt;stdint.h>
+#include &lt;stdbool.h>
+#include &lt;errno.h>
+#include &lt;string.h>
+#include &lt;limits.h>
+#include &lt;math.h>
+
+#include &lt;net/if.h>
+#include &lt;arpa/inet.h>
+
+#ifndef AF_PACKET
+#define AF_PACKET 17
+#endif
+
+#include "ucode/module.h"
+
+
+#define AF_BITS(f) \
+	((f) == AF_INET ? 32 : \
+		((f) == AF_INET6 ? 128 : \
+			((f) == AF_PACKET ? 48 : 0)))
+
+#define AF_BYTES(f) \
+	((f) == AF_INET ? 4 : \
+		((f) == AF_INET6 ? 16 : \
+			((f) == AF_PACKET ? 6 : 0)))
+
+typedef struct {
+	union {
+		struct in_addr v4;
+		struct in6_addr v6;
+		uint8_t mac[6];
+		uint8_t u8[16];
+	} addr;
+	uint32_t scope;
+	uint16_t family;
+	int16_t bits;
+} range_t;
+
+static const char *range_type = "netaddr.range";
+
+/*
+ * range parsing / formatting
+ */
+
+static bool
+parse_mac(const char *mac, uint8_t *mac_addr)
+{
+	unsigned long int n;
+	char *e, sep = 0;
+	int i;
+
+	for (i = 0; i &lt; 6; i++) {
+		if (i > 0) {
+			if (sep == 0 &amp;&amp; (mac[0] == ':' || mac[0] == '-'))
+				sep = mac[0];
+
+			if (sep == 0 || mac[0] != sep)
+				return false;
+
+			mac++;
+		}
+
+		n = strtoul(mac, &amp;e, 16);
+
+		if (n > 0xFF)
+			return false;
+
+		mac += (e - mac);
+		mac_addr[i] = n;
+	}
+
+	if (mac[0] != 0)
+		return false;
+
+	return true;
+}
+
+static bool
+parse_mask(int family, const char *mask, int16_t *bits)
+{
+	char *e;
+	union {
+		struct in_addr v4;
+		struct in6_addr v6;
+		uint8_t mac[6];
+		uint8_t u8[16];
+	} m;
+
+	if (family == AF_INET &amp;&amp; inet_pton(AF_INET, mask, &amp;m.v4)) {
+		for (*bits = 0, m.v4.s_addr = ntohl(m.v4.s_addr);
+			 *bits &lt; AF_BITS(AF_INET) &amp;&amp; (m.v4.s_addr &lt;&lt; *bits) &amp; 0x80000000;
+			 ++*bits);
+	}
+	else if ((family == AF_INET6 &amp;&amp; inet_pton(AF_INET6, mask, &amp;m.v6)) ||
+	         (family == AF_PACKET &amp;&amp; parse_mac(mask, m.mac))) {
+		for (*bits = 0;
+			 *bits &lt; AF_BITS(family) &amp;&amp; (m.u8[*bits / 8] &lt;&lt; (*bits % 8)) &amp; 128;
+			 ++*bits);
+	}
+	else {
+		*bits = strtoul(mask, &amp;e, 10);
+
+		if (e == mask || *e != 0 || *bits > AF_BITS(family))
+			return false;
+	}
+
+	return true;
+}
+
+static bool
+parse_range(const char *dest, range_t *pp)
+{
+	char *p, *s, buf[INET6_ADDRSTRLEN * 2 + 2];
+
+	strncpy(buf, dest, sizeof(buf) - 1);
+	buf[sizeof(buf) - 1] = '\0';
+
+	p = strchr(buf, '/');
+
+	if (p)
+		*p++ = 0;
+
+	s = strchr(buf, '%');
+
+	if (s)
+		*s++ = 0;
+
+	if (inet_pton(AF_INET, buf, &amp;pp->addr.v4))
+		pp->family = AF_INET;
+	else if (inet_pton(AF_INET6, buf, &amp;pp->addr.v6))
+		pp->family = AF_INET6;
+	else if (parse_mac(buf, pp->addr.mac))
+		pp->family = AF_PACKET;
+	else
+		return false;
+
+	if (s) {
+		if (pp->family != AF_INET6)
+			return false;
+
+		if (!(pp->addr.v6.s6_addr[0] == 0xFE &amp;&amp;
+		      pp->addr.v6.s6_addr[1] >= 0x80 &amp;&amp;
+		      pp->addr.v6.s6_addr[2] &lt;= 0xBF))
+			return false;
+
+		pp->scope = if_nametoindex(s);
+
+		if (pp->scope == 0)
+			return false;
+	}
+	else {
+		pp->scope = 0;
+	}
+
+	if (p) {
+		if (!parse_mask(pp->family, p, &amp;pp->bits))
+			return false;
+	}
+	else {
+		pp->bits = AF_BITS(pp->family);
+	}
+
+	return true;
+}
+
+static uc_value_t *
+format_range(uc_vm_t *vm, range_t *p)
+{
+	uc_stringbuf_t *buf = ucv_stringbuf_new();
+	char tmp[INET6_ADDRSTRLEN + IF_NAMESIZE + 1];
+
+	if (p->family == AF_PACKET) {
+		ucv_stringbuf_printf(buf, "%02X:%02X:%02X:%02X:%02X:%02X",
+		                     p->addr.mac[0],
+		                     p->addr.mac[1],
+		                     p->addr.mac[2],
+		                     p->addr.mac[3],
+		                     p->addr.mac[4],
+		                     p->addr.mac[5]);
+
+		if (p->scope != 0) {
+			if (if_indextoname(p->scope, tmp) != NULL)
+				ucv_stringbuf_printf(buf, "%%%s", tmp);
+		}
+
+		if (p->bits &lt; AF_BITS(AF_PACKET))
+			ucv_stringbuf_printf(buf, "/%d", p->bits);
+	}
+	else {
+		size_t len;
+
+		if (!inet_ntop(p->family, &amp;p->addr.v6, tmp, sizeof(tmp)))
+			goto err;
+
+		len = strlen(tmp);
+
+		if (p->scope != 0 &amp;&amp; if_indextoname(p->scope, tmp + len + 1) != NULL) {
+			tmp[len++] = '%';
+			len += strlen(tmp + len);
+		}
+
+		ucv_stringbuf_addstr(buf, tmp, len);
+
+		if (p->bits &lt; AF_BITS(p->family))
+			ucv_stringbuf_printf(buf, "/%d", p->bits);
+	}
+
+	return ucv_stringbuf_finish(buf);
+
+err:
+	ucv_put(ucv_stringbuf_finish(buf));
+
+	return NULL;
+}
+
+/*
+ * range value accessors
+ */
+
+static inline range_t *
+get_this_range(uc_vm_t *vm)
+{
+	range_t **p = uc_fn_this(range_type);
+
+	return p ? *p : NULL;
+}
+
+/* Accept a range instance or a string convertible to one, returning a pointer
+ * to the internal range of the instance or to *out for parsed strings */
+static range_t *
+check_range(uc_vm_t *vm, uc_value_t *arg, range_t *out, int family)
+{
+	if (ucv_type(arg) == UC_RESOURCE) {
+		void **p = ucv_resource_dataptr(arg, range_type);
+
+		if (p &amp;&amp; *(range_t **)p &amp;&amp;
+		    (!family || (*(range_t **)p)->family == family))
+			return *(range_t **)p;
+
+		return NULL;
+	}
+
+	if (ucv_type(arg) == UC_STRING) {
+		if (parse_range(ucv_string_get(arg), out) &amp;&amp;
+		    (!family || out->family == family))
+			return out;
+	}
+
+	return NULL;
+}
+
+static bool
+check_bits(uc_vm_t *vm, uc_value_t *arg, range_t *p, int16_t *bits)
+{
+	uint64_t n;
+	int16_t s16;
+
+	if (arg == NULL) {
+		*bits = p->bits;
+		return true;
+	}
+
+	if (ucv_type(arg) == UC_INTEGER || ucv_type(arg) == UC_DOUBLE) {
+		n = ucv_to_unsigned(arg);
+
+		if (errno != 0 || n > AF_BITS(p->family))
+			return false;
+
+		*bits = (int16_t)n;
+		return true;
+	}
+
+	if (ucv_type(arg) == UC_STRING) {
+		if (!parse_mask(p->family, ucv_string_get(arg), &amp;s16))
+			return false;
+
+		*bits = s16;
+		return true;
+	}
+
+	return false;
+}
+
+static uc_value_t *
+new_range(uc_vm_t *vm, range_t *rng)
+{
+	range_t *p = xalloc(sizeof(*p));
+
+	*p = *rng;
+
+	return ucv_resource_new(ucv_resource_type_lookup(vm, range_type), p);
+}
+
+/*
+ * scope handling
+ */
+
+static uint32_t
+parse_scope(uc_vm_t *vm, uc_value_t *scope, range_t *p, bool strict)
+{
+	uint32_t idx = (uint32_t)-1;
+
+	/*
+	 * the scope carries the interface the address is bound to; it is
+	 * valid for MAC addresses and for IPv6 link-local addresses
+	 * (fe80::/10), matching the %scope handling in parse_range()
+	 */
+	if (p->family == AF_PACKET ||
+	    (p->family == AF_INET6 &amp;&amp;
+	     p->addr.v6.s6_addr[0] == 0xFE &amp;&amp;
+	     p->addr.v6.s6_addr[1] >= 0x80 &amp;&amp;
+	     p->addr.v6.s6_addr[2] &lt;= 0xBF)) {
+		if (ucv_type(scope) == UC_INTEGER) {
+			uint64_t n = ucv_to_unsigned(scope);
+
+			/*
+			 * like the socket module, the integer scope id is
+			 * taken as-is without resolving it to an interface
+			 */
+			if (errno == 0 &amp;&amp; n &lt;= UINT32_MAX)
+				idx = (uint32_t)n;
+		}
+		else if (ucv_type(scope) == UC_STRING) {
+			idx = if_nametoindex(ucv_string_get(scope));
+			idx = (idx == 0) ? (uint32_t)-1 : idx;
+		}
+
+		if (idx == (uint32_t)-1 &amp;&amp; strict) {
+			uc_vm_raise_exception(vm, EXCEPTION_RUNTIME,
+			                      "Invalid scope");
+
+			return 0;
+		}
+	}
+
+	return idx;
+}
+
+/*
+ * module functions
+ */
+
+static bool
+parse_addr(uc_vm_t *vm, uc_value_t *addr, int family, range_t *out)
+{
+	uint64_t n;
+	size_t i, len;
+
+	if (ucv_type(addr) == UC_ARRAY) {
+		int fam;
+
+		switch (ucv_array_length(addr)) {
+		case 4:
+			fam = AF_INET;
+			break;
+
+		case 6:
+			fam = AF_PACKET;
+			break;
+
+		case 16:
+			fam = AF_INET6;
+			break;
+
+		default:
+			return false;
+		}
+
+		if (family &amp;&amp; family != fam)
+			return false;
+
+		out->family = fam;
+		out->bits = AF_BITS(fam);
+
+		for (i = 0, len = ucv_array_length(addr); i &lt; len; i++) {
+			uc_value_t *v = ucv_array_get(addr, i);
+
+			if (ucv_type(v) != UC_INTEGER &amp;&amp; ucv_type(v) != UC_DOUBLE)
+				return false;
+
+			n = ucv_to_unsigned(v);
+
+			if (errno != 0 || n > 255)
+				return false;
+
+			out->addr.u8[i] = n;
+		}
+
+		return true;
+	}
+
+	if (ucv_type(addr) == UC_OBJECT) {
+		/*
+		 * sockaddr-like object: { family, address, interface }
+		 *
+		 * family:    optional, one of AF_INET, AF_INET6, AF_PACKET;
+		 *            guessed from the address if omitted
+		 * address:   mandatory address string
+		 * interface: optional, AF_INET6 scope (name or index)
+		 */
+		uc_value_t *v, *addrv;
+		char buf[INET6_ADDRSTRLEN * 2 + 2];
+		bool found;
+		int fam = family;
+
+		addrv = ucv_object_get(addr, "address", &amp;found);
+
+		if (!found || ucv_type(addrv) != UC_STRING)
+			return false;
+
+		v = ucv_object_get(addr, "family", &amp;found);
+
+		if (found) {
+			if (ucv_type(v) != UC_INTEGER)
+				return false;
+
+			switch (ucv_int64_get(v)) {
+			case AF_INET:
+			case AF_INET6:
+			case AF_PACKET:
+				fam = (int)ucv_int64_get(v);
+				break;
+
+			default:
+				return false;
+			}
+		}
+		else
+			fam = (strchr(ucv_string_get(addrv), ':') != NULL)
+			    ? AF_INET6 : AF_INET;
+
+		if (family &amp;&amp; family != fam)
+			return false;
+
+		if (ucv_string_length(addrv) + 1 > sizeof(buf))
+			return false;
+
+		memcpy(buf, ucv_string_get(addrv),
+		       ucv_string_length(addrv) + 1);
+
+		if (!parse_range(buf, out))
+			return false;
+
+		/* parse_range may have auto-detected a different family */
+		if (out->family != fam)
+			return false;
+
+		v = ucv_object_get(addr, "interface", &amp;found);
+
+		if (found) {
+			if (out->family != AF_INET6)
+				return false;
+
+			/*
+			 * the scope is only valid for link-local addresses,
+			 * matching the %scope handling in parse_range()
+			 */
+			if (!(out->addr.v6.s6_addr[0] == 0xFE &amp;&amp;
+			      out->addr.v6.s6_addr[1] >= 0x80 &amp;&amp;
+			      out->addr.v6.s6_addr[2] &lt;= 0xBF))
+				return false;
+
+			out->scope = parse_scope(vm, v, out, true);
+		}
+
+		return true;
+	}
+
+	if (ucv_type(addr) == UC_INTEGER || ucv_type(addr) == UC_DOUBLE) {
+		n = ucv_to_unsigned(addr);
+
+		if (errno != 0)
+			return false;
+
+		switch (family) {
+		case AF_INET:
+			out->family = AF_INET;
+			out->addr.v4.s_addr = htonl((uint32_t)n);
+			break;
+
+		case AF_INET6:
+			out->family = AF_INET6;
+			out->addr.v6.s6_addr[12] = n / 0x1000000;
+			out->addr.v6.s6_addr[13] = n % 0x1000000 / 0x10000;
+			out->addr.v6.s6_addr[14] = n % 0x10000 / 0x100;
+			out->addr.v6.s6_addr[15] = n % 0x100;
+			break;
+
+		default:
+			out->family = AF_PACKET;
+			out->addr.mac[2] = n / 0x1000000;
+			out->addr.mac[3] = n % 0x1000000 / 0x10000;
+			out->addr.mac[4] = n % 0x10000 / 0x100;
+			out->addr.mac[5] = n % 0x100;
+			break;
+		}
+
+		out->bits = AF_BITS(out->family);
+		return true;
+	}
+
+	if (ucv_type(addr) == UC_STRING &amp;&amp;
+	    parse_range(ucv_string_get(addr), out) &amp;&amp;
+	    (!family || out->family == family))
+		return true;
+
+	return false;
+}
+
+/**
+ * Construct a new `netaddr.range` instance, auto-detecting the address family.
+ *
+ * Raises a runtime exception if the given argument does not represent a
+ * valid address or if the given optional netmask is of a different family.
+ *
+ * @function module:netaddr#new
+ *
+ * @param {string|number|number[]|object} address
+ * A valid IPv4 or IPv6 address, optionally with prefix size (CIDR notation)
+ * or netmask separated by slash, an unsigned number, an array of bytes, or
+ * a sockaddr-like object (see below).
+ * Numbers are interpreted as MAC addresses, except when used with the
+ * {@link module:netaddr#v4} or {@link module:netaddr#v6} constructors. The
+ * address family of byte arrays is determined by their length: `4` for
+ * IPv4, `6` for MAC and `16` for IPv6.
+ *
+ * A sockaddr-like object has the following properties:
+ *
+ * - `address` (string, mandatory): the address value
+ * - `family` (number, optional): `AF_INET` (2), `AF_INET6` (10) or
+ *   `AF_PACKET` (17, MAC); guessed from `address` if omitted
+ * - `interface` (string|number, optional): scope for `AF_INET6` addresses,
+ *   either an interface name or index
+ *
+ * @param {string|number} [netmask]
+ * A valid IPv4 or IPv6 netmask or a number containing a prefix size in bits
+ * (`0..32` for IPv4, `0..128` for IPv6). Overrides the mask embedded in the
+ * first argument if specified.
+ *
+ * @returns {module:netaddr.range}
+ *
+ * @example
+ * const addr = netaddr.new('10.24.0.1/24');
+ * const addr = netaddr.new('10.24.0.1/255.255.255.0');
+ * const addr = netaddr.new('10.24.0.1', '255.255.255.0');  // separate netmask
+ * const addr = netaddr.new('10.24.0.1/24', 16);            // override netmask
+ *
+ * const addr6 = netaddr.new('fe80::221:63ff:fe75:aa17/64');
+ * const addr6 = netaddr.new('fe80::221:63ff:fe75:aa17/ffff:ffff:ffff:ffff::');
+ *
+ * const mac = netaddr.new('00:11:22:cc:dd:ee');
+ * const mac = netaddr.new(0x001122ccddeeff);
+ *
+ * const addr = netaddr.new([ 10, 24, 0, 1 ]);          // IPv4
+ * const addr6 = netaddr.new([ 0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 ]);
+ *
+ * const addr = netaddr.new({ address: '10.24.0.1' });  // family guessed
+ * const addr = netaddr.new({ family: 2, address: '10.24.0.1' });
+ * const addr6 = netaddr.new({ family: 10, address: 'fe80::1', interface: 'lo' });
+ */
+static uc_value_t *
+uc_netaddr_new(uc_vm_t *vm, size_t nargs)
+{
+	uc_value_t *addr = uc_fn_arg(0);
+	range_t rng = { };
+
+	if (!parse_addr(vm, addr, 0, &amp;rng)) {
+		uc_vm_raise_exception(vm, EXCEPTION_RUNTIME,
+		                      "Invalid address");
+
+		return NULL;
+	}
+
+	/*
+	 * Numbers cannot carry an embedded netmask, ignore the second
+	 * constructor argument (matches the LuCI reference behavior).
+	 */
+	if (nargs > 1 &amp;&amp; ucv_type(addr) == UC_STRING) {
+		int16_t bits;
+
+		if (!check_bits(vm, uc_fn_arg(1), &amp;rng, &amp;bits)) {
+			uc_vm_raise_exception(vm, EXCEPTION_RUNTIME,
+			                      "Invalid netmask");
+
+			return NULL;
+		}
+
+		rng.bits = bits;
+	}
+
+	return new_range(vm, &amp;rng);
+}
+
+/**
+ * Construct a new IPv4 `netaddr.range` instance.
+ *
+ * Raises a runtime exception if the given argument does not represent a
+ * valid IPv4 address or if the given optional netmask is of a different
+ * family.
+ *
+ * @function module:netaddr#v4
+ *
+ * @param {string|number|number[]|object} address
+ * A valid IPv4 address, optionally with prefix size (CIDR notation) or
+ * netmask separated by slash, an unsigned number representing the address
+ * in host byte order, an array of exactly `4` bytes, or a sockaddr-like
+ * object with `family` `AF_INET` (or an address guessed as IPv4).
+ *
+ * @param {string|number} [netmask]
+ * A valid IPv4 netmask or a number containing a prefix size between `0`
+ * and `32` bit. Overrides the mask embedded in the first argument if
+ * specified.
+ *
+ * @returns {module:netaddr.range}
+ *
+ * @example
+ * const addr = netaddr.IPv4('10.24.0.1/24');
+ * const addr = netaddr.IPv4('10.24.0.1/255.255.255.0');
+ * const addr = netaddr.IPv4('10.24.0.1', '255.255.255.0');  // separate netmask
+ * const addr = netaddr.IPv4('10.24.0.1/24', 16);            // override netmask
+ */
+static uc_value_t *
+uc_netaddr_v4(uc_vm_t *vm, size_t nargs)
+{
+	uc_value_t *addr = uc_fn_arg(0);
+	range_t rng = { };
+
+	if (!parse_addr(vm, addr, AF_INET, &amp;rng)) {
+		uc_vm_raise_exception(vm, EXCEPTION_RUNTIME,
+		                      "Invalid IPv4 address");
+
+		return NULL;
+	}
+
+	if (nargs > 1 &amp;&amp; ucv_type(addr) == UC_STRING) {
+		int16_t bits;
+
+		if (!check_bits(vm, uc_fn_arg(1), &amp;rng, &amp;bits)) {
+			uc_vm_raise_exception(vm, EXCEPTION_RUNTIME,
+			                      "Invalid netmask");
+
+			return NULL;
+		}
+
+		rng.bits = bits;
+	}
+
+	return new_range(vm, &amp;rng);
+}
+
+/**
+ * Construct a new IPv6 `netaddr.range` instance.
+ *
+ * Raises a runtime exception if the given argument does not represent a
+ * valid IPv6 address or if the given optional netmask is of a different
+ * family.
+ *
+ * @function module:netaddr#v6
+ *
+ * @param {string|number|number[]|object} address
+ * A valid IPv6 address, optionally with prefix size (CIDR notation) or
+ * netmask separated by slash, an unsigned number representing the last
+ * 32 bit of the address, an array of exactly `16` bytes, or a
+ * sockaddr-like object with `family` `AF_INET6` (or an address guessed as
+ * IPv6), optionally carrying an `interface` scope.
+ *
+ * @param {string|number} [netmask]
+ * A valid IPv6 netmask or a number containing a prefix size between `0`
+ * and `128` bit. Overrides the mask embedded in the first argument if
+ * specified.
+ *
+ * @param {string|number} [scope]
+ * An optional address scope for link-local addresses (`fe80::/10`),
+ * either an interface name or numeric index.
+ *
+ * @returns {module:netaddr.range}
+ *
+ * @example
+ * const addr6 = netaddr.IPv6('fe80::221:63ff:fe75:aa17/64');
+ * const addr6 = netaddr.IPv6('fe80::221:63ff:fe75:aa17/ffff:ffff:ffff:ffff::');
+ * const addr6 = netaddr.IPv6('fe80::221:63ff:fe75:aa17', 'ffff:ffff:ffff:ffff::');
+ * const addr6 = netaddr.IPv6('fe80::221:63ff:fe75:aa17/64', 128);  // override
+ * const addr6 = netaddr.IPv6('fe80::221:63ff:fe75:aa17', 64, 'eth0');
+ */
+static uc_value_t *
+uc_netaddr_v6(uc_vm_t *vm, size_t nargs)
+{
+	uc_value_t *addr = uc_fn_arg(0);
+	range_t rng = { };
+
+	if (!parse_addr(vm, addr, AF_INET6, &amp;rng)) {
+		uc_vm_raise_exception(vm, EXCEPTION_RUNTIME,
+		                      "Invalid IPv6 address");
+
+		return NULL;
+	}
+
+	if (nargs > 1 &amp;&amp; ucv_type(addr) == UC_STRING) {
+		int16_t bits;
+
+		if (!check_bits(vm, uc_fn_arg(1), &amp;rng, &amp;bits)) {
+			uc_vm_raise_exception(vm, EXCEPTION_RUNTIME,
+			                      "Invalid netmask");
+
+			return NULL;
+		}
+
+		rng.bits = bits;
+	}
+
+	if (nargs > 2 &amp;&amp; ucv_type(addr) == UC_STRING) {
+		uint32_t scope = parse_scope(vm, uc_fn_arg(2), &amp;rng, true);
+
+		if (scope != (uint32_t)-1)
+			rng.scope = scope;
+	}
+
+	return new_range(vm, &amp;rng);
+}
+
+/**
+ * Construct a new MAC `netaddr.range` instance.
+ *
+ * Raises a runtime exception if the given argument does not represent a
+ * valid ethernet MAC address or if the given optional mask is of a
+ * different family.
+ *
+ * @function module:netaddr#mac
+ *
+ * @param {string|number|number[]|object} address
+ * A valid ethernet MAC address, optionally with prefix size (CIDR
+ * notation) or mask separated by slash, an unsigned number representing
+ * the last 32 bit of the address, an array of exactly `6` bytes, or a
+ * sockaddr-like object with `family` `AF_PACKET`.
+ *
+ * @param {string|number} [netmask]
+ * A valid MAC address mask or a number containing a prefix size between
+ * `0` and `48` bit. Overrides the mask embedded in the first argument if
+ * specified.
+ *
+ * @returns {module:netaddr.range}
+ *
+ * @example
+ * const intel_macs = netaddr.MAC('C0:B6:F9:00:00:00/24');
+ * const intel_macs = netaddr.MAC('C0:B6:F9:00:00:00/FF:FF:FF:0:0:0');
+ * const intel_macs = netaddr.MAC('C0:B6:F9:00:00:00', 'FF:FF:FF:0:0:0');
+ * const intel_macs = netaddr.MAC('C0:B6:F9:00:00:00/24', 48);  // override mask
+ */
+static uc_value_t *
+uc_netaddr_mac(uc_vm_t *vm, size_t nargs)
+{
+	uc_value_t *addr = uc_fn_arg(0);
+	range_t rng = { };
+
+	if (!parse_addr(vm, addr, AF_PACKET, &amp;rng)) {
+		uc_vm_raise_exception(vm, EXCEPTION_RUNTIME,
+		                      "Invalid MAC address");
+
+		return NULL;
+	}
+
+	if (nargs > 1 &amp;&amp; ucv_type(addr) == UC_STRING) {
+		int16_t bits;
+
+		if (!check_bits(vm, uc_fn_arg(1), &amp;rng, &amp;bits)) {
+			uc_vm_raise_exception(vm, EXCEPTION_RUNTIME,
+			                      "Invalid netmask");
+
+			return NULL;
+		}
+
+		rng.bits = bits;
+	}
+
+	return new_range(vm, &amp;rng);
+}
+
+static uc_value_t *
+uc_netaddr_check(uc_vm_t *vm, size_t nargs, int family)
+{
+	uc_value_t *arg = uc_fn_arg(0);
+	range_t rng = { };
+
+	if (ucv_type(arg) == UC_RESOURCE) {
+		void **p = ucv_resource_dataptr(arg, range_type);
+
+		if (!p || !*(range_t **)p || (*(range_t **)p)->family != family)
+			return NULL;
+
+		return format_range(vm, *(range_t **)p);
+	}
+
+	if (ucv_type(arg) == UC_STRING &amp;&amp;
+	    parse_range(ucv_string_get(arg), &amp;rng) &amp;&amp;
+	    rng.family == family)
+		return format_range(vm, &amp;rng);
+
+	return NULL;
+}
+
+/**
+ * Verify an IPv4 address.
+ *
+ * Checks whether the given argument is a preexisting `netaddr.range` IPv4 address
+ * instance or a string literal convertible to an IPv4 address and returns a
+ * plain string containing the canonical representation of the address.
+ *
+ * Returns `null` if the argument is not a valid IPv4 address. This function
+ * is intended to aid in safely verifying address literals without having to
+ * deal with exceptions.
+ *
+ * @function module:netaddr#checkv4
+ *
+ * @param {string|module:netaddr.range} address
+ * A valid IPv4 address or existing `netaddr.range` IPv4 instance.
+ *
+ * @returns {?string}
+ *
+ * @example
+ * netaddr.checkv4(netaddr.new('127.0.0.1'));  // "127.0.0.1"
+ * netaddr.checkv4('127.0.0.1');          // "127.0.0.1"
+ * netaddr.checkv4('nonsense');           // null
+ * netaddr.checkv4(123);                  // null
+ * netaddr.checkv4(null);                 // null
+ */
+static uc_value_t *
+uc_netaddr_checkv4(uc_vm_t *vm, size_t nargs)
+{
+	return uc_netaddr_check(vm, nargs, AF_INET);
+}
+
+/**
+ * Verify an IPv6 address.
+ *
+ * Checks whether the given argument is a preexisting `netaddr.range` IPv6 address
+ * instance or a string literal convertible to an IPv6 address and returns a
+ * plain string containing the canonical representation of the address.
+ *
+ * Returns `null` if the argument is not a valid IPv6 address. This function
+ * is intended to aid in safely verifying address literals without having to
+ * deal with exceptions.
+ *
+ * @function module:netaddr#checkv6
+ *
+ * @param {string|module:netaddr.range} address
+ * A valid IPv6 address or existing `netaddr.range` IPv6 instance.
+ *
+ * @returns {?string}
+ *
+ * @example
+ * netaddr.checkv6(netaddr.new('0:0:0:0:0:0:0:1'));  // "::1"
+ * netaddr.checkv6('0:0:0:0:0:0:0:1');          // "::1"
+ * netaddr.checkv6('nonsense');                 // null
+ * netaddr.checkv6(123);                        // null
+ * netaddr.checkv6(null);                       // null
+ */
+static uc_value_t *
+uc_netaddr_checkv6(uc_vm_t *vm, size_t nargs)
+{
+	return uc_netaddr_check(vm, nargs, AF_INET6);
+}
+
+/**
+ * Verify an ethernet MAC address.
+ *
+ * Checks whether the given argument is a preexisting `netaddr.range` MAC address
+ * instance or a string literal convertible to an ethernet MAC and returns a
+ * plain string containing the canonical representation of the address.
+ *
+ * Returns `null` if the argument is not a valid MAC address. This function
+ * is intended to aid in safely verifying address literals without having to
+ * deal with exceptions.
+ *
+ * @function module:netaddr#checkmac
+ *
+ * @param {string|module:netaddr.range} address
+ * A valid MAC address or existing `netaddr.range` MAC instance.
+ *
+ * @returns {?string}
+ *
+ * @example
+ * netaddr.checkmac(netaddr.new('00-11-22-cc-dd-ee'));  // "00:11:22:CC:DD:EE"
+ * netaddr.checkmac('00:11:22:cc:dd:ee');          // "00:11:22:CC:DD:EE"
+ * netaddr.checkmac('nonsense');                   // null
+ * netaddr.checkmac(123);                          // null
+ * netaddr.checkmac(null);                         // null
+ */
+static uc_value_t *
+uc_netaddr_checkmac(uc_vm_t *vm, size_t nargs)
+{
+	return uc_netaddr_check(vm, nargs, AF_PACKET);
+}
+
+/*
+ * range methods
+ */
+
+/**
+ * Represents an IP address or address range as created by `new()`,
+ * `v4()`, `v6()` or `mac()`.
+ *
+ * Instances carry the address, its family (`4` for IPv4, `6` for IPv6
+ * and `1` for MAC addresses) and a prefix size in bits (`32` for IPv4,
+ * `128` for IPv6 and `48` for MAC addresses by default).
+ *
+ * Instances provide a `tostring()` method which is also used by `print()`
+ * and string interpolation to render the address in canonical form,
+ * including the prefix size if it is smaller than the family's full width.
+ *
+ * In addition, instances support property access through `__get__()` and
+ * `__set__()` metamethods:
+ *
+ * - Numeric keys read or write the individual address bytes, e.g.
+ *   `addr[0]` reads the first address byte and `addr[0] = 10` rewrites it.
+ *   Negative indices count from the end of the address.
+ * - The `bits` property reads or writes the prefix size in bits.
+ * - The `family` property reads the address family (numeric `AF_*` value).
+ * - The `scope` property reads or writes the address scope (the numeric
+ *   interface index) for IPv6 and MAC address instances.
+ * - The `scopeid` property reads or writes the address scope given an
+ *   interface name or numeric index, silently ignoring non-link-local
+ *   IPv6 addresses.
+ * - The `netmask` property reads the netmask as a string, e.g.
+ *   `"255.255.255.0"` for a `/24` prefix.
+ * - The `host` property reads the host address as a new range (full-width
+ *   prefix).
+ * - The `mapped4` property reads the mapped IPv4 address as a new range,
+ *   or `null` if the instance is not an IPv6 mapped IPv4 address.
+ * - The `unscopename` property reads the interface name of the address
+ *   scope (or an empty string if no scope is set).
+ * - The `size` property reads the number of addresses in this range, or
+ *   `null` if the value does not fit into a 64 bit signed integer.
+ *
+ * @class module:netaddr.range
+ * @hideconstructor
+ *
+ * @property {number} bits
+ * The prefix size in bits (read/write). `32` for IPv4, `128` for IPv6,
+ * `48` for MAC addresses.
+ *
+ * @property {number} family
+ * The address family (read-only): `4` for IPv4, `6` for IPv6,
+ * `1` for MAC addresses.
+ *
+ * @property {number} scope
+ * The address scope as a numeric interface index (read/write).
+ * Only meaningful for IPv6 and MAC address instances.
+ *
+ * @property {?string} scopeid
+ * The address scope as an interface name (read/write). Accepts an
+ * interface name or numeric index for assignment. `null` if no scope
+ * is set. Only meaningful for IPv6 and MAC address instances.
+ *
+ * @property {string} netmask
+ * The netmask as a string, e.g. `"255.255.255.0"` (read-only).
+ *
+ * @property {module:netaddr.range} host
+ * The host address as a new range with a full-width prefix (read-only).
+ *
+ * @property {?module:netaddr.range} mapped4
+ * The mapped IPv4 address as a new range, or `null` if the instance
+ * is not an IPv6 mapped IPv4 address (read-only).
+ *
+ * @property {string} unscopename
+ * The interface name of the address scope, or an empty string if no
+ * scope is set (read-only).
+ *
+ * @property {?number} size
+ * The number of addresses in this range, or `null` if the value does
+ * not fit into a 64 bit signed integer (read-only).
+ *
+ * @see {@link module:netaddr#new|new()}
+ * @see {@link module:netaddr#v4|v4()}
+ * @see {@link module:netaddr#v6|v6()}
+ * @see {@link module:netaddr#mac|mac()}
+ *
+ * @example
+ *
+ * const addr = netaddr.new('192.168.1.1/24');
+ *
+ * addr.is4();        // true
+ * addr.network();    // "192.168.1.0"
+ * addr.maxhost();    // "192.168.1.254"
+ *
+ * addr.bits;         // 24
+ * addr[0];           // 192
+ * addr.netmask;      // "255.255.255.0"
+ * addr.host;         // netaddr.range "192.168.1.1"
+ * addr.size;         // 256
+ *
+ * addr[3] = 10;      // "192.168.1.10/24"
+ * addr.bits = 16;    // "192.168.0.0/16"
+ *
+ * print(addr);       // "192.168.0.0/16"
+ */
+
+/**
+ * Checks whether the CIDR instance is an IPv4 address range.
+ *
+ * @function module:netaddr.range#is4
+ *
+ * @returns {boolean} `true` if the CIDR is an IPv4 range, else `false`
+ */
+static uc_value_t *
+uc_netaddr_range_is4(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p = get_this_range(vm);
+
+	return ucv_boolean_new(p->family == AF_INET);
+}
+
+/**
+ * Checks whether the CIDR instance is within the private RFC1918 address
+ * space.
+ *
+ * @function module:netaddr.range#is4rfc1918
+ *
+ * @returns {boolean} `true` if the entire range of this CIDR lies within
+ * one of the ranges `10.0.0.0-10.255.255.255`, `172.16.0.0-172.31.0.0` or
+ * `192.168.0.0-192.168.255.255`, else `false`
+ *
+ * @example
+ * const addr = netaddr.new('192.168.45.2/24');
+ * addr.is4rfc1918();  // true
+ */
+static uc_value_t *
+uc_netaddr_range_is4rfc1918(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p = get_this_range(vm);
+	uint32_t a = htonl(p->addr.v4.s_addr);
+
+	return ucv_boolean_new((p->family == AF_INET &amp;&amp;
+	                    ((a >= 0x0A000000 &amp;&amp; a &lt;= 0x0AFFFFFF) ||
+	                     (a >= 0xAC100000 &amp;&amp; a &lt;= 0xAC1FFFFF) ||
+	                     (a >= 0xC0A80000 &amp;&amp; a &lt;= 0xC0A8FFFF))));
+}
+
+/**
+ * Checks whether the CIDR instance is an IPv4 link local (Zeroconf)
+ * address.
+ *
+ * @function module:netaddr.range#is4linklocal
+ *
+ * @returns {boolean} `true` if the entire range of this CIDR lies within
+ * the range `169.254.0.0-169.254.255.255`, else `false`
+ *
+ * @example
+ * const addr = netaddr.new('169.254.34.125');
+ * addr.is4linklocal();  // true
+ */
+static uc_value_t *
+uc_netaddr_range_is4linklocal(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p = get_this_range(vm);
+	uint32_t a = htonl(p->addr.v4.s_addr);
+
+	return ucv_boolean_new((p->family == AF_INET &amp;&amp;
+	                    a >= 0xA9FE0000 &amp;&amp;
+	                    a &lt;= 0xA9FEFFFF));
+}
+
+/**
+ * Checks whether the CIDR instance is an IPv6 address range.
+ *
+ * @function module:netaddr.range#is6
+ *
+ * @returns {boolean} `true` if the CIDR is an IPv6 range, else `false`
+ */
+static uc_value_t *
+uc_netaddr_range_is6(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p = get_this_range(vm);
+
+	return ucv_boolean_new(p->family == AF_INET6);
+}
+
+/**
+ * Checks whether the CIDR instance is an IPv6 link local address.
+ *
+ * @function module:netaddr.range#is6linklocal
+ *
+ * @returns {boolean} `true` if the entire range of this CIDR lies within
+ * the `fe80::/10` range, else `false`
+ *
+ * @example
+ * const addr = netaddr.new('fe92:53a:3216:af01:221:63ff:fe75:aa17/64');
+ * addr.is6linklocal();  // true
+ */
+static uc_value_t *
+uc_netaddr_range_is6linklocal(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p = get_this_range(vm);
+
+	return ucv_boolean_new((p->family == AF_INET6 &amp;&amp;
+	                    p->addr.v6.s6_addr[0] == 0xFE &amp;&amp;
+	                    p->addr.v6.s6_addr[1] >= 0x80 &amp;&amp;
+	                    p->addr.v6.s6_addr[1] &lt;= 0xBF));
+}
+
+static bool
+is_mapped4(range_t *p)
+{
+	return (p->family == AF_INET6 &amp;&amp;
+	        p->addr.v6.s6_addr[0] == 0 &amp;&amp;
+	        p->addr.v6.s6_addr[1] == 0 &amp;&amp;
+	        p->addr.v6.s6_addr[2] == 0 &amp;&amp;
+	        p->addr.v6.s6_addr[3] == 0 &amp;&amp;
+	        p->addr.v6.s6_addr[4] == 0 &amp;&amp;
+	        p->addr.v6.s6_addr[5] == 0 &amp;&amp;
+	        p->addr.v6.s6_addr[6] == 0 &amp;&amp;
+	        p->addr.v6.s6_addr[7] == 0 &amp;&amp;
+	        p->addr.v6.s6_addr[8] == 0 &amp;&amp;
+	        p->addr.v6.s6_addr[9] == 0 &amp;&amp;
+	        p->addr.v6.s6_addr[10] == 0xFF &amp;&amp;
+	        p->addr.v6.s6_addr[11] == 0xFF);
+}
+
+/**
+ * Checks whether the CIDR instance is an IPv6 mapped IPv4 address.
+ *
+ * @function module:netaddr.range#is6mapped4
+ *
+ * @returns {boolean} `true` if the address is an IPv6 mapped IPv4 address
+ * in the form `::ffff:1.2.3.4`
+ *
+ * @example
+ * const addr = netaddr.new('::ffff:192.168.1.1');
+ * addr.is6mapped4();  // true
+ */
+static uc_value_t *
+uc_netaddr_range_is6mapped4(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p = get_this_range(vm);
+
+	return ucv_boolean_new(is_mapped4(p));
+}
+
+/**
+ * Checks whether the CIDR instance is an ethernet MAC address range.
+ *
+ * @function module:netaddr.range#ismac
+ *
+ * @returns {boolean} `true` if the CIDR is a MAC address range, else
+ * `false`
+ */
+static uc_value_t *
+uc_netaddr_range_ismac(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p = get_this_range(vm);
+
+	return ucv_boolean_new(p->family == AF_PACKET);
+}
+
+/**
+ * Checks whether the CIDR instance is a locally administered (LAA) MAC
+ * address.
+ *
+ * @function module:netaddr.range#ismaclocal
+ *
+ * @returns {boolean} `true` if the MAC address sets the locally
+ * administered bit
+ *
+ * @example
+ * const mac = netaddr.new('02:C0:FF:EE:00:01');
+ * mac.ismaclocal();  // true
+ */
+static uc_value_t *
+uc_netaddr_range_ismaclocal(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p = get_this_range(vm);
+
+	return ucv_boolean_new((p->family == AF_PACKET &amp;&amp;
+	                    (p->addr.mac[0] &amp; 0x2)));
+}
+
+/**
+ * Checks whether the CIDR instance is a multicast MAC address.
+ *
+ * @function module:netaddr.range#ismacmcast
+ *
+ * @returns {boolean} `true` if the MAC address sets the multicast bit
+ *
+ * @example
+ * const mac = netaddr.new('01:00:5E:7F:00:10');
+ * mac.ismacmcast();  // true
+ */
+static uc_value_t *
+uc_netaddr_range_ismacmcast(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p = get_this_range(vm);
+
+	return ucv_boolean_new((p->family == AF_PACKET &amp;&amp;
+	                    (p->addr.mac[0] &amp; 0x1)));
+}
+
+static int
+range_cmp(range_t *a, range_t *b)
+{
+	if (a->family != b->family)
+		return (a->family - b->family);
+
+	return memcmp(&amp;a->addr.v6, &amp;b->addr.v6, AF_BYTES(a->family));
+}
+
+/**
+ * Checks whether this CIDR instance is lower than the given argument.
+ *
+ * The comparison follows these rules:
+ *
+ * - An IPv4 address is always lower than an IPv6 address and IPv6
+ *   addresses are considered lower than MAC addresses
+ * - Prefix sizes are ignored
+ *
+ * @function module:netaddr.range#lower
+ *
+ * @param {string|module:netaddr.range} addr
+ * An `netaddr.range` instance or a string convertible by `new()` to compare
+ * against.
+ *
+ * @returns {?boolean} `true` if this CIDR is lower than the given
+ * address, else `false`. Returns `null` if the argument cannot be
+ * converted to a CIDR instance.
+ *
+ * @example
+ * const addr = netaddr.new('192.168.1.1');
+ * addr.lower(addr);                         // false
+ * addr.lower('10.10.10.10/24');             // false
+ * addr.lower(netaddr.new('::1'));                // true
+ * addr.lower(netaddr.new('192.168.200.1'));      // true
+ * addr.lower(netaddr.new('00:14:22:01:23:45'));  // true
+ */
+static uc_value_t *
+uc_netaddr_range_lower(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p = get_this_range(vm);
+	range_t b = { };
+	range_t *bptr;
+
+	bptr = check_range(vm, uc_fn_arg(0), &amp;b, 0);
+
+	if (!bptr)
+		return NULL;
+
+	return ucv_boolean_new(range_cmp(p, bptr) &lt; 0);
+}
+
+/**
+ * Checks whether this CIDR instance is higher than the given argument.
+ *
+ * The comparison follows these rules:
+ *
+ * - An IPv4 address is always lower than an IPv6 address and IPv6
+ *   addresses are considered lower than MAC addresses
+ * - Prefix sizes are ignored
+ *
+ * @function module:netaddr.range#higher
+ *
+ * @param {string|module:netaddr.range} addr
+ * An `netaddr.range` instance or a string convertible by `new()` to compare
+ * against.
+ *
+ * @returns {?boolean} `true` if this CIDR is higher than the given
+ * address, else `false`. Returns `null` if the argument cannot be
+ * converted to a CIDR instance.
+ *
+ * @example
+ * const addr = netaddr.new('192.168.1.1');
+ * addr.higher(addr);                        // false
+ * addr.higher('10.10.10.10/24');            // true
+ * addr.higher(netaddr.new('::1'));               // false
+ * addr.higher(netaddr.new('192.168.200.1'));     // false
+ * addr.higher(netaddr.new('00:14:22:01:23:45')); // false
+ */
+static uc_value_t *
+uc_netaddr_range_higher(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p = get_this_range(vm);
+	range_t b = { };
+	range_t *bptr;
+
+	bptr = check_range(vm, uc_fn_arg(0), &amp;b, 0);
+
+	if (!bptr)
+		return NULL;
+
+	return ucv_boolean_new(range_cmp(p, bptr) > 0);
+}
+
+/**
+ * Checks whether this CIDR instance is equal to the given argument.
+ *
+ * @function module:netaddr.range#equal
+ *
+ * @param {string|module:netaddr.range} addr
+ * An `netaddr.range` instance or a string convertible by `new()` to compare
+ * against.
+ *
+ * @returns {?boolean} `true` if this CIDR is equal to the given address,
+ * else `false`. Returns `null` if the argument cannot be converted to a
+ * CIDR instance.
+ *
+ * @example
+ * const addr = netaddr.new('192.168.1.1');
+ * addr.equal(addr);                 // true
+ * addr.equal('192.168.1.1');        // true
+ * addr.equal(netaddr.new('::1'));        // false
+ *
+ * const addr6 = netaddr.new('::1');
+ * addr6.equal('0:0:0:0:0:0:0:1/64');  // true
+ *
+ * const mac = netaddr.new('00:14:22:01:23:45');
+ * mac.equal('0:14:22:1:23:45');  // true
+ */
+static uc_value_t *
+uc_netaddr_range_equal(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p = get_this_range(vm);
+	range_t b = { };
+	range_t *bptr;
+
+	bptr = check_range(vm, uc_fn_arg(0), &amp;b, 0);
+
+	if (!bptr)
+		return NULL;
+
+	return ucv_boolean_new(range_cmp(p, bptr) == 0);
+}
+
+/**
+ * Get or set the prefix size of this CIDR instance.
+ *
+ * If the optional mask parameter is given, the prefix size of this CIDR is
+ * altered, else the current prefix size is returned.
+ *
+ * @function module:netaddr.range#prefix
+ *
+ * @param {number|string} [mask]
+ * A number containing the number of bits (`0..32` for IPv4, `0..128` for
+ * IPv6 or `0..48` for MAC addresses) or a string containing a valid
+ * netmask.
+ *
+ * @returns {number} The bit count of the (new) prefix size
+ *
+ * @example
+ * const range = netaddr.new('192.168.1.1/255.255.255.0');
+ * range.prefix();  // 24
+ *
+ * range.prefix(16);
+ * range.prefix();  // 16
+ *
+ * range.prefix('255.255.255.255');
+ * range.prefix();  // 32
+ */
+static uc_value_t *
+uc_netaddr_range_prefix(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p = get_this_range(vm);
+	int16_t bits;
+
+	if (nargs > 0) {
+		if (!check_bits(vm, uc_fn_arg(0), p, &amp;bits)) {
+			uc_vm_raise_exception(vm, EXCEPTION_RUNTIME,
+			                      "Invalid netmask");
+
+			return NULL;
+		}
+
+		p->bits = bits;
+	}
+
+	return ucv_int64_new(p->bits);
+}
+
+static void
+apply_mask(range_t *p, int bits, bool inv)
+{
+	uint8_t b, i;
+
+	if (bits &lt;= 0) {
+		memset(&amp;p->addr.u8, inv * 0xFF, AF_BYTES(p->family));
+	}
+	else if (p->family == AF_INET &amp;&amp; bits &lt;= AF_BITS(AF_INET)) {
+		if (inv)
+			p->addr.v4.s_addr |= ntohl((1 &lt;&lt; (AF_BITS(AF_INET) - bits)) - 1);
+		else
+			p->addr.v4.s_addr &amp;= ntohl(~((1 &lt;&lt; (AF_BITS(AF_INET) - bits)) - 1));
+	}
+	else if (bits &lt;= AF_BITS(p->family)) {
+		for (i = 0; i &lt; AF_BYTES(p->family); i++) {
+			b = (bits > 8) ? 8 : bits;
+			if (inv)
+				p->addr.u8[i] |= ~((uint8_t)(0xFF &lt;&lt; (8 - b)));
+			else
+				p->addr.u8[i] &amp;= (uint8_t)(0xFF &lt;&lt; (8 - b));
+			bits -= b;
+		}
+	}
+}
+
+/**
+ * Derive the network address of this CIDR instance.
+ *
+ * Returns a new CIDR instance representing the network address of this
+ * instance with all host parts masked out. The used prefix size can be
+ * overridden by the optional mask parameter.
+ *
+ * @function module:netaddr.range#network
+ *
+ * @param {number|string} [mask]
+ * A number containing the number of bits (`0..32` for IPv4, `0..128` for
+ * IPv6 or `0..48` for MAC addresses) or a string containing a valid
+ * netmask.
+ *
+ * @returns {module:netaddr.range} A CIDR instance representing the network
+ * address
+ *
+ * @example
+ * const range = netaddr.new('192.168.62.243/255.255.0.0');
+ * range.network();                // "192.168.0.0"
+ * range.network(24);              // "192.168.62.0"
+ * range.network('255.255.255.0'); // "192.168.62.0"
+ *
+ * const range6 = netaddr.new('fd9b:62b3:9cc5:0:221:63ff:fe75:aa17/64');
+ * range6.network();               // "fd9b:62b3:9cc5::"
+ */
+static uc_value_t *
+uc_netaddr_range_network(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p1 = get_this_range(vm);
+	range_t p2 = *p1;
+	int16_t bits;
+
+	if (nargs > 0) {
+		if (!check_bits(vm, uc_fn_arg(0), p1, &amp;bits)) {
+			uc_vm_raise_exception(vm, EXCEPTION_RUNTIME,
+			                      "Invalid netmask");
+
+			return NULL;
+		}
+	}
+	else {
+		bits = p1->bits;
+	}
+
+	p2.bits = AF_BITS(p1->family);
+	apply_mask(&amp;p2, bits, false);
+
+	return new_range(vm, &amp;p2);
+}
+
+/**
+ * Derive the netmask of this CIDR instance.
+ *
+ * Constructs a CIDR instance representing the netmask of this instance.
+ * The used prefix size can be overridden by the optional mask parameter.
+ *
+ * @function module:netaddr.range#mask
+ *
+ * @param {number|string} [mask]
+ * A number containing the number of bits (`0..32` for IPv4, `0..128` for
+ * IPv6 or `0..48` for MAC addresses) or a string containing a valid
+ * netmask.
+ *
+ * @returns {module:netaddr.range} A CIDR instance representing the netmask
+ *
+ * @example
+ * const range = netaddr.new('172.19.37.45/16');
+ * range.mask();            // "255.255.0.0"
+ * range.mask(24);          // "255.255.255.0"
+ * range.mask('255.0.0.0'); // "255.0.0.0"
+ */
+static uc_value_t *
+uc_netaddr_range_mask(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p1 = get_this_range(vm);
+	range_t p2 = { };
+	int16_t bits;
+
+	if (nargs > 0) {
+		if (!check_bits(vm, uc_fn_arg(0), p1, &amp;bits)) {
+			uc_vm_raise_exception(vm, EXCEPTION_RUNTIME,
+			                      "Invalid netmask");
+
+			return NULL;
+		}
+	}
+	else {
+		bits = p1->bits;
+	}
+
+	p2.scope = 0;
+	p2.bits = AF_BITS(p1->family);
+	p2.family = p1->family;
+
+	memset(&amp;p2.addr.v6.s6_addr, 0xFF, sizeof(p2.addr.v6.s6_addr));
+	apply_mask(&amp;p2, bits, false);
+
+	return new_range(vm, &amp;p2);
+}
+
+/**
+ * Derive the broadcast address of this CIDR instance.
+ *
+ * Constructs a CIDR instance representing the broadcast address of this
+ * instance. The used prefix size can be overridden by the optional mask
+ * parameter.
+ *
+ * This function has no effect on IPv6 or MAC address instances, it will
+ * return `null` in this case.
+ *
+ * @function module:netaddr.range#broadcast
+ *
+ * @param {number|string} [mask]
+ * A number containing the number of bits (`0..32` for IPv4) or a string
+ * containing a valid netmask.
+ *
+ * @returns {?module:netaddr.range} A new CIDR instance representing the
+ * broadcast address if this instance is an IPv4 range, else `null`
+ *
+ * @example
+ * const range = netaddr.new('172.19.37.45/16');
+ * range.broadcast();            // "172.19.255.255"
+ * range.broadcast(24);          // "172.19.37.255"
+ * range.broadcast('255.0.0.0'); // "172.255.255.255"
+ */
+static uc_value_t *
+uc_netaddr_range_broadcast(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p1 = get_this_range(vm);
+	range_t p2;
+	int16_t bits;
+
+	if (p1->family != AF_INET)
+		return NULL;
+
+	if (nargs > 0) {
+		if (!check_bits(vm, uc_fn_arg(0), p1, &amp;bits)) {
+			uc_vm_raise_exception(vm, EXCEPTION_RUNTIME,
+			                      "Invalid netmask");
+
+			return NULL;
+		}
+	}
+	else {
+		bits = p1->bits;
+	}
+
+	p2 = *p1;
+	p2.bits = AF_BITS(AF_INET);
+	apply_mask(&amp;p2, bits, true);
+
+	return new_range(vm, &amp;p2);
+}
+
+/**
+ * Derive the scoped address of this CIDR instance.
+ *
+ * Constructs a copy of the given IPv6 or MAC address instance carrying
+ * the associated address scope, if any.
+ *
+ * This function has no effect on IPv4 instances, it will return `null`
+ * in this case. If no scope is associated with the address, `null` is
+ * returned.
+ *
+ * @function module:netaddr.range#scoped
+ *
+ * @returns {?module:netaddr.range} A new CIDR instance representing the
+ * scoped address
+ *
+ * @example
+ * const addr = netaddr.new('fe80::1234');
+ * addr.scope = 2;
+ * addr.scoped();  // "fe80::1234%eth0"  (if index 2 is eth0)
+ */
+static uc_value_t *
+uc_netaddr_range_scoped(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p1 = get_this_range(vm);
+	range_t p2;
+
+	if (p1->family == AF_INET || p1->scope == 0)
+		return NULL;
+
+	p2 = *p1;
+
+	return new_range(vm, &amp;p2);
+}
+/**
+ * Derive the unscoped IPv6 address of this CIDR instance.
+ *
+ * Constructs a copy of the given IPv6 CIDR instance and drops the
+ * associated address scope information.
+ *
+ * This function has no effect on IPv4 instances or MAC address instances,
+ * it will return `null` in this case.
+ *
+ * @function module:netaddr.range#unscoped
+ *
+ * @returns {?module:netaddr.range} A new CIDR instance representing the
+ * unscoped IPv6 address
+ *
+ * @example
+ * const addr = netaddr.new('fe80::1234%eth0');
+ * addr.unscoped();  // "fe80::1234"
+ */
+static uc_value_t *
+uc_netaddr_range_unscoped(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p1 = get_this_range(vm);
+	range_t p2;
+
+	if (p1->family != AF_INET6)
+		return NULL;
+
+	p2 = *p1;
+	p2.scope = 0;
+
+	return new_range(vm, &amp;p2);
+}
+
+/**
+ * Derive the MAC address of this IPv6 link local CIDR instance.
+ *
+ * Constructs a CIDR instance representing the MAC address contained in the
+ * IPv6 link local address of this instance.
+ *
+ * This function has no effect on IPv4 instances, MAC address instances or
+ * IPv6 instances which are not a link local address, it will return `null`
+ * in this case.
+ *
+ * @function module:netaddr.range#tomac
+ *
+ * @returns {?module:netaddr.range} A new CIDR instance representing the MAC
+ * address if this instance is an IPv6 link local address, else `null`
+ *
+ * @example
+ * const addr = netaddr.new('fe80::6666:b3ff:fe47:e1b9');
+ * addr.tomac();  // "64:66:B3:47:E1:B9"
+ */
+static uc_value_t *
+uc_netaddr_range_tomac(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p1 = get_this_range(vm);
+	range_t p2 = { };
+
+	if (p1->family != AF_INET6 ||
+	    p1->addr.u8[0] != 0xFE ||
+	    p1->addr.u8[1] != 0x80 ||
+	    p1->addr.u8[2] != 0x00 ||
+	    p1->addr.u8[3] != 0x00 ||
+	    p1->addr.u8[4] != 0x00 ||
+	    p1->addr.u8[5] != 0x00 ||
+	    p1->addr.u8[6] != 0x00 ||
+	    p1->addr.u8[7] != 0x00 ||
+	    p1->addr.u8[11] != 0xFF ||
+	    p1->addr.u8[12] != 0xFE)
+		return NULL;
+
+	p2.scope = 0;
+	p2.family = AF_PACKET;
+	p2.bits = AF_BITS(AF_PACKET);
+	p2.addr.u8[0] = p1->addr.u8[8] ^ 0x02;
+	p2.addr.u8[1] = p1->addr.u8[9];
+	p2.addr.u8[2] = p1->addr.u8[10];
+	p2.addr.u8[3] = p1->addr.u8[13];
+	p2.addr.u8[4] = p1->addr.u8[14];
+	p2.addr.u8[5] = p1->addr.u8[15];
+
+	return new_range(vm, &amp;p2);
+}
+
+/**
+ * Derive the IPv6 link local address from this MAC address CIDR instance.
+ *
+ * Constructs a CIDR instance representing the IPv6 link local address of
+ * the MAC address represented by this instance.
+ *
+ * This function has no effect on IPv4 instances or IPv6 instances, it will
+ * return `null` in this case.
+ *
+ * @function module:netaddr.range#tolinklocal
+ *
+ * @returns {?module:netaddr.range} A new CIDR instance representing the IPv6
+ * link local address
+ *
+ * @example
+ * const mac = netaddr.new('64:66:B3:47:E1:B9');
+ * mac.tolinklocal();  // "fe80::6666:b3ff:fe47:e1b9"
+ */
+static uc_value_t *
+uc_netaddr_range_tolinklocal(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p1 = get_this_range(vm);
+	range_t p2 = { };
+
+	if (p1->family != AF_PACKET)
+		return NULL;
+
+	p2.scope = p1->scope;
+	p2.family = AF_INET6;
+	p2.bits = AF_BITS(AF_INET6);
+	p2.addr.u8[0] = 0xFE;
+	p2.addr.u8[1] = 0x80;
+	p2.addr.u8[2] = 0x00;
+	p2.addr.u8[3] = 0x00;
+	p2.addr.u8[4] = 0x00;
+	p2.addr.u8[5] = 0x00;
+	p2.addr.u8[6] = 0x00;
+	p2.addr.u8[7] = 0x00;
+	p2.addr.u8[8] = p1->addr.u8[0] ^ 0x02;
+	p2.addr.u8[9] = p1->addr.u8[1];
+	p2.addr.u8[10] = p1->addr.u8[2];
+	p2.addr.u8[11] = 0xFF;
+	p2.addr.u8[12] = 0xFE;
+	p2.addr.u8[13] = p1->addr.u8[3];
+	p2.addr.u8[14] = p1->addr.u8[4];
+	p2.addr.u8[15] = p1->addr.u8[5];
+
+	return new_range(vm, &amp;p2);
+}
+
+/**
+ * Test whether this CIDR contains the given range.
+ *
+ * @function module:netaddr.range#contains
+ *
+ * @param {string|module:netaddr.range} addr
+ * An `netaddr.range` instance or a string convertible by `new()` to test.
+ *
+ * @returns {?boolean} `true` if this instance fully contains the given
+ * address, else `false`. Returns `null` if the argument cannot be
+ * converted to a CIDR instance.
+ *
+ * @example
+ * const range = netaddr.new('10.24.0.0/255.255.0.0');
+ * range.contains('10.24.5.1');  // true
+ * range.contains('::1');        // false
+ * range.contains('10.0.0.0/8'); // false
+ *
+ * const range6 = netaddr.new('fe80::/10');
+ * range6.contains('fe80::221:63f:fe75:aa17/64');         // true
+ * range6.contains('fd9b:6b3:c5:0:221:63f:fe75:aa17/64'); // false
+ *
+ * const intel_macs = netaddr.MAC('C0:B6:F9:00:00:00/24');
+ * intel_macs.contains('C0:B6:F9:A3:C:11');  // true
+ * intel_macs.contains('64:66:B3:47:E1:B9'); // false
+ */
+static uc_value_t *
+uc_netaddr_range_contains(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p1 = get_this_range(vm);
+	range_t b = { };
+	range_t *p2;
+	range_t a = *p1;
+	bool rv = false;
+
+	p2 = check_range(vm, uc_fn_arg(0), &amp;b, 0);
+
+	if (p2 &amp;&amp; p1->family == p2->family &amp;&amp; p1->bits &lt;= p2->bits) {
+		apply_mask(&amp;a, p1->bits, false);
+		apply_mask(p2, p1->bits, false);
+
+		rv = !memcmp(&amp;a.addr.v6, &amp;p2->addr.v6, AF_BYTES(a.family));
+	}
+
+	return ucv_boolean_new(rv);
+}
+
+#define BYTE(a, i) \
+	(a)->addr.u8[AF_BYTES((a)->family) - (i) - 1]
+
+static uc_value_t *
+uc_netaddr_range_add_sub(uc_vm_t *vm, size_t nargs, bool add)
+{
+	range_t *p1 = get_this_range(vm);
+	uc_value_t *arg = uc_fn_arg(0);
+	range_t b = { };
+	range_t *p2;
+	range_t r = *p1;
+	bool inplace = (nargs > 1 &amp;&amp; ucv_type(uc_fn_arg(1)) == UC_BOOLEAN &amp;&amp;
+	                ucv_boolean_get(uc_fn_arg(1)));
+	bool ok = true;
+	uint8_t i, carry;
+	uint32_t a, b32;
+
+	p2 = check_range(vm, arg, &amp;b, p1->family);
+
+	if (p2) {
+		if (p1->family == AF_INET) {
+			a = ntohl(p1->addr.v4.s_addr);
+			b32 = ntohl(p2->addr.v4.s_addr);
+
+			/* would over/underflow */
+			if ((add &amp;&amp; (UINT32_MAX - a) &lt; b32) || (!add &amp;&amp; a &lt; b32)) {
+				r.addr.v4.s_addr = add ? htonl(0xFFFFFFFF) : htonl(0);
+				ok = false;
+			}
+			else {
+				r.addr.v4.s_addr = add ? htonl(a + b32) : htonl(a - b32);
+			}
+		}
+		else {
+			for (i = 0, carry = 0; i &lt; AF_BYTES(p1->family); i++) {
+				if (add) {
+					BYTE(&amp;r, i) = BYTE(p1, i) + BYTE(p2, i) + carry;
+					carry = (BYTE(p1, i) + BYTE(p2, i) + carry) / 256;
+				}
+				else {
+					BYTE(&amp;r, i) = (uint8_t)(BYTE(p1, i) - BYTE(p2, i) - carry);
+					carry = (BYTE(p1, i) &lt; (BYTE(p2, i) + carry));
+				}
+			}
+
+			/* would over/underflow */
+			if (carry) {
+				memset(&amp;r.addr.u8, add ? 0xFF : 0x00, AF_BYTES(r.family));
+				ok = false;
+			}
+		}
+	}
+	else if (ucv_type(arg) == UC_INTEGER || ucv_type(arg) == UC_DOUBLE) {
+		uint64_t n = ucv_to_unsigned(arg);
+
+		if (errno != 0 ||
+		    (AF_BITS(p1->family) &lt; 64
+		     &amp;&amp; n > (1ULL &lt;&lt; AF_BITS(p1->family)) - 1)) {
+			memset(&amp;r.addr.u8, add ? 0xFF : 0x00, AF_BYTES(p1->family));
+			ok = false;
+		}
+		else if (p1->family == AF_INET) {
+			uint32_t a = ntohl(p1->addr.v4.s_addr);
+
+			if ((add &amp;&amp; (UINT32_MAX - a) &lt; n) || (!add &amp;&amp; a &lt; n)) {
+				r.addr.v4.s_addr = add ? htonl(0xFFFFFFFF) : htonl(0);
+				ok = false;
+			}
+			else {
+				r.addr.v4.s_addr = add ? htonl(a + (uint32_t)n)
+				                       : htonl(a - (uint32_t)n);
+			}
+		}
+		else {
+			for (i = 0, carry = 0; i &lt; AF_BYTES(p1->family); i++) {
+				uint8_t d = (uint8_t)(n &amp; 0xFF);
+
+				if (add) {
+					BYTE(&amp;r, i) = BYTE(p1, i) + d + carry;
+					carry = (BYTE(p1, i) + d + carry) / 256;
+				}
+				else {
+					BYTE(&amp;r, i) = (uint8_t)(BYTE(p1, i) - d - carry);
+					carry = (BYTE(p1, i) &lt; (d + carry));
+				}
+
+				n >>= 8;
+			}
+
+			if (carry) {
+				memset(&amp;r.addr.u8, add ? 0xFF : 0x00, AF_BYTES(r.family));
+				ok = false;
+			}
+		}
+	}
+	else {
+		return NULL;
+	}
+
+	if (inplace) {
+		*p1 = r;
+		return ucv_boolean_new(ok);
+	}
+
+	return new_range(vm, &amp;r);
+}
+
+/**
+ * Add the given amount to this CIDR instance. If the result would overflow
+ * the maximum address space, the result is set to the highest possible
+ * address.
+ *
+ * @function module:netaddr.range#add
+ *
+ * @param {number|string|module:netaddr.range} amount
+ * A numeric value, an `netaddr.range` instance or a string convertible by
+ * `new()`.
+ *
+ * @param {boolean} [inplace]
+ * If `true`, modify this instance instead of returning a new derived CIDR
+ * instance.
+ *
+ * @returns {module:netaddr.range|boolean|null}
+ * When adding inplace: `true` if the addition succeeded or `false` when
+ * the addition overflowed. When deriving a new CIDR: a new instance
+ * representing the value of this instance plus the added amount or the
+ * highest possible address if the addition overflowed the available
+ * address space. Returns `null` if the amount argument is not
+ * convertible.
+ *
+ * @example
+ * const addr = netaddr.new('192.168.1.1/24');
+ * addr.add(250);          // "192.168.1.251/24"
+ * addr.add('0.0.99.0');   // "192.168.100.1/24"
+ *
+ * addr.add(256, true);    // true
+ * addr;                   // "192.168.2.1/24"
+ *
+ * addr.add('255.0.0.0', true);  // false (overflow)
+ * addr;                         // "255.255.255.255/24"
+ *
+ * const addr6 = netaddr.new('fe80::221:63f:fe75:aa17/64');
+ * addr6.add(256);          // "fe80::221:63f:fe75:ab17/64"
+ *
+ * const mac = netaddr.new('00:14:22:01:23:45');
+ * mac.add(256);            // "00:14:22:01:24:45"
+ */
+static uc_value_t *
+uc_netaddr_range_add(uc_vm_t *vm, size_t nargs)
+{
+	return uc_netaddr_range_add_sub(vm, nargs, true);
+}
+
+/**
+ * Subtract the given amount from this CIDR instance. If the result would
+ * underflow the lowest possible address, the result is set to the lowest
+ * possible address.
+ *
+ * @function module:netaddr.range#sub
+ *
+ * @param {number|string|module:netaddr.range} amount
+ * A numeric value, an `netaddr.range` instance or a string convertible by
+ * `new()`.
+ *
+ * @param {boolean} [inplace]
+ * If `true`, modify this instance instead of returning a new derived CIDR
+ * instance.
+ *
+ * @returns {module:netaddr.range|boolean|null}
+ * When subtracting inplace: `true` if the subtraction succeeded or
+ * `false` when the subtraction underflowed. When deriving a new CIDR: a
+ * new instance representing the value of this instance minus the
+ * subtracted amount or the lowest address if the subtraction underflowed.
+ * Returns `null` if the amount argument is not convertible.
+ *
+ * @example
+ * const addr = netaddr.new('192.168.1.1/24');
+ * addr.sub(256);         // "192.168.0.1/24"
+ * addr.sub('0.168.0.0'); // "192.0.1.1/24"
+ *
+ * addr.sub(256, true);   // true
+ * addr;                  // "192.168.0.1/24"
+ *
+ * addr.sub('255.0.0.0', true);  // false (underflow)
+ * addr;                         // "0.0.0.0/24"
+ *
+ * const addr6 = netaddr.new('fe80::221:63f:fe75:aa17/64');
+ * addr6.sub(256);         // "fe80::221:63f:fe75:aa17/64"
+ *
+ * const mac = netaddr.new('00:14:22:01:23:45');
+ * mac.sub(256);           // "00:14:22:01:22:45"
+ */
+static uc_value_t *
+uc_netaddr_range_sub(uc_vm_t *vm, size_t nargs)
+{
+	return uc_netaddr_range_add_sub(vm, nargs, false);
+}
+
+/**
+ * Derive the lowest usable host address of this CIDR instance.
+ *
+ * For IPv4 ranges this is the network address plus one, except for
+ * point-to-point `/31` ranges where the network address itself is the
+ * first usable host; for IPv6 ranges the lowest address in the range
+ * (the "network" address); for host addresses and MAC addresses the
+ * address itself.
+ *
+ * @function module:netaddr.range#minhost
+ *
+ * @returns {module:netaddr.range} A new CIDR instance representing the lowest
+ * usable host address of this instance
+ *
+ * @example
+ * const range = netaddr.new('172.19.37.45/16');
+ * range.minhost();  // "172.19.0.1"
+ */
+static uc_value_t *
+uc_netaddr_range_minhost(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p1 = get_this_range(vm);
+	range_t r = *p1;
+	uint8_t i, rest, carry;
+
+	apply_mask(&amp;r, r.bits, false);
+
+	/*
+	 * skip the network address for IPv4 ranges, except for /31
+	 * point-to-point ranges where the network address itself is the
+	 * first usable host
+	 */
+	if (r.family == AF_INET &amp;&amp;
+	    r.bits &lt; AF_BITS(AF_INET) &amp;&amp; r.bits != 31) {
+		r.bits = AF_BITS(AF_INET);
+		r.addr.v4.s_addr = htonl(ntohl(r.addr.v4.s_addr) + 1);
+	}
+	else if (r.family == AF_INET &amp;&amp; r.bits == 31) {
+		r.bits = AF_BITS(AF_INET);
+	}
+	else if (r.bits &lt; AF_BITS(r.family)) {
+		r.bits = AF_BITS(r.family);
+
+		for (i = 0, carry = 1; i &lt; AF_BYTES(r.family); i++) {
+			rest = (BYTE(&amp;r, i) + carry) > 255;
+			BYTE(&amp;r, i) += carry;
+			carry = rest;
+		}
+	}
+
+	return new_range(vm, &amp;r);
+}
+
+/**
+ * Derive the highest usable host address of this CIDR instance.
+ *
+ * For IPv4 ranges this is the broadcast address minus one, except for
+ * point-to-point `/31` ranges where the broadcast address itself is the
+ * last usable host; for IPv6 ranges the highest address in the range
+ * (the "broadcast" address); for host addresses and MAC addresses the
+ * address itself.
+ *
+ * @function module:netaddr.range#maxhost
+ *
+ * @returns {module:netaddr.range} A new CIDR instance representing the highest
+ * usable host address of this instance
+ *
+ * @example
+ * const range = netaddr.new('172.19.37.45/16');
+ * range.maxhost();  // "172.19.255.254"
+ */
+static uc_value_t *
+uc_netaddr_range_maxhost(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p1 = get_this_range(vm);
+	range_t r = *p1;
+
+	apply_mask(&amp;r, r.bits, true);
+
+	/*
+	 * skip the broadcast address for IPv4 ranges, except for /31
+	 * point-to-point ranges where the broadcast address itself is the
+	 * last usable host
+	 */
+	if (r.family == AF_INET &amp;&amp;
+	    r.bits &lt; AF_BITS(AF_INET) &amp;&amp; r.bits != 31) {
+		r.bits = AF_BITS(AF_INET);
+		r.addr.v4.s_addr = htonl(ntohl(r.addr.v4.s_addr) - 1);
+	}
+	else if (r.family == AF_INET &amp;&amp; r.bits == 31) {
+		r.bits = AF_BITS(AF_INET);
+	}
+	else {
+		r.bits = AF_BITS(r.family);
+	}
+
+	return new_range(vm, &amp;r);
+}
+
+/**
+ * Get the string representation of this CIDR instance.
+ *
+ * @function module:netaddr.range#string
+ *
+ * @returns {string} A string representation of this CIDR
+ *
+ * @example
+ * const addr = netaddr.new('172.19.37.45/16');
+ * addr.string();  // "172.19.37.45/16"
+ */
+static uc_value_t *
+uc_netaddr_range_string(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p = get_this_range(vm);
+
+	return format_range(vm, p);
+}
+
+/**
+ * Get the string representation of this CIDR instance.
+ *
+ * This method is invoked by `print()` and string interpolation to render
+ * the instance, see {@link module:netaddr.range#string|string()}.
+ *
+ * @function module:netaddr.range#tostring
+ *
+ * @returns {string} A string representation of this CIDR
+ *
+ * @example
+ * const addr = netaddr.new('172.19.37.45/16');
+ *
+ * print(addr);   // "172.19.37.45/16"
+ * `${addr}`;     // "172.19.37.45/16"
+ */
+static uc_value_t *
+uc_netaddr_range_tostring(uc_vm_t *vm, size_t nargs)
+{
+	return uc_netaddr_range_string(vm, nargs);
+}
+
+/*
+ * range property access (__get__ / __set__ metamethods)
+ */
+
+static int64_t
+key_to_index(uc_value_t *key)
+{
+	const char *k;
+	int64_t idx;
+	double d;
+	char *e;
+
+	if (ucv_type(key) == UC_DOUBLE) {
+		d = ucv_double_get(key);
+
+		if (trunc(d) != d)
+			return INT64_MIN;
+
+		return (int64_t)d;
+	}
+	else if (ucv_type(key) == UC_INTEGER) {
+		return ucv_int64_get(key);
+	}
+	else if (ucv_type(key) == UC_STRING) {
+		errno = 0;
+		k = ucv_string_get(key);
+		idx = strtoll(k, &amp;e, 0);
+
+		if (errno != 0 || e == k || *e != 0)
+			return INT64_MIN;
+
+		return idx;
+	}
+
+	return INT64_MIN;
+}
+
+static int64_t
+get_range_byte_index(range_t *p, uc_value_t *key)
+{
+	int64_t idx = key_to_index(key);
+	int64_t len = AF_BYTES(p->family);
+
+	if (idx == INT64_MIN)
+		return INT64_MIN;
+
+	if (idx &lt; 0)
+		idx += len;
+
+	if (idx &lt; 0 || idx >= len)
+		return INT64_MIN;
+
+	return idx;
+}
+
+/**
+ * Property access for `netaddr.range` instances.
+ *
+ * Invoked by the interpreter for property reads which do not match a
+ * method of this type, e.g. `addr[0]`, `addr.bits` or `addr.netmask`.
+ *
+ * The following keys are supported:
+ *
+ * | Key | Description |
+ * | --- | --- |
+ * | `0 .. n-1` | The individual address bytes, negative indices count from the end |
+ * | `bits` | The prefix size in bits |
+ * | `family` | The address family (`AF_INET`, `AF_INET6` or `AF_PACKET`) |
+ * | `scope` | The address scope (numeric interface index) for IPv6 and MAC instances |
+ * | `scopeid` | The address scope as an interface name (or `null` if not set) |
+ * | `netmask` | The netmask as a string, e.g. `"255.255.255.0"` |
+ * | `host` | The host address as a new range (full-width prefix) |
+ * | `mapped4` | The mapped IPv4 address as a new range (or `null` if not a mapped IPv4) |
+ * | `unscopename` | The interface name of the address scope (or an empty string) |
+ * | `size` | The number of addresses in this range (or `null` if too large) |
+ *
+ * @function module:netaddr.range#__get__
+ *
+ * @param {number|string} key
+ * The property key to read.
+ *
+ * @returns {number|string|null}
+ *
+ * @example
+ * const addr = netaddr.new('192.168.1.1/24');
+ *
+ * addr[0];       // 192
+ * addr[-1];      // 1
+ * addr.bits;     // 24
+ * addr.family;   // 2
+ * addr.netmask;  // "255.255.255.0"
+ * addr.host;     // netaddr.range "192.168.1.1" (full-width prefix)
+ * addr.size;     // 256
+ */
+static uc_value_t *
+uc_netaddr_range_get(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p = get_this_range(vm);
+	uc_value_t *key = uc_fn_arg(0);
+	int64_t idx;
+
+	if (ucv_type(key) == UC_INTEGER || ucv_type(key) == UC_DOUBLE) {
+		idx = get_range_byte_index(p, key);
+
+		return (idx == INT64_MIN) ? NULL
+		                          : ucv_int64_new(p->addr.u8[idx]);
+	}
+
+	if (ucv_type(key) == UC_STRING) {
+		const char *k = ucv_string_get(key);
+
+		if (!strcmp(k, "bits"))
+			return ucv_int64_new(p->bits);
+
+		if (!strcmp(k, "family")) {
+			switch (p->family) {
+			case AF_INET:
+				return ucv_int64_new(4);
+
+			case AF_INET6:
+				return ucv_int64_new(6);
+
+			default:
+				return ucv_int64_new(1);
+			}
+		}
+
+		if (!strcmp(k, "scope"))
+			return ucv_int64_new(p->scope);
+
+		if (!strcmp(k, "scopeid")) {
+			char ifname[IF_NAMESIZE];
+
+			if ((p->family == AF_INET6 || p->family == AF_PACKET) &amp;&amp;
+			    p->scope != 0 &amp;&amp;
+			    if_indextoname(p->scope, ifname) != NULL)
+				return ucv_string_new(ifname);
+
+			return NULL;
+		}
+
+		if (!strcmp(k, "netmask")) {
+			range_t m = { };
+
+			m.scope = 0;
+			m.bits = AF_BITS(p->family);
+			m.family = p->family;
+
+			memset(&amp;m.addr.v6.s6_addr, 0xFF, sizeof(m.addr.v6.s6_addr));
+			apply_mask(&amp;m, p->bits, false);
+
+			return format_range(vm, &amp;m);
+		}
+
+		if (!strcmp(k, "host")) {
+			range_t h = *p;
+
+			h.bits = AF_BITS(p->family);
+
+			return new_range(vm, &amp;h);
+		}
+
+		if (!strcmp(k, "mapped4")) {
+			if (!is_mapped4(p))
+				return NULL;
+
+			range_t m = { };
+
+			m.scope = 0;
+			m.family = AF_INET;
+			m.bits = (p->bits > AF_BITS(AF_INET)) ? AF_BITS(AF_INET) : p->bits;
+			memcpy(&amp;m.addr.v4, p->addr.v6.s6_addr + 12, sizeof(m.addr.v4));
+
+			return new_range(vm, &amp;m);
+		}
+
+		if (!strcmp(k, "unscopename")) {
+			char ifname[IF_NAMESIZE];
+
+			if (p->family == AF_INET || p->scope == 0 ||
+			    if_indextoname(p->scope, ifname) == NULL)
+				return ucv_string_new("");
+
+			return ucv_string_new(ifname);
+		}
+
+		if (!strcmp(k, "size")) {
+			int rest = AF_BITS(p->family) - p->bits;
+
+			/* 2^63 does not fit into a signed 64 bit integer */
+			if (rest &lt; 0 || rest >= 63)
+				return NULL;
+
+			return ucv_int64_new(1LL &lt;&lt; rest);
+		}
+	}
+
+	return NULL;
+}
+
+/**
+ * Property assignment for `netaddr.range` instances.
+ *
+ * Invoked by the interpreter for property writes, e.g. `addr[0] = 10` or
+ * `addr.bits = 16`.
+ *
+ * The following keys are supported:
+ *
+ * - Numeric keys write the individual address bytes (value range `0..255`,
+ *   negative indices count from the end of the address).
+ * - The `bits` key sets the prefix size in bits (`0..32` for IPv4,
+ *   `0..128` for IPv6, `0..48` for MAC addresses).
+ * - The `scope` key sets the address scope (numeric interface index)
+ *   for IPv6 and MAC address instances.
+ * - The `scopeid` key sets the address scope to the given interface
+ *   name or numeric index for IPv6 and MAC address instances.
+ * - The `host`, `mapped4`, `unscopename` and `size` keys are read-only
+ *   computed properties; writes to them are silently ignored.
+ *
+ * Writes to other keys or with invalid values are silently ignored.
+ *
+ * @function module:netaddr.range#__set__
+ *
+ * @param {number|string} key
+ * The property key to write.
+ *
+ * @param {number} value
+ * The value to assign.
+ *
+ * @returns {null} Always returns `null`, the return value is discarded by
+ * the interpreter.
+ *
+ * @example
+ * const addr = netaddr.new('192.168.1.1/24');
+ *
+ * addr[3] = 10;     // "192.168.1.10/24"
+ * addr[-1] = 10;    // "192.168.1.10/24"
+ * addr.bits = 16;   // "192.168.1.10/16"
+ */
+static uc_value_t *
+uc_netaddr_range_set(uc_vm_t *vm, size_t nargs)
+{
+	range_t *p = get_this_range(vm);
+	uc_value_t *key = uc_fn_arg(0);
+	uc_value_t *val = uc_fn_arg(1);
+	int64_t idx;
+	uint64_t n;
+
+	if (ucv_type(key) == UC_INTEGER || ucv_type(key) == UC_DOUBLE) {
+		if (ucv_type(val) != UC_INTEGER &amp;&amp; ucv_type(val) != UC_DOUBLE)
+			return NULL;
+
+		idx = get_range_byte_index(p, key);
+
+		if (idx == INT64_MIN)
+			return NULL;
+
+		n = ucv_to_unsigned(val);
+
+		if (errno == 0 &amp;&amp; n &lt;= 0xFF)
+			p->addr.u8[idx] = (uint8_t)n;
+	}
+	else if (ucv_type(key) == UC_STRING) {
+		const char *k = ucv_string_get(key);
+
+		if (!strcmp(k, "bits")) {
+			int16_t bits;
+
+			if (check_bits(vm, val, p, &amp;bits))
+				p->bits = bits;
+		}
+		else if (!strcmp(k, "scope")) {
+			if ((p->family == AF_INET6 || p->family == AF_PACKET) &amp;&amp;
+			    (ucv_type(val) == UC_INTEGER || ucv_type(val) == UC_DOUBLE)) {
+				n = ucv_to_unsigned(val);
+
+				if (errno == 0 &amp;&amp; n &lt;= UINT32_MAX)
+					p->scope = (uint32_t)n;
+			}
+		}
+		else if (!strcmp(k, "scopeid")) {
+			if (p->family == AF_INET6 || p->family == AF_PACKET) {
+				uint32_t idx = parse_scope(vm, val, p, false);
+
+				if (idx != (uint32_t)-1)
+					p->scope = idx;
+			}
+		}
+		/*
+		 * host, mapped4, unscopename and size are read-only computed
+		 * properties, writes to them are silently ignored
+		 */
+	}
+
+	return NULL;
+}
+
+static const uc_function_list_t range_fns[] = {
+	{ "is4", uc_netaddr_range_is4 },
+	{ "is4rfc1918", uc_netaddr_range_is4rfc1918 },
+	{ "is4linklocal", uc_netaddr_range_is4linklocal },
+	{ "is6", uc_netaddr_range_is6 },
+	{ "is6linklocal", uc_netaddr_range_is6linklocal },
+	{ "is6mapped4", uc_netaddr_range_is6mapped4 },
+	{ "ismac", uc_netaddr_range_ismac },
+	{ "ismaclocal", uc_netaddr_range_ismaclocal },
+	{ "ismacmcast", uc_netaddr_range_ismacmcast },
+	{ "lower", uc_netaddr_range_lower },
+	{ "higher", uc_netaddr_range_higher },
+	{ "equal", uc_netaddr_range_equal },
+	{ "prefix", uc_netaddr_range_prefix },
+	{ "network", uc_netaddr_range_network },
+	{ "mask", uc_netaddr_range_mask },
+	{ "broadcast", uc_netaddr_range_broadcast },
+	{ "scoped", uc_netaddr_range_scoped },
+	{ "unscoped", uc_netaddr_range_unscoped },
+	{ "tomac", uc_netaddr_range_tomac },
+	{ "tolinklocal", uc_netaddr_range_tolinklocal },
+	{ "contains", uc_netaddr_range_contains },
+	{ "add", uc_netaddr_range_add },
+	{ "sub", uc_netaddr_range_sub },
+	{ "minhost", uc_netaddr_range_minhost },
+	{ "maxhost", uc_netaddr_range_maxhost },
+	{ "string", uc_netaddr_range_string },
+	{ "tostring", uc_netaddr_range_tostring },
+	{ "__get__", uc_netaddr_range_get },
+	{ "__set__", uc_netaddr_range_set },
+};
+
+static const uc_function_list_t ip_fns[] = {
+	{ "new", uc_netaddr_new },
+	{ "v4", uc_netaddr_v4 },
+	{ "v6", uc_netaddr_v6 },
+	{ "mac", uc_netaddr_mac },
+	{ "checkv4", uc_netaddr_checkv4 },
+	{ "checkv6", uc_netaddr_checkv6 },
+	{ "checkmac", uc_netaddr_checkmac },
+};
+
+void
+uc_module_init(uc_vm_t *vm, uc_value_t *scope)
+{
+	uc_type_declare(vm, range_type, range_fns, free);
+	uc_function_list_register(scope, ip_fns);
+}
+</code></pre></article></section></div></div></div><div class="search-container" id="PkfLWpAbet" style="display:none"><div class="wrapper" id="iCxFxjkHbP"><button class="icon-button search-close-button" id="VjLlGakifb" aria-label="close search"><svg><use xlink:href="#close-icon"></use></svg></button><div class="search-box-c"><svg><use xlink:href="#search-icon"></use></svg> <input type="text" id="vpcKVYIppa" class="search-input" placeholder="Search..." autofocus></div><div class="search-result-c" id="fWwVHRuDuN"><span class="search-result-c-text">Type anything to view search result</span></div></div></div><div class="mobile-menu-icon-container"><button class="icon-button" id="mobile-menu" data-isopen="false" aria-label="menu"><svg><use xlink:href="#menu-icon"></use></svg></button> <button class="icon-button" id="mobile-toc" data-isopen="false" aria-label="toc"><svg><use xlink:href="#toc-icon"></use></svg></button></div><div id="mobile-sidebar" class="mobile-sidebar-container"><div class="mobile-sidebar-wrapper"><a href="/" class="sidebar-title sidebar-title-anchor">ucode Documentation</a><div class="mobile-nav-links"><div class="github-home navbar-item"><a id="" href="https://github.com/ucode-lang/ucode" target="">GitHub Project Page</a></div></div><div class="mobile-sidebar-items-c"><div class="sidebar-section-title with-arrow" data-isopen="false" id="DtFUGG9S48OF-nQ6JVzhu"><div>Tutorials</div><svg><use xlink:href="#down-icon"></use></svg></div><div class="sidebar-section-children-container"><div class="sidebar-section-children"><a href="tutorial-01-usage.html">Usage</a></div><div class="sidebar-section-children"><a href="tutorial-02-syntax.html">Syntax</a></div><div class="sidebar-section-children"><a href="tutorial-03-memory.html">Memory Management</a></div><div class="sidebar-section-children"><a href="tutorial-04-arrays.html">Working with Arrays</a></div><div class="sidebar-section-children"><a href="tutorial-05-dictionaries.html">Working with Dictionaries</a></div><div class="sidebar-section-children"><a href="tutorial-06-metamethods.html">Metamethods</a></div></div><div class="sidebar-section-title with-arrow" data-isopen="false" id="j0PNuOZSHIEjvhC6fFuGd"><div>Modules</div><svg><use xlink:href="#down-icon"></use></svg></div><div class="sidebar-section-children-container"><div class="sidebar-section-children"><a href="module-core.html">core</a></div><div class="sidebar-section-children"><a href="module-debug.html">debug</a></div><div class="sidebar-section-children"><a href="module-digest.html">digest</a></div><div class="sidebar-section-children"><a href="module-ffi.html">ffi</a></div><div class="sidebar-section-children"><a href="module-fs.html">fs</a></div><div class="sidebar-section-children"><a href="module-io.html">io</a></div><div class="sidebar-section-children"><a href="module-log.html">log</a></div><div class="sidebar-section-children"><a href="module-math.html">math</a></div><div class="sidebar-section-children"><a href="module-netaddr.html">netaddr</a></div><div class="sidebar-section-children"><a href="module-nl80211.html">nl80211</a></div><div class="sidebar-section-children"><a href="module-resolv.html">resolv</a></div><div class="sidebar-section-children"><a href="module-rtnl.html">rtnl</a></div><div class="sidebar-section-children"><a href="module-serial.html">serial</a></div><div class="sidebar-section-children"><a href="module-socket.html">socket</a></div><div class="sidebar-section-children"><a href="module-struct.html">struct</a></div><div class="sidebar-section-children"><a href="module-ubus.html">ubus</a></div><div class="sidebar-section-children"><a href="module-uci.html">uci</a></div><div class="sidebar-section-children"><a href="module-uloop.html">uloop</a></div><div class="sidebar-section-children"><a href="module-zlib.html">zlib</a></div></div></div><div class="mobile-navbar-actions"><div class="navbar-right-item"><button class="icon-button search-button" aria-label="open-search"><svg><use xlink:href="#search-icon"></use></svg></button></div><div class="navbar-right-item"><button class="icon-button theme-toggle" aria-label="toggle-theme"><svg><use class="theme-svg-use" xlink:href="#dark-theme-icon"></use></svg></button></div><div class="navbar-right-item"><button class="icon-button font-size" aria-label="change-font-size"><svg><use xlink:href="#font-size-icon"></use></svg></button></div><div class="navbar-right-item toc-item"><button class="icon-button toc" aria-label="open-table-of-contents"><svg><use xlink:href="#toc-icon"></use></svg></button></div></div></div></div><div id="mobile-tocbar" class="mobile-sidebar-container"><div class="mobile-sidebar-wrapper"><span class="sidebar-title">Table of Contents</span><div class="toc-contents"></div></div></div><script type="text/javascript" src="scripts/core.min.js"></script><script src="scripts/search.min.js" defer="defer"></script><script src="scripts/third-party/fuse.js" defer="defer"></script><script type="text/javascript">var tocbotInstance=tocbot.init({tocSelector:"#mobile-tocbar > .mobile-sidebar-wrapper > .toc-contents",contentSelector:".main-content",headingSelector:"h1, h2, h3",hasInnerContainers:!0,scrollContainer:".main-content",headingsOffset:130,onClick:(...e)=>{hideMobileMenu(),bringLinkToView(...e)},includeHtml:!0})</script></body></html>
