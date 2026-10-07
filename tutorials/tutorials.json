@@ -2,19 +2,13 @@
 	"01-usage": {
 		"title": "Usage"
 	},
-	"02-syntax": {
-		"title": "Syntax"
+	"02-arrays": {
+		"title": "Arrays"
 	},
-	"03-memory": {
-		"title": "Memory Management"
+	"03-objects": {
+		"title": "Objects"
 	},
-	"04-arrays": {
-		"title": "Working with Arrays"
-	},
-	"05-dictionaries": {
-		"title": "Working with Dictionaries"
-	},
-	"06-metamethods": {
+	"04-metamethods": {
 		"title": "Metamethods"
 	}
 }
