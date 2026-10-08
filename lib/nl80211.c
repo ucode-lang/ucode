@@ -2867,7 +2867,7 @@ uc_nl_request_common(struct nl_sock *sock, uc_vm_t *vm, size_t nargs)
 
 	switch (st.state) {
 	case STATE_REPLIED:
-		return st.res;
+		return st.res ? st.res : ucv_boolean_new(true);
 
 	case STATE_UNREPLIED:
 		return ucv_boolean_new(true);
