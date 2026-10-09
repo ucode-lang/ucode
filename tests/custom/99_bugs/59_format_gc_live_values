@@ -1,0 +1,285 @@
+Values being stringified must stay alive until the formatter is done with
+them. A tostring callback may run the garbage collector while an array or
+object is being traversed; the container under stringification is immutable
+for the duration of the traversal, so callbacks cannot unlink or modify it.
+
+-- Testcase --
+{%
+	let values = [
+		proto({}, { tostring: () => { gc(); return 'A'; } }),
+		{ b: 7 }
+	];
+
+	print(values, '\n');
+	print(values[1].b, '\n');
+%}
+-- End --
+
+-- Expect stdout --
+[ "A", { "b": 7 } ]
+7
+-- End --
+
+
+The same protection applies to object values.
+
+-- Testcase --
+{%
+	let values = {
+		a: proto({}, { tostring: () => { gc(); return 'A'; } }),
+		b: { n: 7 }
+	};
+
+	print(values, '\n');
+	print(values.b.n, '\n');
+%}
+-- End --
+
+-- Expect stdout --
+{ "a": "A", "b": { "n": 7 } }
+7
+-- End --
+
+
+Collection must preserve active cycle detection across nested formatting.
+Repeated references outside the active path are formatted independently.
+
+-- Testcase --
+{%
+	let shared = { n: 7 };
+	let values;
+	values = [
+		proto({}, { tostring: () => { gc(); return sprintf('%J', values); } }),
+		shared,
+		shared
+	];
+	push(values, values);
+
+	print(values, '\n');
+	gc();
+	print(values, '\n');
+	print(shared.n, '\n');
+%}
+-- End --
+
+-- Expect stdout --
+[ "null", { "n": 7 }, { "n": 7 }, null ]
+[ "null", { "n": 7 }, { "n": 7 }, null ]
+7
+-- End --
+
+
+Automatic collection from a converter must retain the remaining values too.
+
+-- Testcase --
+{%
+	let values = [
+		proto({}, { tostring: () => {
+			for (let i = 0; i < 100; i++) {
+				let garbage = {};
+				garbage.self = garbage;
+			}
+			return 'A';
+		} }),
+		{ b: 7 }
+	];
+
+	gc('start', 1);
+	print(values, '\n');
+	gc('stop');
+	print(values[1].b, '\n');
+%}
+-- End --
+
+-- Expect stdout --
+[ "A", { "b": 7 } ]
+7
+-- End --
+
+
+Containers under stringification are immutable. Converters attempting to
+unlink or modify them raise an exception and leave them intact, mutability
+is restored once formatting is done.
+
+-- Testcase --
+{%
+	let outer;
+	let inner = [
+		proto({}, { tostring: () => { outer[0] = null; gc(); return 'A'; } }),
+		{ b: 7 }
+	];
+	outer = [ inner ];
+
+	try {
+		sprintf('%J', outer);
+	}
+	catch (e) {
+		print(e.type, ': ', e.message, '\n');
+	}
+
+	assert(outer[0] === inner && length(inner) == 2);
+
+	let object;
+	object = {
+		a: proto({}, { tostring: () => { delete object.b; return 'A'; } }),
+		b: { n: 7 }
+	};
+
+	try {
+		sprintf('%J', object);
+	}
+	catch (e) {
+		print(e.type, ': ', e.message, '\n');
+	}
+
+	assert(object.b.n == 7);
+	push(outer, 2);
+	object.c = 3;
+	print(length(outer), ' ', join(',', keys(object)), '\n');
+%}
+-- End --
+
+-- Expect stdout --
+Type error: array value is immutable
+Type error: object value is immutable
+2 a,b,c
+-- End --
+
+
+Formatting state is released after a converter throws an exception.
+
+-- Testcase --
+{%
+	let values = [
+		proto({}, { tostring: () => { gc(); die('conversion failed'); } }),
+		{ b: 7 }
+	];
+
+	try {
+		sprintf('%J', values);
+	}
+	catch (e) {
+		assert(e.message == 'conversion failed');
+		print(e.message, '\n');
+	}
+
+	proto(values[0], {});
+	gc();
+	push(values, 8);
+	print(values, '\n');
+	print(values[1].b, '\n');
+%}
+-- End --
+
+-- Expect stdout --
+conversion failed
+[ { }, { "b": 7 }, 8 ]
+7
+-- End --
+
+
+Calling exit() from a converter discards the entire VM stack. The formatter
+must not pop its own slot afterwards and must not invoke further converters.
+
+-- Testcase --
+{%
+	print([
+		proto({}, { tostring: () => exit(3) }),
+		proto({}, { tostring: () => { print('converter called\n'); return 'B'; } }),
+		{ n: 7 }
+	], '\n');
+	print('not reached\n');
+%}
+-- End --
+
+-- Expect stdout --
+[ { }, { }, { "n": 7 } ]
+-- End (no-eol) --
+
+-- Expect exitcode --
+3
+-- End --
+
+
+A converter may modify its own value, only the containers being traversed
+are immutable.
+
+-- Testcase --
+{%
+	let calls = 0;
+	let value = proto({}, { tostring: function() {
+		calls++;
+		this.cache ??= 'cached';
+		return this.cache;
+	} });
+
+	print([ value, value ], '\n');
+	print(calls, ' ', value.cache, '\n');
+%}
+-- End --
+
+-- Expect stdout --
+[ "cached", "cached" ]
+2 cached
+-- End --
+
+
+Values which are constant on their own, such as module namespaces, are
+formatted normally, may be repeated and remain constant afterwards.
+
+-- Testcase --
+import * as mod from "./files/mod.uc";
+
+print([ mod, mod ], "\n");
+
+try {
+	mod.b = 2;
+}
+catch (e) {
+	print(e.message, "\n");
+}
+
+print(mod, "\n");
+-- End --
+
+-- File mod.uc --
+export let a = 1;
+-- End --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ { "a": 1 }, { "a": 1 } ]
+object value is immutable
+{ "a": 1 }
+-- End --
+
+
+Explicit collection still reclaims unreachable cycles inside a converter.
+
+-- Testcase --
+{%
+	let values = [
+		proto({}, { tostring: () => {
+			let garbage = {};
+			garbage.self = garbage;
+			garbage = null;
+			let before = gc('count');
+			gc();
+			assert(gc('count') < before);
+			return 'A';
+		} }),
+		{ b: 7 }
+	];
+
+	print(values, '\n');
+	print(values[1].b, '\n');
+%}
+-- End --
+
+-- Expect stdout --
+[ "A", { "b": 7 } ]
+7
+-- End --
