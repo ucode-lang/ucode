@@ -3542,7 +3542,8 @@ static const struct {
  * @param {number} flags - The netlink flags for the request
  * @param {*} payload - The payload data for the request
  *
- * @returns {?*} - The response data or null on error
+ * @returns {Object|boolean} Response object from the kernel, true for
+ *                           successful acknowledgment without data, or false on error
  *
  * @example
  * // Send a route request
@@ -3662,7 +3663,7 @@ uc_nl_request(uc_vm_t *vm, size_t nargs)
 
 	switch (st.state) {
 	case STATE_REPLIED:
-		return st.res;
+		return st.res ? st.res : ucv_boolean_new(true);
 
 	case STATE_UNREPLIED:
 		return ucv_boolean_new(true);
