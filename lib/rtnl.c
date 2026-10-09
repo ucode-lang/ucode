@@ -3531,6 +3531,33 @@ static const struct {
 	{ RTM_FAM(RTM_GETNETCONF), &netconf_msg },
 };
 
+static void
+uc_nl_sock_close(void)
+{
+	if (sock) {
+		nl_socket_free(sock);
+		sock = NULL;
+	}
+}
+
+/**
+ * Close the cached request socket.
+ *
+ * Closes and resets the internal netlink socket used by request().
+ * Subsequent calls to request() will open a new socket.
+ *
+ * @function module:rtnl#close
+ *
+ * @returns {boolean} - Always returns true
+ */
+static uc_value_t *
+uc_nl_close(uc_vm_t *vm, size_t nargs)
+{
+	uc_nl_sock_close();
+
+	return ucv_boolean_new(true);
+}
+
 /**
  * Send a netlink request.
  *
@@ -3591,8 +3618,10 @@ uc_nl_request(uc_vm_t *vm, size_t nargs)
 
 		err = nl_connect(sock, NETLINK_ROUTE);
 
-		if (err != 0)
+		if (err != 0) {
+			uc_nl_sock_close();
 			err_return(err, NULL);
+		}
 	}
 
 	optlen = sizeof(enable);
@@ -3603,8 +3632,10 @@ uc_nl_request(uc_vm_t *vm, size_t nargs)
 	if (!!(flagval & NLM_F_STRICT_CHK) != enable) {
 		enable = !!(flagval & NLM_F_STRICT_CHK);
 
-		if (setsockopt(sock->s_fd, SOL_NETLINK, NETLINK_GET_STRICT_CHK, &enable, sizeof(enable)) < 0)
+		if (setsockopt(sock->s_fd, SOL_NETLINK, NETLINK_GET_STRICT_CHK, &enable, sizeof(enable)) < 0) {
+			uc_nl_sock_close();
 			err_return(nl_syserr2nlerr(errno), "Unable to toggle NETLINK_GET_STRICT_CHK");
+		}
 	}
 
 	msg = nlmsg_alloc_simple(ucv_int64_get(cmd), NLM_F_REQUEST | (flagval & ~NLM_F_STRICT_CHK));
@@ -3644,7 +3675,14 @@ uc_nl_request(uc_vm_t *vm, size_t nargs)
 	nl_cb_set(cb, NL_CB_ACK, NL_CB_CUSTOM, cb_done, &st);
 	nl_cb_err(cb, NL_CB_CUSTOM, cb_error, &st);
 
-	nl_send_auto_complete(sock, msg);
+	err = nl_send_auto_complete(sock, msg);
+
+	if (err < 0) {
+		nlmsg_free(msg);
+		nl_cb_put(cb);
+		uc_nl_sock_close();
+		err_return(err, NULL);
+	}
 
 	do {
 		err = nl_recvmsgs(sock, cb);
@@ -3668,9 +3706,11 @@ uc_nl_request(uc_vm_t *vm, size_t nargs)
 		return ucv_boolean_new(true);
 
 	case STATE_ERROR:
+		uc_nl_sock_close();
 		return ucv_boolean_new(false);
 
 	default:
+		uc_nl_sock_close();
 		set_error(NLE_FAILURE, "Interrupted reply");
 
 		return ucv_boolean_new(false);
@@ -4939,6 +4979,7 @@ register_constants(uc_vm_t *vm, uc_value_t *scope)
 };
 
 static const uc_function_list_t global_fns[] = {
+	{ "close",		uc_nl_close },
 	{ "error",		uc_nl_error },
 	{ "request",	uc_nl_request },
 	{ "listener",	uc_nl_listener },
