@@ -1357,7 +1357,7 @@ uc_compiler_emit_variable_rw(uc_compiler_t *compiler, uc_value_t *varname, uc_to
 		insn = sub_insn ? I_ULOC : (type ? I_SLOC : I_LLOC);
 
 		if (insn != I_LLOC && constant)
-			uc_compiler_syntax_error(compiler, 0,
+			uc_compiler_syntax_error(compiler, compiler->parser->prev.pos,
 				"Invalid assignment to constant '%s'", ucv_string_get(varname));
 
 		uc_compiler_emit_insn(compiler, compiler->parser->prev.pos, insn);
@@ -2082,12 +2082,13 @@ uc_compiler_compile_funcexpr_common(uc_compiler_t *compiler, bool require_name)
 				compiler->locals.entries[slot].funcstub = false;
 			}
 			else {
-				slot = uc_compiler_declare_local(compiler, name, false);
+				slot = uc_compiler_declare_local(compiler, name,
+					uc_compiler_is_strict(compiler));
 
 				if (slot == -1)
 					uc_compiler_initialize_local(compiler);
 				else if (compiler->locals.entries[slot].constant)
-					uc_compiler_syntax_error(compiler, compiler->parser->prev.pos,
+					uc_compiler_syntax_error(compiler, pos,
 						"Redeclaration of constant '%s'",
 						ucv_string_get(name));
 			}
