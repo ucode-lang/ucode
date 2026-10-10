@@ -957,7 +957,8 @@ uc_compiler_declare_local(uc_compiler_t *compiler, uc_value_t *name, bool consta
 			}
 
 			if (uc_compiler_is_strict(compiler)) {
-				uc_compiler_syntax_error(compiler, 0, "Variable '%s' redeclared", str2);
+				uc_compiler_syntax_error(compiler, compiler->parser->prev.pos,
+					"Variable '%s' redeclared", str2);
 
 				return -1;
 			}
