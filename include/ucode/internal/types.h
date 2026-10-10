@@ -115,6 +115,14 @@ typedef struct {
 } uc_object_iterator_t;
 
 
+/* Stringification state (internal) */
+
+typedef struct uc_stringify_frame {
+	struct uc_stringify_frame *prev;
+	uc_value_t *value;
+} uc_stringify_frame_t;
+
+
 /* Program structure */
 
 uc_declare_vector(uc_sources_t, uc_source_t *);
@@ -139,6 +147,9 @@ typedef struct {
 
 	/* Object iteration */
 	uc_list_t object_iterators;
+
+	/* Innermost container under stringification */
+	uc_stringify_frame_t *stringify_frame;
 } uc_thread_context_t;
 
 __hidden uc_thread_context_t *uc_thread_context_get(void);

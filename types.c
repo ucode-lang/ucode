@@ -1929,6 +1929,10 @@ void
 ucv_to_stringbuf_formatted(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, size_t depth, char pad_char, size_t pad_size)
 {
 	bool json = (pad_char != '\0');
+	uc_stringify_frame_t frame;
+	uc_thread_context_t *tctx = NULL;
+	bool constant = false, rooted = false;
+	size_t stackoff = 0;
 	uc_resource_type_t *restype;
 	uc_cfunction_t *cfunction;
 	uc_function_t *function;
@@ -1947,8 +1951,33 @@ ucv_to_stringbuf_formatted(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, size
 		return;
 	}
 
-	if (vm != NULL && ucv_call_tostring(vm, pb, uv, json))
-		return;
+	/* arrays, objects and resources dispatch tostring callbacks which may
+	 * unlink the value or run the collector, keep it on the stack meanwhile.
+	 * Once exit() has been called, no callbacks are invoked anymore */
+	if (vm != NULL && vm->exception.type != EXCEPTION_EXIT &&
+	    (ucv_type(uv) == UC_ARRAY || ucv_type(uv) == UC_OBJECT ||
+	     ucv_type(uv) == UC_RESOURCE)) {
+		stackoff = vm->stack.count;
+		uc_vm_stack_push(vm, ucv_get(uv));
+		rooted = true;
+	}
+
+	if (rooted && ucv_call_tostring(vm, pb, uv, json))
+		goto out;
+
+	/* callbacks invoked while traversing a container must not modify it and
+	 * the collector must not stop at its cycle detection mark, so make the
+	 * container constant and register it for the collector meanwhile */
+	if (rooted && ucv_type(uv) != UC_RESOURCE) {
+		tctx = uc_thread_context_get();
+
+		constant = ucv_is_constant(uv);
+		ucv_set_constant(uv, true);
+
+		frame.prev = tctx->stringify_frame;
+		frame.value = uv;
+		tctx->stringify_frame = &frame;
+	}
 
 	ucv_set_mark(uv);
 
@@ -2164,6 +2193,18 @@ ucv_to_stringbuf_formatted(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, size
 	}
 
 	ucv_clear_mark(uv);
+
+	if (tctx != NULL) {
+		tctx->stringify_frame = frame.prev;
+
+		if (!constant)
+			ucv_set_constant(uv, false);
+	}
+
+out:
+	/* exit() within a callback discards the entire stack, our slot included */
+	if (rooted && vm->stack.count > stackoff)
+		ucv_put(uc_vm_stack_pop(vm));
 }
 
 static char *
@@ -3042,6 +3083,7 @@ ucv_key_rawdelete(uc_vm_t *vm, uc_value_t *scope, uc_value_t *key)
 static void
 ucv_gc_common(uc_vm_t *vm, bool final)
 {
+	uc_stringify_frame_t *frame, *frames = uc_thread_context_get()->stringify_frame;
 	uc_weakref_t *ref, *tmp;
 	uc_value_t *val;
 	size_t i;
@@ -3053,6 +3095,11 @@ ucv_gc_common(uc_vm_t *vm, bool final)
 		return;
 
 	if (!final) {
+		/* containers under stringification carry a cycle detection mark,
+		 * clear it so that the mark phase descends into them */
+		for (frame = frames; frame; frame = frame->prev)
+			ucv_clear_mark(frame->value);
+
 		/* mark reachable objects */
 		ucv_gc_mark(vm->globals);
 		ucv_gc_mark(vm->registry);
@@ -3105,6 +3152,11 @@ ucv_gc_common(uc_vm_t *vm, bool final)
 			free(val);
 		}
 	}
+
+	/* restore the cycle detection marks */
+	if (!final)
+		for (frame = frames; frame; frame = frame->prev)
+			ucv_set_mark(frame->value);
 }
 
 void
