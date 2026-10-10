@@ -1,0 +1,46 @@
+This testcase verifies that the module namespace returned by a runtime
+`import()` expression is correctly mapped to the module exports even if
+the imported module itself statically imports another module at compile
+time.
+
+Since statically imported modules are linked into the same program, the
+exports of the innermost modules occupy the leading slots of the shared
+export table. The namespace builder must honor the per-source export
+offset to avoid pairing symbol names with the wrong export entries.
+
+The dependency tree is:
+
+root
+ + import: outer
+    + import: inner
+
+-- Testcase --
+mod = import('outer');
+
+printf("m = %.J\n", mod);
+-- End --
+
+-- File inner.uc --
+export const value = 5;
+export function fn() { return "inner"; }
+-- End --
+
+-- File outer.uc --
+import { fn } from 'inner';
+
+const local = fn();
+
+export function f() { return "f"; }
+export function g() { return "g"; }
+-- End --
+
+-- Args --
+-R -L files/
+-- End --
+
+-- Expect stdout --
+m = {
+	"f": "function f() { ... }",
+	"g": "function g() { ... }"
+}
+-- End --
