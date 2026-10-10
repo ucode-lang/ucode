@@ -1,0 +1,32 @@
+A finished task closes its pipes whether or not it has an input callback,
+so that no descriptor is left open after the task completed.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+	import * as fs from 'fs';
+
+	uloop.init();
+
+	let outputs = [];
+	let base = length(fs.lsdir('/dev/fd'));
+
+	uloop.task((pipe) => 'output only', (msg) => push(outputs, msg));
+	uloop.task((pipe) => 'no callbacks');
+	uloop.task((pipe) => pipe.receive(), (msg) => push(outputs, msg), () => 'input');
+
+	uloop.timer(500, () => uloop.end());
+	uloop.run();
+
+	printf("%s\nopen: %d\n", join('\n', sort(outputs)),
+		length(fs.lsdir('/dev/fd')) - base);
+
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+input
+output only
+open: 0
+-- End --

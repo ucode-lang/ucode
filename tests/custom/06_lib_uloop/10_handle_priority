@@ -1,0 +1,50 @@
+A handle may watch for priority data alone. TCP urgent data invokes the
+callback with ULOOP_PRIORITY.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+	import * as socket from 'socket';
+
+	if (!uloop.ULOOP_PRIORITY)
+		exit(77);
+
+	uloop.init();
+
+	let hints = { family: socket.AF_INET, socktype: socket.SOCK_STREAM };
+	let server = socket.listen('127.0.0.1', 0, hints);
+	let client = socket.connect('127.0.0.1', server.sockname().port, hints);
+	let peer = server.accept();
+	let events = [];
+
+	let handle = uloop.handle(peer, (flags) => {
+		push(events, [ flags, peer.recv(1, socket.MSG_OOB) ]);
+	}, uloop.ULOOP_PRIORITY);
+
+	printf("handle: %s\n", type(handle));
+
+	client.send('!', socket.MSG_OOB);
+
+	uloop.timer(100, () => uloop.end());
+	uloop.run();
+
+	printf("events: %J\n", events);
+	printf("priority: %s\n", events[0]?.[0] == uloop.ULOOP_PRIORITY);
+
+	handle.delete();
+	peer.close();
+	client.close();
+	server.close();
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+handle: resource
+events: [ [ 128, "!" ] ]
+priority: true
+-- End --
+
+-- Platform --
+Linux
+-- End --

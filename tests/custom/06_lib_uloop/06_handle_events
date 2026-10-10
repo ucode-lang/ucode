@@ -1,0 +1,38 @@
+A handle requires at least one IO event. Mode flags alone, such as
+ULOOP_ERROR_CB, register nothing with uloop and are rejected.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+	import * as fs from 'fs';
+
+	uloop.init();
+
+	let fds = fs.pipe();
+	let base = gc('count');
+
+	for (let flags in [ uloop.ULOOP_ERROR_CB, uloop.ULOOP_EDGE_TRIGGER ]) {
+		let handle = uloop.handle(fds[0], () => null, flags);
+
+		printf("flags %d: %s, %s\n", flags, type(handle), uloop.error());
+	}
+
+	let handle = uloop.handle(fds[0], () => null,
+		uloop.ULOOP_READ | uloop.ULOOP_ERROR_CB);
+
+	printf("read: %s\n", type(handle));
+	handle.delete();
+	handle = null;
+
+	printf("alive: %d\n", gc('count') - base);
+
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+flags 64: (null), Invalid argument
+flags 4: (null), Invalid argument
+read: resource
+alive: 0
+-- End --

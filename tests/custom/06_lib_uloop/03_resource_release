@@ -1,0 +1,129 @@
+Handles, processes and tasks are released by the event loop once they are
+finished, so that they are freed as soon as the script drops its last
+reference. A handle is finished when the event loop removes its descriptor
+after an error or hangup.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+	import * as fs from 'fs';
+
+	uloop.init();
+
+	let events = [];
+	let base = gc('count');
+
+	let fds = fs.pipe();
+
+	uloop.handle(fds[0], (flags, eof, error) => {
+		push(events, sprintf("handle error=%s", error));
+	}, uloop.ULOOP_READ);
+
+	fds[1].close();
+	fds = null;
+
+	uloop.process('/bin/sh', ['-c', 'exit 3'], null, (status) => {
+		push(events, sprintf("process status=%d", status));
+	});
+
+	uloop.task(
+		(pipe) => 'done',
+		(msg) => push(events, sprintf("task output=%s", msg))
+	);
+
+	uloop.timer(500, () => uloop.end());
+	uloop.run();
+
+	printf("%s\nalive: %d\n", join('\n', sort(events)), gc('count') - base);
+
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+handle error=true
+process status=3
+task output=done
+alive: 0
+-- End --
+
+
+Handles registered with ULOOP_ERROR_CB stay registered until they are
+deleted, even without a script reference.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+	import * as fs from 'fs';
+
+	uloop.init();
+
+	let base = gc('count');
+	let fds = fs.pipe();
+	let hangups = 0;
+
+	uloop.handle(fds[0], function(flags, eof, error) {
+		if (error && ++hangups == 2)
+			this.delete();
+	}, uloop.ULOOP_READ | uloop.ULOOP_ERROR_CB);
+
+	fds[1].close();
+	fds = null;
+
+	uloop.timer(50, () => uloop.end());
+
+	printf("registered: %s\n", gc('count') > base);
+	uloop.run();
+	printf("hangups: %d, alive: %d\n", hangups, gc('count') - base);
+
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+registered: true
+hangups: 2, alive: 0
+-- End --
+
+
+Intervals and signal handlers stay registered until they are cancelled or
+deleted, even without a script reference.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+
+	if (!uloop.interval || !uloop.signal)
+		exit(77);
+
+	uloop.init();
+
+	let base = gc('count');
+	let ticks = 0;
+
+	uloop.interval(1, function() {
+		if (++ticks == 3)
+			this.cancel();
+	});
+
+	uloop.signal('SIGUSR1', function() {
+		printf("signal received\n");
+		this.delete();
+		uloop.end();
+	});
+
+	uloop.timer(50, () => system('kill -USR1 $PPID'));
+
+	printf("registered: %s\n", gc('count') > base);
+	uloop.run();
+	printf("ticks: %d, alive: %d\n", ticks, gc('count') - base);
+
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+registered: true
+signal received
+ticks: 3, alive: 0
+-- End --

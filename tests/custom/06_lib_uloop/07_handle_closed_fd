@@ -1,0 +1,108 @@
+Deleting a handle whose descriptor the script already closed must not
+unregister another handle that now uses the same descriptor number.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+	import * as fs from 'fs';
+
+	uloop.init();
+
+	let old_fds = fs.pipe();
+	let old_handle = uloop.handle(old_fds[0], () => null, uloop.ULOOP_READ);
+	let old_fileno = old_handle.fileno();
+
+	old_fds[0].close();
+	old_fds[1].close();
+
+	let fds = fs.pipe();
+	let events = 0;
+
+	uloop.handle(fds[0], function(flags) {
+		events++;
+		fds[0].read(1);
+		uloop.end();
+	}, uloop.ULOOP_READ);
+
+	printf("reused: %s\n", fds[0].fileno() == old_fileno);
+	printf("delete: %s\n", old_handle.delete());
+
+	fds[1].write('x');
+	fds[1].flush();
+
+	uloop.timer(200, () => uloop.end());
+	uloop.run();
+
+	printf("events: %d\n", events);
+
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+reused: true
+delete: true
+events: 1
+-- End --
+
+
+If another descriptor keeps the file open after the script closed its own,
+the file stays in epoll. Deleting or dropping the handle, or an error on the
+file, must not leave the event loop with a pointer to a freed handle.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+	import * as fs from 'fs';
+
+	uloop.init();
+
+	function run(msecs) {
+		uloop.timer(msecs, () => uloop.end());
+		uloop.run();
+	}
+
+	let fds = fs.pipe();
+	let events = 0;
+	let handle = uloop.handle(fds[0], () => events++, uloop.ULOOP_READ);
+
+	fs.dup2(fds[0].fileno(), 100);
+	fds[0].close();
+
+	printf("delete: %s\n", handle.delete());
+	handle = null;
+	gc();
+
+	fds[1].write('x');
+	fds[1].flush();
+	run(20);
+
+	fds = fs.pipe();
+	handle = uloop.handle(fds[0], () => events++, uloop.ULOOP_READ);
+
+	fs.dup2(fds[0].fileno(), 101);
+	fds[0].close();
+	fds[1].close();
+	run(20);
+
+	handle = null;
+	gc();
+	run(20);
+
+	printf("events: %d\n", events);
+
+	fs.fdopen(100).close();
+	fs.fdopen(101).close();
+
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+delete: true
+events: 1
+-- End --
+
+-- Platform --
+Linux
+-- End --

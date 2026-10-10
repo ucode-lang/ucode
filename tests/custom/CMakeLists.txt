@@ -4,7 +4,7 @@ ADD_TEST(
 	WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 )
 SET_PROPERTY(TEST custom APPEND PROPERTY ENVIRONMENT
-	"UCODE_BIN=valgrind --quiet --leak-check=full --suppressions=${CMAKE_CURRENT_SOURCE_DIR}/valgrind.supp $<TARGET_FILE:ucode>"
+	"UCODE_BIN=valgrind --quiet --leak-check=full --child-silent-after-fork=yes --suppressions=${CMAKE_CURRENT_SOURCE_DIR}/valgrind.supp $<TARGET_FILE:ucode>"
 	"UCODE_LIB=${CMAKE_BINARY_DIR}"
 )
 

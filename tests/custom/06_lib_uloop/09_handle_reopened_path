@@ -1,0 +1,179 @@
+A script may close the descriptor of a handle without delete() and open the
+same path again, which yields the same number, device and inode. If another
+descriptor keeps the old file open, epoll still reports it to the old
+handle. Deleting the old handle must not remove the epoll entry of a handle
+that watches the new file.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+	import * as fs from 'fs';
+
+	uloop.init();
+
+	let dir = fs.mkdtemp();
+	let path = dir + '/fifo';
+
+	system(['mkfifo', path]);
+
+	function run() {
+		uloop.timer(50, () => uloop.end());
+		uloop.run();
+	}
+
+	let old_file = fs.open(path, 'r+');
+	let old_fileno = old_file.fileno();
+	let old_events = 0;
+	let old_handle = uloop.handle(old_file, () => old_events++, uloop.ULOOP_READ);
+
+	fs.dup2(old_fileno, 100);
+	old_file.close();
+
+	let file = fs.open(path, 'r+');
+	let events = 0;
+
+	uloop.handle(file, () => {
+		events++;
+		file.read(1);
+	}, uloop.ULOOP_READ);
+
+	printf("reused: %s\n", file.fileno() == old_fileno);
+	printf("delete: %s\n", old_handle.delete());
+
+	for (let i = 0; i < 2; i++) {
+		file.write('x');
+		file.flush();
+		run();
+	}
+
+	printf("old handle: %d, new handle: %d\n", old_events, events);
+
+	fs.fdopen(100).close();
+	fs.unlink(path);
+	fs.rmdir(dir);
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+reused: true
+delete: true
+old handle: 0, new handle: 2
+-- End --
+
+
+When nothing watches the reopened file, the removal of the old handle fails.
+The old handle must then stay allocated for epoll, which still reports the
+old file to it.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+	import * as fs from 'fs';
+
+	uloop.init();
+
+	let dir = fs.mkdtemp();
+	let path = dir + '/fifo';
+
+	system(['mkfifo', path]);
+
+	let old_file = fs.open(path, 'r+');
+	let old_fileno = old_file.fileno();
+	let old_events = 0;
+	let handle = uloop.handle(old_file, () => old_events++, uloop.ULOOP_READ);
+
+	fs.dup2(old_fileno, 100);
+	old_file.close();
+
+	let file = fs.open(path, 'r+');
+
+	printf("reused: %s\n", file.fileno() == old_fileno);
+	printf("delete: %s\n", handle.delete());
+
+	handle = null;
+	gc();
+
+	file.write('x');
+	file.flush();
+	uloop.timer(50, () => uloop.end());
+	uloop.run();
+
+	printf("old handle: %d\n", old_events);
+
+	fs.fdopen(100).close();
+	file.close();
+	fs.unlink(path);
+	fs.rmdir(dir);
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+reused: true
+delete: true
+old handle: 0
+-- End --
+
+-- Platform --
+Linux
+-- End --
+
+
+uloop.done() closes the epoll instance, so it unregisters all handles.
+They are released like handles whose descriptor uloop removed, and a
+later delete() does not touch a new registration of the same number.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+	import * as fs from 'fs';
+
+	uloop.init();
+
+	let fds = fs.pipe();
+	let base = gc('count');
+	let old_handle = uloop.handle(fds[0], () => null, uloop.ULOOP_READ);
+
+	uloop.handle(fds[1], () => null, uloop.ULOOP_WRITE);
+	uloop.done();
+	gc();
+
+	printf("dropped handle freed: %s\n", gc('count') - base == 2);
+
+	uloop.init();
+
+	let events = 0;
+
+	uloop.handle(fds[0], () => {
+		events++;
+		fds[0].read(1);
+		uloop.end();
+	}, uloop.ULOOP_READ);
+
+	printf("delete: %s\n", old_handle.delete());
+	old_handle = null;
+
+	fds[1].write('x');
+	fds[1].flush();
+
+	let timer = uloop.timer(200, () => uloop.end());
+
+	uloop.run();
+	timer.cancel();
+	timer = null;
+
+	printf("events: %d\n", events);
+
+	uloop.done();
+	gc();
+	printf("alive: %d\n", gc('count') - base);
+%}
+-- End --
+
+-- Expect stdout --
+dropped handle freed: true
+delete: true
+events: 1
+alive: 0
+-- End --

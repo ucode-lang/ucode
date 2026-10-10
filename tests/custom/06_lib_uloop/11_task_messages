@@ -1,0 +1,128 @@
+The event loop keeps running while a task works between two messages.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+
+	uloop.init();
+
+	let ticks = 0, seen = [];
+
+	uloop.timer(20, function() {
+		ticks++;
+		this.set(20);
+	});
+
+	uloop.task(
+		(pipe) => {
+			pipe.send('first');
+			sleep(500);
+
+			return 'last';
+		},
+		(msg) => {
+			push(seen, [ msg, ticks ]);
+
+			if (msg == 'last')
+				uloop.end();
+		}
+	);
+
+	uloop.timer(2000, () => uloop.end());
+	uloop.run();
+
+	printf("%J, ticks between: %s\n", map(seen, (m) => m[0]),
+		seen[1][1] - seen[0][1] >= 10);
+
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+[ "first", "last" ], ticks between: true
+-- End --
+
+
+Messages larger than the pipe buffer arrive in several reads and are
+delivered complete and in order.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+
+	uloop.init();
+
+	let seen = [];
+
+	uloop.task(
+		(pipe) => {
+			pipe.send(sprintf('%102400s', ''));
+			pipe.send('sentinel');
+			pipe.send(sprintf('%4194304s', ''));
+
+			return 'done';
+		},
+		(msg) => {
+			push(seen, length(msg) > 8 ? length(msg) : msg);
+
+			if (msg == 'done')
+				uloop.end();
+		}
+	);
+
+	uloop.timer(5000, () => uloop.end());
+	uloop.run();
+
+	printf("%J\n", seen);
+
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+[ 102400, "sentinel", 4194304, "done" ]
+-- End --
+
+
+Input requests are answered in order with the output messages around them.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+
+	uloop.init();
+
+	let seen = [], n = 0;
+
+	uloop.task(
+		(pipe) => {
+			let got = [];
+
+			for (let i = 0; i < 3; i++) {
+				pipe.send(`out ${i}`);
+				push(got, pipe.receive());
+			}
+
+			return got;
+		},
+		(msg) => {
+			push(seen, msg);
+
+			if (type(msg) == 'array')
+				uloop.end();
+		},
+		() => `in ${n++}`
+	);
+
+	uloop.timer(2000, () => uloop.end());
+	uloop.run();
+
+	printf("%J\n", seen);
+
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+[ "out 0", "out 1", "out 2", [ "in 0", "in 1", "in 2" ] ]
+-- End --

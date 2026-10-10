@@ -1,0 +1,272 @@
+A timer that expired without being rearmed is released by the event loop,
+so that it is freed together with its callback as soon as the script drops
+its last reference, without an explicit cancel().
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+
+	uloop.init();
+
+	let fired = 0;
+
+	function on_fire() {
+		if (++fired == 20)
+			uloop.end();
+	}
+
+	let base = gc('count');
+
+	for (let i = 0; i < 20; i++)
+		uloop.timer(1, on_fire);
+
+	printf("armed: %d\n", gc('count') - base);
+	uloop.run();
+	printf("fired: %d, alive: %d\n", fired, gc('count') - base);
+
+	base = gc('count');
+
+	for (let i = 0; i < 10; i++)
+		uloop.timer(1, () => fired++);
+
+	uloop.timer(5, () => uloop.end());
+	uloop.run();
+	printf("fired: %d, alive with closures: %d\n", fired, gc('count') - base);
+
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+armed: 20
+fired: 20, alive: 0
+fired: 30, alive with closures: 0
+-- End --
+
+
+A retained timer stays usable after it expired: set() rearms it, and
+cancel() reports that nothing was pending.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+
+	uloop.init();
+
+	let count = 0;
+	let timer = uloop.timer(1, () => {
+		count++;
+		uloop.end();
+	});
+
+	uloop.run();
+	printf("count: %d, remaining: %d\n", count, timer.remaining());
+
+	printf("set: %s\n", timer.set(1));
+	uloop.run();
+	printf("count: %d, remaining: %d\n", count, timer.remaining());
+
+	printf("cancel: %s\n", timer.cancel());
+	printf("cancel again: %s\n", timer.cancel());
+
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+count: 1, remaining: -1
+set: true
+count: 2, remaining: -1
+cancel: false
+cancel again: false
+-- End --
+
+
+A timer rearmed from its own callback stays alive without a script
+reference, as does an unarmed timer that is armed later. The instance is
+freed once it expires without being rearmed.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+
+	uloop.init();
+
+	let rearmed = 0, deferred = 0;
+	let base = gc('count');
+
+	uloop.timer(1, function() {
+		if (++rearmed < 3)
+			this.set(1);
+	});
+
+	uloop.timer(null, function() {
+		deferred++;
+	}).set(2);
+
+	uloop.timer(20, () => uloop.end());
+	uloop.run();
+
+	printf("rearmed: %d, deferred: %d, alive: %d\n", rearmed, deferred,
+		gc('count') - base);
+
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+rearmed: 3, deferred: 1, alive: 0
+-- End --
+
+
+A timer cancelled from its own callback, or by a script that still calls
+cancel() after the timer fired, behaves as before.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+
+	uloop.init();
+
+	let results = [];
+	let base = gc('count');
+	let timer;
+
+	timer = uloop.timer(1, () => {
+		push(results, timer.cancel());
+	});
+
+	uloop.timer(5, () => uloop.end());
+	uloop.run();
+
+	push(results, timer.cancel());
+	timer = null;
+
+	printf("cancel: %J, alive: %d\n", results, gc('count') - base);
+
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+cancel: [ false, false ], alive: 0
+-- End --
+
+
+Calling set() without a timeout or with null disarms the timer and keeps
+its callback, so that it can be rearmed. A disarmed timer is freed as soon
+as the script drops it. A negative timeout expires the timer on the next
+event loop iteration, as in libubox.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+
+	uloop.init();
+
+	let fired = 0;
+	let base = gc('count');
+	let timer = uloop.timer(1, () => fired++);
+
+	printf("set(null): %s, remaining: %d\n", timer.set(null), timer.remaining());
+	uloop.timer(10, () => uloop.end());
+	uloop.run();
+	printf("fired: %d\n", fired);
+
+	timer.set(1);
+	printf("set(): %s, remaining: %d\n", timer.set(), timer.remaining());
+	uloop.timer(10, () => uloop.end());
+	uloop.run();
+	printf("fired: %d\n", fired);
+
+	printf("set(-1): %s\n", timer.set(-1));
+	uloop.timer(10, () => uloop.end());
+	uloop.run();
+	printf("fired: %d\n", fired);
+
+	timer.set(1000);
+	timer.set();
+	timer = null;
+	printf("alive: %d\n", gc('count') - base);
+
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+set(null): true, remaining: -1
+fired: 0
+set(): true, remaining: -1
+fired: 0
+set(-1): true
+fired: 1
+alive: 0
+-- End --
+
+
+Calling set() on an interval without a value or with null disarms it and
+keeps its callback, so that it can be rearmed. A zero or negative interval
+is rejected by set() and leaves a new interval unarmed.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+
+	if (!uloop.interval)
+		exit(77);
+
+	uloop.init();
+
+	function run(msecs) {
+		uloop.timer(msecs, () => uloop.end());
+		uloop.run();
+	}
+
+	let ticks = 0;
+	let interval = uloop.interval(5, () => ticks++);
+
+	run(30);
+	printf("armed: %s\n", ticks > 0);
+
+	printf("set(): %s, remaining: %d\n", interval.set(), interval.remaining());
+	ticks = 0;
+	run(30);
+	printf("ticks: %d\n", ticks);
+
+	printf("set(-1): %s, %s\n", interval.set(-1), uloop.error());
+	printf("set(0): %s, %s\n", interval.set(0), uloop.error());
+
+	interval.set(5);
+	run(30);
+	printf("rearmed: %s\n", ticks > 0);
+
+	printf("set(null): %s, remaining: %d\n", interval.set(null),
+		interval.remaining());
+	ticks = 0;
+	run(30);
+	printf("ticks: %d\n", ticks);
+
+	interval.cancel();
+
+	interval = uloop.interval(0, () => ticks++);
+	printf("interval(0): remaining: %d\n", interval.remaining());
+	run(30);
+	printf("ticks: %d\n", ticks);
+
+	interval.cancel();
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+armed: true
+set(): true, remaining: -1
+ticks: 0
+set(-1): (null), Invalid argument
+set(0): (null), Invalid argument
+rearmed: true
+set(null): true, remaining: -1
+ticks: 0
+interval(0): remaining: -1
+ticks: 0
+-- End --

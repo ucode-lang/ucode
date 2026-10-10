@@ -1,0 +1,89 @@
+A task output callback may run a nested event loop, during which the task
+finishes and is released. The outer callback invocation must still be able
+to complete.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+
+	uloop.init();
+
+	let seen = [];
+
+	uloop.task(
+		(pipe) => {
+			pipe.send('first');
+
+			return 'last';
+		},
+		(msg) => {
+			push(seen, msg);
+
+			if (msg != 'first')
+				return;
+
+			uloop.timer(300, () => uloop.end());
+			uloop.run();
+		}
+	);
+
+	uloop.timer(600, () => uloop.end());
+	uloop.run();
+
+	printf("%J\n", seen);
+
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+[ "first", "last" ]
+-- End --
+
+
+A finished task is released even if its output callback throws an
+exception for every message.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+	import * as fs from 'fs';
+
+	uloop.init();
+
+	let errors = 0;
+
+	uloop.guard(function() {
+		errors++;
+	});
+
+	// the VM retains the most recent exception, so raise one beforehand
+	uloop.timer(1, () => die('warm-up'));
+	uloop.timer(10, () => uloop.end());
+	uloop.run();
+
+	let base_fds = length(fs.lsdir('/dev/fd'));
+	let base = gc('count');
+
+	uloop.task(
+		(pipe) => {
+			pipe.send('first');
+
+			return 'last';
+		},
+		(msg) => die(msg)
+	);
+
+	uloop.timer(300, () => uloop.end());
+	uloop.run();
+
+	printf("errors: %d, alive: %d, open: %d\n", errors,
+		gc('count') - base, length(fs.lsdir('/dev/fd')) - base_fds);
+
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+errors: 3, alive: 0, open: 0
+-- End --
