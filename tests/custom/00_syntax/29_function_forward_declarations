@@ -271,3 +271,27 @@ In line 4, byte 5:
 	foo++;
 %}
 -- End --
+
+
+13. In strict mode, a regular function may not be declared twice in the
+same scope.
+
+-- Expect stderr --
+Syntax error: Variable 'foo' redeclared
+In line 6, byte 11:
+
+ `    function foo() { return 2; }`
+  Near here ---^
+
+
+-- End --
+
+-- Testcase --
+{%
+	"use strict";
+
+	function foo() { return 1; }
+
+	function foo() { return 2; }
+%}
+-- End --
