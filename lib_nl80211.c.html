@@ -1,6 +1,6 @@
 <!DOCTYPE html><html lang="en" style="font-size:16px"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link type="text/css" rel="stylesheet" href="ucode.css"><title>Source: lib/nl80211.c</title><!--[if lt IE 9]>
       <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
-    <![endif]--><script src="scripts/third-party/hljs.js" defer="defer"></script><script src="scripts/third-party/hljs-line-num.js" defer="defer"></script><script src="scripts/third-party/popper.js" defer="defer"></script><script src="scripts/third-party/tippy.js" defer="defer"></script><script src="scripts/third-party/tocbot.min.js"></script><script>var baseURL="/",locationPathname="";baseURL=(locationPathname=document.location.pathname).substr(0,locationPathname.lastIndexOf("/")+1)</script><link rel="stylesheet" href="styles/clean-jsdoc-theme.min.css"><svg aria-hidden="true" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="display:none"><defs><symbol id="copy-icon" viewbox="0 0 488.3 488.3"><g><path d="M314.25,85.4h-227c-21.3,0-38.6,17.3-38.6,38.6v325.7c0,21.3,17.3,38.6,38.6,38.6h227c21.3,0,38.6-17.3,38.6-38.6V124    C352.75,102.7,335.45,85.4,314.25,85.4z M325.75,449.6c0,6.4-5.2,11.6-11.6,11.6h-227c-6.4,0-11.6-5.2-11.6-11.6V124    c0-6.4,5.2-11.6,11.6-11.6h227c6.4,0,11.6,5.2,11.6,11.6V449.6z"/><path d="M401.05,0h-227c-21.3,0-38.6,17.3-38.6,38.6c0,7.5,6,13.5,13.5,13.5s13.5-6,13.5-13.5c0-6.4,5.2-11.6,11.6-11.6h227    c6.4,0,11.6,5.2,11.6,11.6v325.7c0,6.4-5.2,11.6-11.6,11.6c-7.5,0-13.5,6-13.5,13.5s6,13.5,13.5,13.5c21.3,0,38.6-17.3,38.6-38.6    V38.6C439.65,17.3,422.35,0,401.05,0z"/></g></symbol><symbol id="search-icon" viewBox="0 0 512 512"><g><g><path d="M225.474,0C101.151,0,0,101.151,0,225.474c0,124.33,101.151,225.474,225.474,225.474    c124.33,0,225.474-101.144,225.474-225.474C450.948,101.151,349.804,0,225.474,0z M225.474,409.323    c-101.373,0-183.848-82.475-183.848-183.848S124.101,41.626,225.474,41.626s183.848,82.475,183.848,183.848    S326.847,409.323,225.474,409.323z"/></g></g><g><g><path d="M505.902,476.472L386.574,357.144c-8.131-8.131-21.299-8.131-29.43,0c-8.131,8.124-8.131,21.306,0,29.43l119.328,119.328    c4.065,4.065,9.387,6.098,14.715,6.098c5.321,0,10.649-2.033,14.715-6.098C514.033,497.778,514.033,484.596,505.902,476.472z"/></g></g></symbol><symbol id="font-size-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M11.246 15H4.754l-2 5H.6L7 4h2l6.4 16h-2.154l-2-5zm-.8-2L8 6.885 5.554 13h4.892zM21 12.535V12h2v8h-2v-.535a4 4 0 1 1 0-6.93zM19 18a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></symbol><symbol id="add-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M11 11V5h2v6h6v2h-6v6h-2v-6H5v-2z"/></symbol><symbol id="minus-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M5 11h14v2H5z"/></symbol><symbol id="dark-theme-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M10 7a7 7 0 0 0 12 4.9v.1c0 5.523-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2h.1A6.979 6.979 0 0 0 10 7zm-6 5a8 8 0 0 0 15.062 3.762A9 9 0 0 1 8.238 4.938 7.999 7.999 0 0 0 4 12z"/></symbol><symbol id="light-theme-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M12 18a6 6 0 1 1 0-12 6 6 0 0 1 0 12zm0-2a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM11 1h2v3h-2V1zm0 19h2v3h-2v-3zM3.515 4.929l1.414-1.414L7.05 5.636 5.636 7.05 3.515 4.93zM16.95 18.364l1.414-1.414 2.121 2.121-1.414 1.414-2.121-2.121zm2.121-14.85l1.414 1.415-2.121 2.121-1.414-1.414 2.121-2.121zM5.636 16.95l1.414 1.414-2.121 2.121-1.414-1.414 2.121-2.121zM23 11v2h-3v-2h3zM4 11v2H1v-2h3z"/></symbol><symbol id="reset-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M18.537 19.567A9.961 9.961 0 0 1 12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10c0 2.136-.67 4.116-1.81 5.74L17 12h3a8 8 0 1 0-2.46 5.772l.997 1.795z"/></symbol><symbol id="down-icon" viewBox="0 0 16 16"><path fill-rule="evenodd" clip-rule="evenodd" d="M12.7803 6.21967C13.0732 6.51256 13.0732 6.98744 12.7803 7.28033L8.53033 11.5303C8.23744 11.8232 7.76256 11.8232 7.46967 11.5303L3.21967 7.28033C2.92678 6.98744 2.92678 6.51256 3.21967 6.21967C3.51256 5.92678 3.98744 5.92678 4.28033 6.21967L8 9.93934L11.7197 6.21967C12.0126 5.92678 12.4874 5.92678 12.7803 6.21967Z"></path></symbol><symbol id="codepen-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M16.5 13.202L13 15.535v3.596L19.197 15 16.5 13.202zM14.697 12L12 10.202 9.303 12 12 13.798 14.697 12zM20 10.869L18.303 12 20 13.131V10.87zM19.197 9L13 4.869v3.596l3.5 2.333L19.197 9zM7.5 10.798L11 8.465V4.869L4.803 9 7.5 10.798zM4.803 15L11 19.131v-3.596l-3.5-2.333L4.803 15zM4 13.131L5.697 12 4 10.869v2.262zM2 9a1 1 0 0 1 .445-.832l9-6a1 1 0 0 1 1.11 0l9 6A1 1 0 0 1 22 9v6a1 1 0 0 1-.445.832l-9 6a1 1 0 0 1-1.11 0l-9-6A1 1 0 0 1 2 15V9z"/></symbol><symbol id="close-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M12 10.586l4.95-4.95 1.414 1.414-4.95 4.95 4.95 4.95-1.414 1.414-4.95-4.95-4.95 4.95-1.414-1.414 4.95-4.95-4.95-4.95L7.05 5.636z"/></symbol><symbol id="menu-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M3 4h18v2H3V4zm0 7h18v2H3v-2zm0 7h18v2H3v-2z"/></symbol><symbol id="toc-icon" viewBox="0 0 460 460"><path d="M40 70a40 40 0 1 0 0 80 40 40 0 0 0 0-80zM40 190a40 40 0 1 0 0 80 40 40 0 0 0 0-80zM40 310a40 40 0 1 0 0 80 40 40 0 0 0 0-80zM430 80H145a30 30 0 0 0 0 60h285a30 30 0 0 0 0-60zM430 200H145a30 30 0 0 0 0 60h285a30 30 0 0 0 0-60zM430 320H145a30 30 0 0 0 0 60h285a30 30 0 0 0 0-60z"/></symbol></defs></svg></head><body data-theme="light"><div class="sidebar-container"><div class="sidebar" id="sidebar"><a href="/" class="sidebar-title sidebar-title-anchor">ucode Documentation</a><div class="sidebar-items-container"><div class="sidebar-section-title with-arrow" data-isopen="false" id="tT4xtNeXwcaaJFIDOCLSI"><div>Tutorials</div><svg><use xlink:href="#down-icon"></use></svg></div><div class="sidebar-section-children-container"><div class="sidebar-section-children"><a href="tutorial-01-usage.html">Usage</a></div><div class="sidebar-section-children"><a href="tutorial-02-arrays.html">Arrays</a></div><div class="sidebar-section-children"><a href="tutorial-03-objects.html">Objects</a></div><div class="sidebar-section-children"><a href="tutorial-04-metamethods.html">Metamethods</a></div></div><div class="sidebar-section-title with-arrow" data-isopen="false" id="3hCPdeso2ol73i-YEd_XZ"><div>Modules</div><svg><use xlink:href="#down-icon"></use></svg></div><div class="sidebar-section-children-container"><div class="sidebar-section-children"><a href="module-core.html">core</a></div><div class="sidebar-section-children"><a href="module-debug.html">debug</a></div><div class="sidebar-section-children"><a href="module-digest.html">digest</a></div><div class="sidebar-section-children"><a href="module-ffi.html">ffi</a></div><div class="sidebar-section-children"><a href="module-fs.html">fs</a></div><div class="sidebar-section-children"><a href="module-io.html">io</a></div><div class="sidebar-section-children"><a href="module-log.html">log</a></div><div class="sidebar-section-children"><a href="module-math.html">math</a></div><div class="sidebar-section-children"><a href="module-netaddr.html">netaddr</a></div><div class="sidebar-section-children"><a href="module-nl80211.html">nl80211</a></div><div class="sidebar-section-children"><a href="module-resolv.html">resolv</a></div><div class="sidebar-section-children"><a href="module-rtnl.html">rtnl</a></div><div class="sidebar-section-children"><a href="module-serial.html">serial</a></div><div class="sidebar-section-children"><a href="module-socket.html">socket</a></div><div class="sidebar-section-children"><a href="module-struct.html">struct</a></div><div class="sidebar-section-children"><a href="module-ubus.html">ubus</a></div><div class="sidebar-section-children"><a href="module-uci.html">uci</a></div><div class="sidebar-section-children"><a href="module-uloop.html">uloop</a></div><div class="sidebar-section-children"><a href="module-zlib.html">zlib</a></div></div></div></div></div><div class="navbar-container" id="VuAckcnZhf"><nav class="navbar"><div class="navbar-left-items"><div class="github-home navbar-item"><a id="" href="https://github.com/ucode-lang/ucode" target="">GitHub Project Page</a></div></div><div class="navbar-right-items"><div class="navbar-right-item"><button class="icon-button search-button" aria-label="open-search"><svg><use xlink:href="#search-icon"></use></svg></button></div><div class="navbar-right-item"><button class="icon-button theme-toggle" aria-label="toggle-theme"><svg><use class="theme-svg-use" xlink:href="#dark-theme-icon"></use></svg></button></div><div class="navbar-right-item"><button class="icon-button font-size" aria-label="change-font-size"><svg><use xlink:href="#font-size-icon"></use></svg></button></div><div class="navbar-right-item toc-item"><button class="icon-button toc" aria-label="open-table-of-contents"><svg><use xlink:href="#toc-icon"></use></svg></button></div></div><nav></nav></nav></div><div class="body-wrapper"><div class="main-content"><div class="main-wrapper"><section id="source-page" class="source-page"><header><h1 id="title" class="has-anchor">lib_nl80211.c</h1></header><article><pre class="prettyprint source lang-js"><code>/*
+    <![endif]--><script src="scripts/third-party/hljs.js" defer="defer"></script><script src="scripts/third-party/hljs-line-num.js" defer="defer"></script><script src="scripts/third-party/popper.js" defer="defer"></script><script src="scripts/third-party/tippy.js" defer="defer"></script><script src="scripts/third-party/tocbot.min.js"></script><script>var baseURL="/",locationPathname="";baseURL=(locationPathname=document.location.pathname).substr(0,locationPathname.lastIndexOf("/")+1)</script><link rel="stylesheet" href="styles/clean-jsdoc-theme.min.css"><svg aria-hidden="true" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="display:none"><defs><symbol id="copy-icon" viewbox="0 0 488.3 488.3"><g><path d="M314.25,85.4h-227c-21.3,0-38.6,17.3-38.6,38.6v325.7c0,21.3,17.3,38.6,38.6,38.6h227c21.3,0,38.6-17.3,38.6-38.6V124    C352.75,102.7,335.45,85.4,314.25,85.4z M325.75,449.6c0,6.4-5.2,11.6-11.6,11.6h-227c-6.4,0-11.6-5.2-11.6-11.6V124    c0-6.4,5.2-11.6,11.6-11.6h227c6.4,0,11.6,5.2,11.6,11.6V449.6z"/><path d="M401.05,0h-227c-21.3,0-38.6,17.3-38.6,38.6c0,7.5,6,13.5,13.5,13.5s13.5-6,13.5-13.5c0-6.4,5.2-11.6,11.6-11.6h227    c6.4,0,11.6,5.2,11.6,11.6v325.7c0,6.4-5.2,11.6-11.6,11.6c-7.5,0-13.5,6-13.5,13.5s6,13.5,13.5,13.5c21.3,0,38.6-17.3,38.6-38.6    V38.6C439.65,17.3,422.35,0,401.05,0z"/></g></symbol><symbol id="search-icon" viewBox="0 0 512 512"><g><g><path d="M225.474,0C101.151,0,0,101.151,0,225.474c0,124.33,101.151,225.474,225.474,225.474    c124.33,0,225.474-101.144,225.474-225.474C450.948,101.151,349.804,0,225.474,0z M225.474,409.323    c-101.373,0-183.848-82.475-183.848-183.848S124.101,41.626,225.474,41.626s183.848,82.475,183.848,183.848    S326.847,409.323,225.474,409.323z"/></g></g><g><g><path d="M505.902,476.472L386.574,357.144c-8.131-8.131-21.299-8.131-29.43,0c-8.131,8.124-8.131,21.306,0,29.43l119.328,119.328    c4.065,4.065,9.387,6.098,14.715,6.098c5.321,0,10.649-2.033,14.715-6.098C514.033,497.778,514.033,484.596,505.902,476.472z"/></g></g></symbol><symbol id="font-size-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M11.246 15H4.754l-2 5H.6L7 4h2l6.4 16h-2.154l-2-5zm-.8-2L8 6.885 5.554 13h4.892zM21 12.535V12h2v8h-2v-.535a4 4 0 1 1 0-6.93zM19 18a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/></symbol><symbol id="add-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M11 11V5h2v6h6v2h-6v6h-2v-6H5v-2z"/></symbol><symbol id="minus-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M5 11h14v2H5z"/></symbol><symbol id="dark-theme-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M10 7a7 7 0 0 0 12 4.9v.1c0 5.523-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2h.1A6.979 6.979 0 0 0 10 7zm-6 5a8 8 0 0 0 15.062 3.762A9 9 0 0 1 8.238 4.938 7.999 7.999 0 0 0 4 12z"/></symbol><symbol id="light-theme-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M12 18a6 6 0 1 1 0-12 6 6 0 0 1 0 12zm0-2a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM11 1h2v3h-2V1zm0 19h2v3h-2v-3zM3.515 4.929l1.414-1.414L7.05 5.636 5.636 7.05 3.515 4.93zM16.95 18.364l1.414-1.414 2.121 2.121-1.414 1.414-2.121-2.121zm2.121-14.85l1.414 1.415-2.121 2.121-1.414-1.414 2.121-2.121zM5.636 16.95l1.414 1.414-2.121 2.121-1.414-1.414 2.121-2.121zM23 11v2h-3v-2h3zM4 11v2H1v-2h3z"/></symbol><symbol id="reset-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M18.537 19.567A9.961 9.961 0 0 1 12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10c0 2.136-.67 4.116-1.81 5.74L17 12h3a8 8 0 1 0-2.46 5.772l.997 1.795z"/></symbol><symbol id="down-icon" viewBox="0 0 16 16"><path fill-rule="evenodd" clip-rule="evenodd" d="M12.7803 6.21967C13.0732 6.51256 13.0732 6.98744 12.7803 7.28033L8.53033 11.5303C8.23744 11.8232 7.76256 11.8232 7.46967 11.5303L3.21967 7.28033C2.92678 6.98744 2.92678 6.51256 3.21967 6.21967C3.51256 5.92678 3.98744 5.92678 4.28033 6.21967L8 9.93934L11.7197 6.21967C12.0126 5.92678 12.4874 5.92678 12.7803 6.21967Z"></path></symbol><symbol id="codepen-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M16.5 13.202L13 15.535v3.596L19.197 15 16.5 13.202zM14.697 12L12 10.202 9.303 12 12 13.798 14.697 12zM20 10.869L18.303 12 20 13.131V10.87zM19.197 9L13 4.869v3.596l3.5 2.333L19.197 9zM7.5 10.798L11 8.465V4.869L4.803 9 7.5 10.798zM4.803 15L11 19.131v-3.596l-3.5-2.333L4.803 15zM4 13.131L5.697 12 4 10.869v2.262zM2 9a1 1 0 0 1 .445-.832l9-6a1 1 0 0 1 1.11 0l9 6A1 1 0 0 1 22 9v6a1 1 0 0 1-.445.832l-9 6a1 1 0 0 1-1.11 0l-9-6A1 1 0 0 1 2 15V9z"/></symbol><symbol id="close-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M12 10.586l4.95-4.95 1.414 1.414-4.95 4.95 4.95 4.95-1.414 1.414-4.95-4.95-4.95 4.95-1.414-1.414 4.95-4.95-4.95-4.95L7.05 5.636z"/></symbol><symbol id="menu-icon" viewBox="0 0 24 24"><path fill="none" d="M0 0h24v24H0z"/><path d="M3 4h18v2H3V4zm0 7h18v2H3v-2zm0 7h18v2H3v-2z"/></symbol><symbol id="toc-icon" viewBox="0 0 460 460"><path d="M40 70a40 40 0 1 0 0 80 40 40 0 0 0 0-80zM40 190a40 40 0 1 0 0 80 40 40 0 0 0 0-80zM40 310a40 40 0 1 0 0 80 40 40 0 0 0 0-80zM430 80H145a30 30 0 0 0 0 60h285a30 30 0 0 0 0-60zM430 200H145a30 30 0 0 0 0 60h285a30 30 0 0 0 0-60zM430 320H145a30 30 0 0 0 0 60h285a30 30 0 0 0 0-60z"/></symbol></defs></svg></head><body data-theme="light"><div class="sidebar-container"><div class="sidebar" id="sidebar"><a href="/" class="sidebar-title sidebar-title-anchor">ucode Documentation</a><div class="sidebar-items-container"><div class="sidebar-section-title with-arrow" data-isopen="false" id="yA9a9N_vmJ6RW7D6ydIKx"><div>Tutorials</div><svg><use xlink:href="#down-icon"></use></svg></div><div class="sidebar-section-children-container"><div class="sidebar-section-children"><a href="tutorial-01-usage.html">Usage</a></div><div class="sidebar-section-children"><a href="tutorial-02-arrays.html">Arrays</a></div><div class="sidebar-section-children"><a href="tutorial-03-objects.html">Objects</a></div><div class="sidebar-section-children"><a href="tutorial-04-metamethods.html">Metamethods</a></div></div><div class="sidebar-section-title with-arrow" data-isopen="false" id="jxMbpoVI8pxseawkROavh"><div>Modules</div><svg><use xlink:href="#down-icon"></use></svg></div><div class="sidebar-section-children-container"><div class="sidebar-section-children"><a href="module-core.html">core</a></div><div class="sidebar-section-children"><a href="module-debug.html">debug</a></div><div class="sidebar-section-children"><a href="module-digest.html">digest</a></div><div class="sidebar-section-children"><a href="module-ffi.html">ffi</a></div><div class="sidebar-section-children"><a href="module-fs.html">fs</a></div><div class="sidebar-section-children"><a href="module-io.html">io</a></div><div class="sidebar-section-children"><a href="module-log.html">log</a></div><div class="sidebar-section-children"><a href="module-math.html">math</a></div><div class="sidebar-section-children"><a href="module-netaddr.html">netaddr</a></div><div class="sidebar-section-children"><a href="module-nl80211.html">nl80211</a></div><div class="sidebar-section-children"><a href="module-resolv.html">resolv</a></div><div class="sidebar-section-children"><a href="module-rtnl.html">rtnl</a></div><div class="sidebar-section-children"><a href="module-serial.html">serial</a></div><div class="sidebar-section-children"><a href="module-socket.html">socket</a></div><div class="sidebar-section-children"><a href="module-struct.html">struct</a></div><div class="sidebar-section-children"><a href="module-ubus.html">ubus</a></div><div class="sidebar-section-children"><a href="module-uci.html">uci</a></div><div class="sidebar-section-children"><a href="module-uloop.html">uloop</a></div><div class="sidebar-section-children"><a href="module-zlib.html">zlib</a></div></div></div></div></div><div class="navbar-container" id="VuAckcnZhf"><nav class="navbar"><div class="navbar-left-items"><div class="github-home navbar-item"><a id="" href="https://github.com/ucode-lang/ucode" target="">GitHub Project Page</a></div></div><div class="navbar-right-items"><div class="navbar-right-item"><button class="icon-button search-button" aria-label="open-search"><svg><use xlink:href="#search-icon"></use></svg></button></div><div class="navbar-right-item"><button class="icon-button theme-toggle" aria-label="toggle-theme"><svg><use class="theme-svg-use" xlink:href="#dark-theme-icon"></use></svg></button></div><div class="navbar-right-item"><button class="icon-button font-size" aria-label="change-font-size"><svg><use xlink:href="#font-size-icon"></use></svg></button></div><div class="navbar-right-item toc-item"><button class="icon-button toc" aria-label="open-table-of-contents"><svg><use xlink:href="#toc-icon"></use></svg></button></div></div><nav></nav></nav></div><div class="body-wrapper"><div class="main-content"><div class="main-wrapper"><section id="source-page" class="source-page"><header><h1 id="title" class="has-anchor">lib_nl80211.c</h1></header><article><pre class="prettyprint source lang-js"><code>/*
 Copyright 2021 Jo-Philipp Wich &lt;jo@mein.io>
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -93,6 +93,16 @@ limitations under the License.
 #define NL80211_ATTR_NOT_IMPLEMENTED 0x10000
 
 #define NL80211_CMDS_BITMAP_SIZE	DIV_ROUND_UP(NL80211_CMD_MAX + 1, 32)
+
+#define NL80211_EVSOCK_RCVBUF_INIT	(1024 * 1024)
+#define NL80211_EVSOCK_RCVBUF_MAX	(8 * 1024 * 1024)
+
+enum {
+	LISTENER_SLOT_RES,
+	LISTENER_SLOT_CB,
+	LISTENER_SLOT_OVERRUN_CB,
+	LISTENER_SLOTS
+};
 
 static struct {
 	int code;
@@ -922,7 +932,7 @@ static const uc_nl_nested_spec_t nl80211_wiphy_radio_nla = {
 
 static const uc_nl_nested_spec_t nl80211_mlo_link_nla = {
 	.headsize = 0,
-	.nattrs = 12,
+	.nattrs = 13,
 	.attrs = {
 		{ NL80211_ATTR_MLO_LINK_ID, "link_id", DT_U8, 0, NULL },
 		{ NL80211_ATTR_MAC, "mac", DT_LLADDR, 0, NULL },
@@ -936,12 +946,13 @@ static const uc_nl_nested_spec_t nl80211_mlo_link_nla = {
 		{ NL80211_ATTR_MLO_TTLM_DLINK, "mlo_ttlm_dlink", DT_STRING, DF_BINARY, NULL },
 		{ NL80211_ATTR_MLO_TTLM_ULINK, "mlo_ttlm_ulink", DT_STRING, DF_BINARY, NULL },
 		{ NL80211_ATTR_PUNCT_BITMAP, "punct_bitmap", DT_U32, 0, NULL },
+		{ NL80211_ATTR_STA_INFO, "sta_info", DT_NESTED, 0, &amp;nl80211_sta_info_nla },
 	}
 };
 
 static const uc_nl_nested_spec_t nl80211_msg = {
 	.headsize = 0,
-	.nattrs = 138,
+	.nattrs = 139,
 	.attrs = {
 		{ NL80211_ATTR_4ADDR, "4addr", DT_U8, 0, NULL },
 		{ NL80211_ATTR_AIRTIME_WEIGHT, "airtime_weight", DT_U16, 0, NULL },
@@ -1081,6 +1092,7 @@ static const uc_nl_nested_spec_t nl80211_msg = {
 		{ NL80211_ATTR_SURVEY_INFO, "survey_info", DT_NESTED, 0, &amp;nl80211_survey_info_nla },
 		{ NL80211_ATTR_WIPHY_RADIOS, "radios", DT_NESTED, DF_MULTIPLE|DF_AUTOIDX, &amp;nl80211_wiphy_radio_nla },
 		{ NL80211_ATTR_VIF_RADIO_MASK, "vif_radio_mask", DT_U32, 0, NULL },
+		{ NL80211_ATTR_STA_DUMP_LINK_STATS, "sta_dump_link_stats", DT_FLAG, 0, NULL },
 	}
 };
 
@@ -2120,12 +2132,18 @@ uc_nl_convert_attr(const uc_nl_attr_spec_t *spec, struct nl_msg *msg, char *base
 }
 
 
+uc_declare_vector(uc_nl_msgs_t, struct nl_msg *);
+
 static struct {
 	struct nl_sock *sock;
 	struct nl_sock *evsock;
 	struct nl_cache *cache;
 	struct uloop_fd evsock_fd;
 	struct nl_cb *evsock_cb;
+	struct uloop_timeout overrun_timer;
+	struct uloop_timeout pending_timer;
+	uc_nl_msgs_t pending;
+	int rcvbuf;
 } nl80211_conn;
 
 typedef enum {
@@ -2193,6 +2211,19 @@ static int
 cb_done(struct nl_msg *msg, void *arg)
 {
 	request_state_t *s = arg;
+
+	s->state = STATE_REPLIED;
+
+	return NL_STOP;
+}
+
+static int
+cb_done_ack(struct nl_msg *msg, void *arg)
+{
+	request_state_t *s = arg;
+
+	if (s->state == STATE_UNREPLIED)
+		s->res = ucv_boolean_new(true);
 
 	s->state = STATE_REPLIED;
 
@@ -2540,9 +2571,9 @@ cb_listener_event(struct nl_msg *msg, void *arg)
 	if (!nl80211_conn.evsock_fd.registered || !vm)
 		return NL_SKIP;
 
-	for (size_t i = 0; i &lt; ucv_array_length(listener_registry); i += 2) {
-		uc_value_t *this = ucv_array_get(listener_registry, i);
-		uc_value_t *func = ucv_array_get(listener_registry, i + 1);
+	for (size_t i = 0; i &lt; ucv_array_length(listener_registry); i += LISTENER_SLOTS) {
+		uc_value_t *this = ucv_array_get(listener_registry, i + LISTENER_SLOT_RES);
+		uc_value_t *func = ucv_array_get(listener_registry, i + LISTENER_SLOT_CB);
 		uc_nl_listener_t *l;
 		uc_value_t *o, *data;
 
@@ -2580,17 +2611,79 @@ cb_listener_event(struct nl_msg *msg, void *arg)
 	return NL_SKIP;
 }
 
+static void
+uc_nl_pending_deliver(struct uloop_timeout *t)
+{
+	uc_nl_msgs_t *pending = &amp;nl80211_conn.pending;
+	int rv = NL_SKIP;
+	size_t i = 0;
+
+	while (i &lt; pending->count &amp;&amp; rv != NL_STOP)
+		rv = cb_listener_event(pending->entries[i++], NULL);
+
+	for (size_t j = 0; j &lt; i; j++)
+		nlmsg_free(pending->entries[j]);
+
+	pending->count -= i;
+
+	if (!pending->count) {
+		uc_vector_clear(pending);
+		return;
+	}
+
+	memmove(pending->entries, pending->entries + i,
+	        pending->count * sizeof(*pending->entries));
+	uloop_timeout_set(t, 0);
+}
+
+static void
+uc_nl_listener_defer(struct nl_msg *msg)
+{
+	struct nl_msg *copy;
+
+	if (!nl80211_conn.evsock_fd.registered || !listener_vm)
+		return;
+
+	copy = nlmsg_convert(nlmsg_hdr(msg));
+
+	if (!copy)
+		return;
+
+	uc_vector_push(&amp;nl80211_conn.pending, copy);
+
+	nl80211_conn.pending_timer.cb = uc_nl_pending_deliver;
+	uloop_timeout_set(&amp;nl80211_conn.pending_timer, 0);
+}
+
+/* events deferred by a request must reach the listeners first */
+static int
+cb_listener_dispatch(struct nl_msg *msg, void *arg)
+{
+	if (!nl80211_conn.pending.count)
+		return cb_listener_event(msg, arg);
+
+	uc_nl_listener_defer(msg);
+
+	return NL_SKIP;
+}
+
+/*
+ * nl80211 sends every event with sequence 0. A listener callback can
+ * issue requests itself, so it must not run inside a request.
+ */
 static int
 cb_evsock_msg(struct nl_msg *msg, void *arg)
 {
 	struct nlmsghdr *hdr = nlmsg_hdr(msg);
+	uint32_t req_seq = arg ? *(uint32_t *)arg : 0;
 
-	if (hdr->nlmsg_seq == 0) {
-		cb_listener_event(msg, NULL);
-		return NL_SKIP;
-	}
+	if (hdr->nlmsg_seq == req_seq)
+		return NL_OK;
 
-	return NL_OK;
+	if (hdr->nlmsg_seq == 0)
+		uc_nl_listener_defer(msg);
+
+	return NL_SKIP;
 }
 
 static int
@@ -2601,7 +2694,7 @@ cb_event(struct nl_msg *msg, void *arg)
 	struct waitfor_ctx *s = arg;
 	uc_value_t *o;
 
-	cb_listener_event(msg, arg);
+	cb_listener_dispatch(msg, arg);
 
 	if (gnlh->cmd > NL80211_CMD_MAX ||
 	    !(s->cmds[gnlh->cmd / 32] &amp; (1 &lt;&lt; (gnlh->cmd % 32))))
@@ -2658,6 +2751,82 @@ uc_nl_fill_cmds(uint32_t *cmd_bits, uc_value_t *cmds)
 	return true;
 }
 
+static void
+uc_nl_listener_overrun_notify(struct uloop_timeout *t)
+{
+	uc_vm_t *vm = listener_vm;
+
+	for (size_t i = 0; i &lt; ucv_array_length(listener_registry); i += LISTENER_SLOTS) {
+		uc_value_t *this = ucv_array_get(listener_registry, i + LISTENER_SLOT_RES);
+		uc_value_t *func = ucv_array_get(listener_registry, i + LISTENER_SLOT_OVERRUN_CB);
+
+		if (!ucv_resource_data(this, "nl80211.listener") || !ucv_is_callable(func))
+			continue;
+
+		uc_vm_stack_push(vm, ucv_get(this));
+		uc_vm_stack_push(vm, ucv_get(func));
+
+		if (uc_vm_call(vm, true, 0) != EXCEPTION_NONE) {
+			uloop_end();
+			return;
+		}
+
+		ucv_put(uc_vm_stack_pop(vm));
+	}
+}
+
+static void
+uc_nl_evsock_rcvbuf_set(int size)
+{
+	int fd = nl_socket_get_fd(nl80211_conn.evsock);
+
+	/* SO_RCVBUFFORCE exceeds net.core.rmem_max but needs CAP_NET_ADMIN */
+	if (setsockopt(fd, SOL_SOCKET, SO_RCVBUFFORCE, &amp;size, sizeof(size)) &lt; 0)
+		setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &amp;size, sizeof(size));
+
+	nl80211_conn.rcvbuf = size;
+}
+
+/*
+ * waitfor() and listener requests also read the event socket, so the
+ * handlers run from a timer, outside of those calls.
+ */
+static void
+uc_nl_evsock_overrun(void)
+{
+	if (nl80211_conn.rcvbuf &lt; NL80211_EVSOCK_RCVBUF_MAX)
+		uc_nl_evsock_rcvbuf_set(nl80211_conn.rcvbuf * 2);
+
+	if (!nl80211_conn.evsock_fd.registered || !listener_vm)
+		return;
+
+	nl80211_conn.overrun_timer.cb = uc_nl_listener_overrun_notify;
+	uloop_timeout_set(&amp;nl80211_conn.overrun_timer, 0);
+}
+
+static bool
+uc_nl_evsock_error_take(struct uloop_fd *fd)
+{
+	socklen_t len = sizeof(int);
+	int err = 0;
+
+	if (!fd->error)
+		return false;
+
+	fd->error = false;
+
+	if (getsockopt(fd->fd, SOL_SOCKET, SO_ERROR, &amp;err, &amp;len) &lt; 0)
+		return false;
+
+	return err == ENOBUFS;
+}
+
+static bool
+uc_nl_recv_overrun(int err)
+{
+	return err == -NLE_NOMEM &amp;&amp; errno == ENOBUFS;
+}
+
 static bool
 uc_nl_evsock_init(void)
 {
@@ -2677,6 +2846,8 @@ uc_nl_evsock_init(void)
 		nl80211_conn.evsock = NULL;
 		return false;
 	}
+
+	uc_nl_evsock_rcvbuf_set(NL80211_EVSOCK_RCVBUF_INIT);
 
 	return true;
 }
@@ -2731,6 +2902,7 @@ uc_nl_waitfor(uc_vm_t *vm, size_t nargs)
 	err = 0;
 
 	nl_cb_set(cb, NL_CB_SEQ_CHECK, NL_CB_CUSTOM, cb_seq, NULL);
+	nl_cb_set(cb, NL_CB_MSG_IN, NL_CB_CUSTOM, cb_evsock_msg, NULL);
 	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, cb_event, &amp;ctx);
 	nl_cb_err(cb, NL_CB_CUSTOM, cb_errno, &amp;err);
 
@@ -2745,7 +2917,8 @@ uc_nl_waitfor(uc_vm_t *vm, size_t nargs)
 		if (poll(&amp;pfd, 1, ms) != 1)
 			break;
 
-		nl_recvmsgs(nl80211_conn.evsock, cb);
+		if (uc_nl_recv_overrun(nl_recvmsgs(nl80211_conn.evsock, cb)))
+			uc_nl_evsock_overrun();
 
 		if (ms > 0) {
 			clock_gettime(CLOCK_MONOTONIC, &amp;end);
@@ -2774,9 +2947,28 @@ uc_nl_waitfor(uc_vm_t *vm, size_t nargs)
 	}
 }
 
+static bool
+uc_nl_evsock_readable(void)
+{
+	struct pollfd pfd = {
+		.fd = nl_socket_get_fd(nl80211_conn.evsock),
+		.events = POLLIN,
+	};
+	int n;
+
+	do
+		n = poll(&amp;pfd, 1, 0);
+	while (n &lt; 0 &amp;&amp; errno == EINTR);
+
+	return n > 0;
+}
+
 static uc_value_t *
 uc_nl_request_common(struct nl_sock *sock, uc_vm_t *vm, size_t nargs)
 {
+	bool evsock = (sock == nl80211_conn.evsock);
+	bool overrun = false;
+	uint32_t seq = 0;
 	request_state_t st = { .vm = vm };
 	uc_value_t *cmd = uc_fn_arg(0);
 	uc_value_t *flags = uc_fn_arg(1);
@@ -2848,24 +3040,44 @@ uc_nl_request_common(struct nl_sock *sock, uc_vm_t *vm, size_t nargs)
 
 	nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, cb_reply, &amp;st);
 	nl_cb_set(cb, NL_CB_FINISH, NL_CB_CUSTOM, cb_done, &amp;st);
-	nl_cb_set(cb, NL_CB_ACK, NL_CB_CUSTOM, cb_done, &amp;st);
+	nl_cb_set(cb, NL_CB_ACK, NL_CB_CUSTOM, cb_done_ack, &amp;st);
 	nl_cb_err(cb, NL_CB_CUSTOM, cb_errno, &amp;ret);
 
-	if (sock == nl80211_conn.evsock) {
+	if (evsock) {
 		nl_cb_set(cb, NL_CB_SEQ_CHECK, NL_CB_CUSTOM, cb_seq, NULL);
-		nl_cb_set(cb, NL_CB_MSG_IN, NL_CB_CUSTOM, cb_evsock_msg, NULL);
+		nl_cb_set(cb, NL_CB_MSG_IN, NL_CB_CUSTOM, cb_evsock_msg, &amp;seq);
 	}
 
 	nl_send_auto_complete(sock, msg);
+	seq = nlmsg_hdr(msg)->nlmsg_seq;
 
-	while (ret > 0 &amp;&amp; st.state &lt; STATE_REPLIED)
-		nl_recvmsgs(sock, cb);
+	while (ret > 0 &amp;&amp; st.state &lt; STATE_REPLIED) {
+		/* the kernel queues a reply before send() returns, and the
+		 * next part of a dump while recvmsg() empties the queue */
+		if (evsock &amp;&amp; !uc_nl_evsock_readable()) {
+			nlmsg_free(msg);
+			nl_cb_put(cb);
+			ucv_put(st.res);
+
+			if (overrun)
+				err_return(NLE_NOMEM, "Reply lost to an event socket overrun");
+
+			err_return(NLE_AGAIN, "Reply missing on the event socket");
+		}
+
+		if (uc_nl_recv_overrun(nl_recvmsgs(sock, cb)) &amp;&amp; evsock) {
+			uc_nl_evsock_overrun();
+			overrun = true;
+		}
+	}
 
 	nlmsg_free(msg);
 	nl_cb_put(cb);
 
-	if (ret &lt; 0)
+	if (ret &lt; 0) {
+		ucv_put(st.res);
 		err_return(ret, NULL);
+	}
 
 	switch (st.state) {
 	case STATE_REPLIED:
@@ -2875,6 +3087,7 @@ uc_nl_request_common(struct nl_sock *sock, uc_vm_t *vm, size_t nargs)
 		return ucv_boolean_new(true);
 
 	default:
+		ucv_put(st.res);
 		set_error(NLE_FAILURE, "Interrupted reply");
 
 		return ucv_boolean_new(false);
@@ -2890,8 +3103,13 @@ uc_nl_request_common(struct nl_sock *sock, uc_vm_t *vm, size_t nargs)
  * @param {number} cmd - The nl80211 command ID to execute
  * @param {number} flags - Netlink flags (optional, default: 0)
  * @param {Object} payload - Request payload object with attributes (optional)
- * @returns {Object|boolean} Response object from the kernel, or true for
- *                           successful acknowledgment without data
+ * @returns {?(Object|Object[]|boolean)} Response object from the kernel,
+ *                                       an array of objects for a dump
+ *                                       except of a single wiphy,
+ *                                       true for a successful
+ *                                       acknowledgement without data, or
+ *                                       null for a dump without entries
+ *                                       and on error
  * @example
  * // Get wireless device information
  * let response = request(const.NL80211_CMD_GET_WIPHY, 0, { wiphy: 0 });
@@ -2931,10 +3149,32 @@ uc_nl_request(uc_vm_t *vm, size_t nargs)
  * nlListener.close();
  */
 
+/*
+ * The kernel sets ENOBUFS once per congestion and ends the congestion only
+ * when the queue is empty, so drain the queue fully.
+ */
 static void
 uc_nl_listener_cb(struct uloop_fd *fd, unsigned int events)
 {
-	nl_recvmsgs(nl80211_conn.evsock, nl80211_conn.evsock_cb);
+	bool overrun = uc_nl_evsock_error_take(fd);
+	int err;
+
+	while (true) {
+		errno = 0;
+
+		err = nl_recvmsgs(nl80211_conn.evsock, nl80211_conn.evsock_cb);
+
+		if (uc_nl_recv_overrun(err)) {
+			overrun = true;
+			continue;
+		}
+
+		if (err &lt; 0 || errno == EAGAIN || uloop_cancelled)
+			break;
+	}
+
+	if (overrun)
+		uc_nl_evsock_overrun();
 }
 
 /**
@@ -2979,7 +3219,7 @@ uc_nl_listener(uc_vm_t *vm, size_t nargs)
 	if (!fd->registered) {
 		fd->fd = nl_socket_get_fd(nl80211_conn.evsock);
 		fd->cb = uc_nl_listener_cb;
-		uloop_fd_add(fd, ULOOP_READ);
+		uloop_fd_add(fd, ULOOP_READ | ULOOP_ERROR_CB);
 	}
 
 	if (!nl80211_conn.evsock_cb) {
@@ -2989,16 +3229,18 @@ uc_nl_listener(uc_vm_t *vm, size_t nargs)
 			err_return(NLE_NOMEM, NULL);
 
 		nl_cb_set(cb, NL_CB_SEQ_CHECK, NL_CB_CUSTOM, cb_seq, NULL);
-		nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, cb_listener_event, NULL);
+		nl_cb_set(cb, NL_CB_MSG_IN, NL_CB_CUSTOM, cb_evsock_msg, NULL);
+		nl_cb_set(cb, NL_CB_VALID, NL_CB_CUSTOM, cb_listener_dispatch, NULL);
 		nl80211_conn.evsock_cb = cb;
 	}
 
-	for (i = 0; i &lt; ucv_array_length(listener_registry); i += 2) {
-		if (!ucv_array_get(listener_registry, i))
+	for (i = 0; i &lt; ucv_array_length(listener_registry); i += LISTENER_SLOTS) {
+		if (!ucv_array_get(listener_registry, i + LISTENER_SLOT_RES))
 			break;
 	}
 
-	ucv_array_set(listener_registry, i + 1, ucv_get(cb_func));
+	ucv_array_set(listener_registry, i + LISTENER_SLOT_CB, ucv_get(cb_func));
+	ucv_array_set(listener_registry, i + LISTENER_SLOT_OVERRUN_CB, NULL);
 	l = xalloc(sizeof(*l));
 	l->index = i;
 	if (!uc_nl_fill_cmds(l->cmds, cmds)) {
@@ -3008,7 +3250,7 @@ uc_nl_listener(uc_vm_t *vm, size_t nargs)
 	}
 
 	rv = uc_resource_new(listener_type, l);
-	ucv_array_set(listener_registry, i, ucv_get(rv));
+	ucv_array_set(listener_registry, i + LISTENER_SLOT_RES, ucv_get(rv));
 	listener_vm = vm;
 
 	return rv;
@@ -3022,8 +3264,9 @@ uc_nl_listener_free(void *arg)
 	if (!l)
 		return;
 
-	ucv_array_set(listener_registry, l->index, NULL);
-	ucv_array_set(listener_registry, l->index + 1, NULL);
+	ucv_array_set(listener_registry, l->index + LISTENER_SLOT_RES, NULL);
+	ucv_array_set(listener_registry, l->index + LISTENER_SLOT_CB, NULL);
+	ucv_array_set(listener_registry, l->index + LISTENER_SLOT_OVERRUN_CB, NULL);
 	free(l);
 }
 
@@ -3059,6 +3302,62 @@ uc_nl_listener_set_commands(uc_vm_t *vm, size_t nargs)
 }
 
 /**
+ * Set the overrun handler of this listener
+ *
+ * The kernel drops event messages when the receive buffer of the event
+ * socket is full, and the lost events cannot be recovered. The module then
+ * enlarges the buffer and calls the overrun handler of each listener
+ * without arguments, from the event loop.
+ *
+ * Every event type can be lost, including deletions. The handler must dump
+ * each object type that the script keeps state for. It must treat every
+ * entry of the dump as new or changed, and every cached entry that is
+ * missing from the dump as deleted.
+ *
+ * @param {Function|null} handler - Function to call after an overrun, or
+ *                                  null to remove it
+ * @returns {?boolean} true on success, null if the listener is closed
+ * @example
+ * // Rebuild the interface cache after lost events
+ * listener.set_overrun_handler(() => {
+ *     error();
+ *
+ *     let dump = request(const.NL80211_CMD_GET_INTERFACE, const.NLM_F_DUMP);
+ *     let seen = {};
+ *
+ *     if (dump == null &amp;&amp; error())
+ *         return;
+ *
+ *     for (let iface in dump ?? []) {
+ *         seen[iface.ifname] = true;
+ *         interfaces[iface.ifname] = iface;
+ *     }
+ *
+ *     for (let name in keys(interfaces))
+ *         if (!seen[name])
+ *             delete interfaces[name];
+ * });
+ */
+static uc_value_t *
+uc_nl_listener_set_overrun_handler(uc_vm_t *vm, size_t nargs)
+{
+	uc_nl_listener_t *l = uc_fn_thisval("nl80211.listener");
+	uc_value_t *handler = uc_fn_arg(0);
+
+	if (!l)
+		return NULL;
+
+	if (handler &amp;&amp; !ucv_is_callable(handler)) {
+		uc_vm_raise_exception(vm, EXCEPTION_TYPE, "Invalid overrun handler");
+		return NULL;
+	}
+
+	ucv_array_set(listener_registry, l->index + LISTENER_SLOT_OVERRUN_CB, ucv_get(handler));
+
+	return ucv_boolean_new(true);
+}
+
+/**
  * Send a nl80211 request from the listener
  *
  * This method allows the listener to send its own nl80211 requests
@@ -3067,8 +3366,13 @@ uc_nl_listener_set_commands(uc_vm_t *vm, size_t nargs)
  * @param {number} cmd - The nl80211 command ID to execute
  * @param {number} flags - Netlink flags (optional, default: 0)
  * @param {Object} payload - Request payload object with attributes (optional)
- * @returns {Object|boolean} Response object from the kernel, or true for
- *                           successful acknowledgment without data
+ * @returns {?(Object|Object[]|boolean)} Response object from the kernel,
+ *                                       an array of objects for a dump
+ *                                       except of a single wiphy,
+ *                                       true for a successful
+ *                                       acknowledgement without data, or
+ *                                       null for a dump without entries
+ *                                       and on error
  * @example
  * // Listener sends its own request
  * let response = listener.request(const.NL80211_CMD_GET_STATION, 0, {
@@ -3560,6 +3864,7 @@ static const uc_function_list_t global_fns[] = {
 
 static const uc_function_list_t listener_fns[] = {
 	{ "set_commands",	uc_nl_listener_set_commands },
+	{ "set_overrun_handler",	uc_nl_listener_set_overrun_handler },
 	{ "request",		uc_nl_listener_request },
 	{ "close",			uc_nl_listener_close },
 };
@@ -3575,4 +3880,4 @@ void uc_module_init(uc_vm_t *vm, uc_value_t *scope)
 
 	register_constants(vm, scope);
 }
-</code></pre></article></section></div></div></div><div class="search-container" id="PkfLWpAbet" style="display:none"><div class="wrapper" id="iCxFxjkHbP"><button class="icon-button search-close-button" id="VjLlGakifb" aria-label="close search"><svg><use xlink:href="#close-icon"></use></svg></button><div class="search-box-c"><svg><use xlink:href="#search-icon"></use></svg> <input type="text" id="vpcKVYIppa" class="search-input" placeholder="Search..." autofocus></div><div class="search-result-c" id="fWwVHRuDuN"><span class="search-result-c-text">Type anything to view search result</span></div></div></div><div class="mobile-menu-icon-container"><button class="icon-button" id="mobile-menu" data-isopen="false" aria-label="menu"><svg><use xlink:href="#menu-icon"></use></svg></button> <button class="icon-button" id="mobile-toc" data-isopen="false" aria-label="toc"><svg><use xlink:href="#toc-icon"></use></svg></button></div><div id="mobile-sidebar" class="mobile-sidebar-container"><div class="mobile-sidebar-wrapper"><a href="/" class="sidebar-title sidebar-title-anchor">ucode Documentation</a><div class="mobile-nav-links"><div class="github-home navbar-item"><a id="" href="https://github.com/ucode-lang/ucode" target="">GitHub Project Page</a></div></div><div class="mobile-sidebar-items-c"><div class="sidebar-section-title with-arrow" data-isopen="false" id="tT4xtNeXwcaaJFIDOCLSI"><div>Tutorials</div><svg><use xlink:href="#down-icon"></use></svg></div><div class="sidebar-section-children-container"><div class="sidebar-section-children"><a href="tutorial-01-usage.html">Usage</a></div><div class="sidebar-section-children"><a href="tutorial-02-arrays.html">Arrays</a></div><div class="sidebar-section-children"><a href="tutorial-03-objects.html">Objects</a></div><div class="sidebar-section-children"><a href="tutorial-04-metamethods.html">Metamethods</a></div></div><div class="sidebar-section-title with-arrow" data-isopen="false" id="3hCPdeso2ol73i-YEd_XZ"><div>Modules</div><svg><use xlink:href="#down-icon"></use></svg></div><div class="sidebar-section-children-container"><div class="sidebar-section-children"><a href="module-core.html">core</a></div><div class="sidebar-section-children"><a href="module-debug.html">debug</a></div><div class="sidebar-section-children"><a href="module-digest.html">digest</a></div><div class="sidebar-section-children"><a href="module-ffi.html">ffi</a></div><div class="sidebar-section-children"><a href="module-fs.html">fs</a></div><div class="sidebar-section-children"><a href="module-io.html">io</a></div><div class="sidebar-section-children"><a href="module-log.html">log</a></div><div class="sidebar-section-children"><a href="module-math.html">math</a></div><div class="sidebar-section-children"><a href="module-netaddr.html">netaddr</a></div><div class="sidebar-section-children"><a href="module-nl80211.html">nl80211</a></div><div class="sidebar-section-children"><a href="module-resolv.html">resolv</a></div><div class="sidebar-section-children"><a href="module-rtnl.html">rtnl</a></div><div class="sidebar-section-children"><a href="module-serial.html">serial</a></div><div class="sidebar-section-children"><a href="module-socket.html">socket</a></div><div class="sidebar-section-children"><a href="module-struct.html">struct</a></div><div class="sidebar-section-children"><a href="module-ubus.html">ubus</a></div><div class="sidebar-section-children"><a href="module-uci.html">uci</a></div><div class="sidebar-section-children"><a href="module-uloop.html">uloop</a></div><div class="sidebar-section-children"><a href="module-zlib.html">zlib</a></div></div></div><div class="mobile-navbar-actions"><div class="navbar-right-item"><button class="icon-button search-button" aria-label="open-search"><svg><use xlink:href="#search-icon"></use></svg></button></div><div class="navbar-right-item"><button class="icon-button theme-toggle" aria-label="toggle-theme"><svg><use class="theme-svg-use" xlink:href="#dark-theme-icon"></use></svg></button></div><div class="navbar-right-item"><button class="icon-button font-size" aria-label="change-font-size"><svg><use xlink:href="#font-size-icon"></use></svg></button></div><div class="navbar-right-item toc-item"><button class="icon-button toc" aria-label="open-table-of-contents"><svg><use xlink:href="#toc-icon"></use></svg></button></div></div></div></div><div id="mobile-tocbar" class="mobile-sidebar-container"><div class="mobile-sidebar-wrapper"><span class="sidebar-title">Table of Contents</span><div class="toc-contents"></div></div></div><script type="text/javascript" src="scripts/core.min.js"></script><script src="scripts/search.min.js" defer="defer"></script><script src="scripts/third-party/fuse.js" defer="defer"></script><script type="text/javascript">var tocbotInstance=tocbot.init({tocSelector:"#mobile-tocbar > .mobile-sidebar-wrapper > .toc-contents",contentSelector:".main-content",headingSelector:"h1, h2, h3",hasInnerContainers:!0,scrollContainer:".main-content",headingsOffset:130,onClick:(...e)=>{hideMobileMenu(),bringLinkToView(...e)},includeHtml:!0})</script></body></html>
+</code></pre></article></section></div></div></div><div class="search-container" id="PkfLWpAbet" style="display:none"><div class="wrapper" id="iCxFxjkHbP"><button class="icon-button search-close-button" id="VjLlGakifb" aria-label="close search"><svg><use xlink:href="#close-icon"></use></svg></button><div class="search-box-c"><svg><use xlink:href="#search-icon"></use></svg> <input type="text" id="vpcKVYIppa" class="search-input" placeholder="Search..." autofocus></div><div class="search-result-c" id="fWwVHRuDuN"><span class="search-result-c-text">Type anything to view search result</span></div></div></div><div class="mobile-menu-icon-container"><button class="icon-button" id="mobile-menu" data-isopen="false" aria-label="menu"><svg><use xlink:href="#menu-icon"></use></svg></button> <button class="icon-button" id="mobile-toc" data-isopen="false" aria-label="toc"><svg><use xlink:href="#toc-icon"></use></svg></button></div><div id="mobile-sidebar" class="mobile-sidebar-container"><div class="mobile-sidebar-wrapper"><a href="/" class="sidebar-title sidebar-title-anchor">ucode Documentation</a><div class="mobile-nav-links"><div class="github-home navbar-item"><a id="" href="https://github.com/ucode-lang/ucode" target="">GitHub Project Page</a></div></div><div class="mobile-sidebar-items-c"><div class="sidebar-section-title with-arrow" data-isopen="false" id="yA9a9N_vmJ6RW7D6ydIKx"><div>Tutorials</div><svg><use xlink:href="#down-icon"></use></svg></div><div class="sidebar-section-children-container"><div class="sidebar-section-children"><a href="tutorial-01-usage.html">Usage</a></div><div class="sidebar-section-children"><a href="tutorial-02-arrays.html">Arrays</a></div><div class="sidebar-section-children"><a href="tutorial-03-objects.html">Objects</a></div><div class="sidebar-section-children"><a href="tutorial-04-metamethods.html">Metamethods</a></div></div><div class="sidebar-section-title with-arrow" data-isopen="false" id="jxMbpoVI8pxseawkROavh"><div>Modules</div><svg><use xlink:href="#down-icon"></use></svg></div><div class="sidebar-section-children-container"><div class="sidebar-section-children"><a href="module-core.html">core</a></div><div class="sidebar-section-children"><a href="module-debug.html">debug</a></div><div class="sidebar-section-children"><a href="module-digest.html">digest</a></div><div class="sidebar-section-children"><a href="module-ffi.html">ffi</a></div><div class="sidebar-section-children"><a href="module-fs.html">fs</a></div><div class="sidebar-section-children"><a href="module-io.html">io</a></div><div class="sidebar-section-children"><a href="module-log.html">log</a></div><div class="sidebar-section-children"><a href="module-math.html">math</a></div><div class="sidebar-section-children"><a href="module-netaddr.html">netaddr</a></div><div class="sidebar-section-children"><a href="module-nl80211.html">nl80211</a></div><div class="sidebar-section-children"><a href="module-resolv.html">resolv</a></div><div class="sidebar-section-children"><a href="module-rtnl.html">rtnl</a></div><div class="sidebar-section-children"><a href="module-serial.html">serial</a></div><div class="sidebar-section-children"><a href="module-socket.html">socket</a></div><div class="sidebar-section-children"><a href="module-struct.html">struct</a></div><div class="sidebar-section-children"><a href="module-ubus.html">ubus</a></div><div class="sidebar-section-children"><a href="module-uci.html">uci</a></div><div class="sidebar-section-children"><a href="module-uloop.html">uloop</a></div><div class="sidebar-section-children"><a href="module-zlib.html">zlib</a></div></div></div><div class="mobile-navbar-actions"><div class="navbar-right-item"><button class="icon-button search-button" aria-label="open-search"><svg><use xlink:href="#search-icon"></use></svg></button></div><div class="navbar-right-item"><button class="icon-button theme-toggle" aria-label="toggle-theme"><svg><use class="theme-svg-use" xlink:href="#dark-theme-icon"></use></svg></button></div><div class="navbar-right-item"><button class="icon-button font-size" aria-label="change-font-size"><svg><use xlink:href="#font-size-icon"></use></svg></button></div><div class="navbar-right-item toc-item"><button class="icon-button toc" aria-label="open-table-of-contents"><svg><use xlink:href="#toc-icon"></use></svg></button></div></div></div></div><div id="mobile-tocbar" class="mobile-sidebar-container"><div class="mobile-sidebar-wrapper"><span class="sidebar-title">Table of Contents</span><div class="toc-contents"></div></div></div><script type="text/javascript" src="scripts/core.min.js"></script><script src="scripts/search.min.js" defer="defer"></script><script src="scripts/third-party/fuse.js" defer="defer"></script><script type="text/javascript">var tocbotInstance=tocbot.init({tocSelector:"#mobile-tocbar > .mobile-sidebar-wrapper > .toc-contents",contentSelector:".main-content",headingSelector:"h1, h2, h3",hasInnerContainers:!0,scrollContainer:".main-content",headingsOffset:130,onClick:(...e)=>{hideMobileMenu(),bringLinkToView(...e)},includeHtml:!0})</script></body></html>
