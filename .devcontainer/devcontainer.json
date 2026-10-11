@@ -17,10 +17,7 @@
 				"EditorConfig.EditorConfig"
 			],
 			"settings": {
-				"editor.insertSpaces": false,
-				"editor.tabSize": 4,
 				"editor.detectIndentation": false,
-				"files.eol": "\n",
 				"cmake.useCMakePresets": "always"
 			}
 		}
