@@ -23,6 +23,14 @@ invalid.
 		strftime("%Y-%m-%d %H:%M:%S %Z", 1647953502),
 		strftime("%Y-%m-%d %H:%M:%S %z", 1647953502, true),
 
+		// epoch value is independent of the timezone
+		strftime("%s %%s", 1647953502),
+		strftime("%s %%s", 1647953502, true),
+		strftime("%s", gmtime(1647953502), true),
+		strftime("%s", localtime(1647953502)),
+		strftime("%s", -86400, true),
+		strftime("%%%s%%%%s", 0, true),
+
 		// daylight saving time
 		strftime("%Y-%m-%d %H:%M:%S %z", 1657453502),
 
@@ -58,6 +66,12 @@ TZ=CET-1CEST,M3.5.0/2,M10.5.0/3
 [
 	"2022-03-22 13:51:42 CET",
 	"2022-03-22 12:51:42 +0000",
+	"1647953502 %s",
+	"1647953502 %s",
+	"1647953502",
+	"1647953502",
+	"-86400",
+	"%0%%s",
 	"2022-07-10 13:45:02 +0200",
 	"2022-03-22 13:51:42 2 081",
 	"2022-11-09",

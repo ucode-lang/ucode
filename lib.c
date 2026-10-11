@@ -5598,9 +5598,10 @@ uc_strftime(uc_vm_t *vm, size_t nargs)
 	uc_value_t *fmt = uc_fn_arg(0);
 	uc_value_t *ts = uc_fn_arg(1);
 	bool utc = ucv_is_truish(uc_fn_arg(2));
-	char *sfmt, *buf = NULL;
 	uc_value_t *res = NULL;
-	size_t fmtlen, buflen, len;
+	uc_stringbuf_t *sfmt;
+	size_t buflen, len;
+	char *p, *buf = NULL;
 	struct tm tm;
 	time_t t;
 
@@ -5612,7 +5613,9 @@ uc_strftime(uc_vm_t *vm, size_t nargs)
 			return NULL;
 
 		/* normalize fields and compute wday, yday, tm_gmtoff, tm_zone */
-		if ((utc ? timegm : mktime)(&tm) == (time_t)-1)
+		t = (utc ? timegm : mktime)(&tm);
+
+		if (t == (time_t)-1)
 			return NULL;
 	}
 	else {
@@ -5623,19 +5626,36 @@ uc_strftime(uc_vm_t *vm, size_t nargs)
 	}
 
 	/*
-	 * strftime() returns 0 both for an empty result and for an insufficient
-	 * buffer, so append a sentinel character to the format to be able to
-	 * distinguish both cases. The format is truncated at the first NUL byte
-	 * since strftime() would not process anything beyond it anyway.
+	 * Substitute %s with the epoch value ourselves since strftime()
+	 * implementations derive it by passing the broken-down time to mktime(),
+	 * which yields a wrong result for UTC times in non-UTC timezones.
+	 *
+	 * Furthermore, strftime() returns 0 both for an empty result and for an
+	 * insufficient buffer, so append a sentinel character to the format to
+	 * be able to distinguish both cases. The format is truncated at the first
+	 * NUL byte since strftime() would not process anything beyond it anyway.
 	 */
-	fmtlen = strlen(ucv_string_get(fmt));
-	sfmt = xalloc(fmtlen + 2);
-	memcpy(sfmt, ucv_string_get(fmt), fmtlen);
-	sfmt[fmtlen] = ' ';
+	sfmt = xprintbuf_new();
 
-	for (buflen = 64 + fmtlen * 4; buflen <= 1024 * 1024; buflen *= 2) {
+	for (p = ucv_string_get(fmt); *p; p++) {
+		if (p[0] == '%' && p[1] == 's') {
+			ucv_stringbuf_printf(sfmt, "%" PRId64, (int64_t)t);
+			p++;
+		}
+		else if (p[0] == '%' && p[1]) {
+			ucv_stringbuf_addstr(sfmt, p, 2);
+			p++;
+		}
+		else {
+			ucv_stringbuf_addstr(sfmt, p, 1);
+		}
+	}
+
+	ucv_stringbuf_append(sfmt, " ");
+
+	for (buflen = 64 + sfmt->bpos * 4; buflen <= 1024 * 1024; buflen *= 2) {
 		buf = xrealloc(buf, buflen);
-		len = strftime(buf, buflen, sfmt, &tm);
+		len = strftime(buf, buflen, sfmt->buf, &tm);
 
 		if (len > 0) {
 			res = ucv_string_new_length(buf, len - 1);
@@ -5643,7 +5663,7 @@ uc_strftime(uc_vm_t *vm, size_t nargs)
 		}
 	}
 
-	free(sfmt);
+	printbuf_free(sfmt);
 	free(buf);
 
 	return res;
