@@ -5655,7 +5655,10 @@ uc_strftime(uc_vm_t *vm, size_t nargs)
 
 	for (buflen = 64 + sfmt->bpos * 4; buflen <= 1024 * 1024; buflen *= 2) {
 		buf = xrealloc(buf, buflen);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
 		len = strftime(buf, buflen, sfmt->buf, &tm);
+#pragma GCC diagnostic pop
 
 		if (len > 0) {
 			res = ucv_string_new_length(buf, len - 1);
