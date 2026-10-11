@@ -35,7 +35,6 @@ if(CMAKE_C_COMPILER_VERSION VERSION_GREATER 6)
     -Wformat
     -Werror=implicit-function-declaration
     -Werror=format-security
-    -Werror=format-nonliteral
   )
 endif()
 
