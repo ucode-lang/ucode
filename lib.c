@@ -5327,16 +5327,9 @@ uc_uniq(uc_vm_t *vm, size_t nargs)
  * @property {number} isdst - Daylight saving time in effect (yes = 1)
  */
 static uc_value_t *
-uc_gettime_common(uc_vm_t *vm, size_t nargs, bool local)
+uc_tm_to_timespec(uc_vm_t *vm, const struct tm *tm)
 {
-	uc_value_t *ts = uc_fn_arg(0), *res;
-	time_t t = ts ? (time_t)ucv_to_integer(ts) : time(NULL);
-	struct tm *tm = (local ? localtime : gmtime)(&t);
-
-	if (!tm)
-		return NULL;
-
-	res = ucv_object_new(vm);
+	uc_value_t *res = ucv_object_new(vm);
 
 	ucv_object_add(res, "sec", ucv_int64_new(tm->tm_sec));
 	ucv_object_add(res, "min", ucv_int64_new(tm->tm_min));
@@ -5349,6 +5342,19 @@ uc_gettime_common(uc_vm_t *vm, size_t nargs, bool local)
 	ucv_object_add(res, "isdst", ucv_int64_new(tm->tm_isdst));
 
 	return res;
+}
+
+static uc_value_t *
+uc_gettime_common(uc_vm_t *vm, size_t nargs, bool local)
+{
+	uc_value_t *ts = uc_fn_arg(0);
+	time_t t = ts ? (time_t)ucv_to_integer(ts) : time(NULL);
+	struct tm *tm = (local ? localtime : gmtime)(&t);
+
+	if (!tm)
+		return NULL;
+
+	return uc_tm_to_timespec(vm, tm);
 }
 
 /**
@@ -5423,8 +5429,8 @@ uc_gmtime(uc_vm_t *vm, size_t nargs)
 	return uc_gettime_common(vm, nargs, false);
 }
 
-static uc_value_t *
-uc_mktime_common(uc_vm_t *vm, size_t nargs, bool local)
+static bool
+uc_timespec_to_tm(uc_value_t *to, struct tm *tm)
 {
 #define FIELD(name, required) \
 	{ #name, required, offsetof(struct tm, tm_##name) }
@@ -5443,29 +5449,41 @@ uc_mktime_common(uc_vm_t *vm, size_t nargs, bool local)
 		FIELD(isdst, false)
 	};
 
-	uc_value_t *to = uc_fn_arg(0), *v;
-	struct tm tm = { 0 };
+	uc_value_t *v;
 	bool exists;
-	time_t t;
 	size_t i;
 
 	if (ucv_type(to) != UC_OBJECT)
-		return NULL;
+		return false;
+
+	memset(tm, 0, sizeof(*tm));
 
 	for (i = 0; i < ARRAY_SIZE(fields); i++) {
 		v = ucv_object_get(to, fields[i].name, &exists);
 
 		if (!exists && fields[i].required)
-			return NULL;
+			return false;
 
-		*(int *)((char *)&tm + fields[i].off) = (int)ucv_to_integer(v);
+		*(int *)((char *)tm + fields[i].off) = (int)ucv_to_integer(v);
 	}
 
-	if (tm.tm_mon > 0)
-		tm.tm_mon--;
+	if (tm->tm_mon > 0)
+		tm->tm_mon--;
 
-	if (tm.tm_year >= 1900)
-		tm.tm_year -= 1900;
+	if (tm->tm_year >= 1900)
+		tm->tm_year -= 1900;
+
+	return true;
+}
+
+static uc_value_t *
+uc_mktime_common(uc_vm_t *vm, size_t nargs, bool local)
+{
+	struct tm tm;
+	time_t t;
+
+	if (!uc_timespec_to_tm(uc_fn_arg(0), &tm))
+		return NULL;
 
 	t = (local ? mktime : timegm)(&tm);
 
@@ -5523,6 +5541,232 @@ static uc_value_t *
 uc_timegm(uc_vm_t *vm, size_t nargs)
 {
 	return uc_mktime_common(vm, nargs, false);
+}
+
+/**
+ * Formats the given point in time according to the given format string,
+ * using the `strftime(3)` C library function.
+ *
+ * The time may be given either as epoch timestamp or as
+ * {@link module:core.TimeSpec|TimeSpec} dictionary. If omitted or `null`, the
+ * current time is used.
+ *
+ * By default, the time is interpreted and formatted according to the local
+ * system timezone. If the optional `utc` argument is truthy, it is interpreted
+ * and formatted as UTC time instead.
+ *
+ * When a TimeSpec dictionary is passed, the `wday` and `yday` fields are
+ * ignored and field values outside of their valid range are normalized, like
+ * with {@link module:core#timelocal|timelocal()} and
+ * {@link module:core#timegm|timegm()}.
+ *
+ * The set of supported conversion specifiers, as well as the output of
+ * locale-dependent ones such as `%a`, `%b` or `%c`, depends on the underlying
+ * C library.
+ *
+ * Returns the formatted string.
+ *
+ * Returns `null` if the format argument is not a string, if the given
+ * TimeSpec is invalid or if the time cannot be represented.
+ *
+ * @function module:core#strftime
+ *
+ * @param {string} format
+ * The `strftime(3)` format string.
+ *
+ * @param {number|module:core.TimeSpec} [time]
+ * The epoch timestamp or broken-down time dictionary to format.
+ *
+ * @param {boolean} [utc=false]
+ * Whether to interpret and format the time as UTC instead of local time.
+ *
+ * @returns {?string}
+ *
+ * @example
+ * strftime("%Y-%m-%d %H:%M:%S", 1647953502, true);
+ * // Returns "2022-03-22 12:51:42"
+ *
+ * strftime("%a, %d %b %Y %H:%M:%S %z", 1647953502);
+ * // Returns e.g. "Tue, 22 Mar 2022 13:51:42 +0100" for TZ=CET
+ *
+ * strftime("%d/%m/%Y", { mday: 40, mon: 10, year: 2022 });
+ * // Returns "09/11/2022"
+ */
+static uc_value_t *
+uc_strftime(uc_vm_t *vm, size_t nargs)
+{
+	uc_value_t *fmt = uc_fn_arg(0);
+	uc_value_t *ts = uc_fn_arg(1);
+	bool utc = ucv_is_truish(uc_fn_arg(2));
+	uc_value_t *res = NULL;
+	uc_stringbuf_t *sfmt;
+	size_t buflen, len;
+	char *p, *buf = NULL;
+	struct tm tm;
+	time_t t;
+
+	if (ucv_type(fmt) != UC_STRING)
+		return NULL;
+
+	if (ucv_type(ts) == UC_OBJECT) {
+		if (!uc_timespec_to_tm(ts, &tm))
+			return NULL;
+
+		/* normalize fields and compute wday, yday, tm_gmtoff, tm_zone */
+		t = (utc ? timegm : mktime)(&tm);
+
+		if (t == (time_t)-1)
+			return NULL;
+	}
+	else {
+		t = ts ? (time_t)ucv_to_integer(ts) : time(NULL);
+
+		if (!(utc ? gmtime_r : localtime_r)(&t, &tm))
+			return NULL;
+	}
+
+	/*
+	 * Substitute %s with the epoch value ourselves since strftime()
+	 * implementations derive it by passing the broken-down time to mktime(),
+	 * which yields a wrong result for UTC times in non-UTC timezones.
+	 *
+	 * Furthermore, strftime() returns 0 both for an empty result and for an
+	 * insufficient buffer, so append a sentinel character to the format to
+	 * be able to distinguish both cases. The format is truncated at the first
+	 * NUL byte since strftime() would not process anything beyond it anyway.
+	 */
+	sfmt = xprintbuf_new();
+
+	for (p = ucv_string_get(fmt); *p; p++) {
+		if (p[0] == '%' && p[1] == 's') {
+			ucv_stringbuf_printf(sfmt, "%" PRId64, (int64_t)t);
+			p++;
+		}
+		else if (p[0] == '%' && p[1]) {
+			ucv_stringbuf_addstr(sfmt, p, 2);
+			p++;
+		}
+		else {
+			ucv_stringbuf_addstr(sfmt, p, 1);
+		}
+	}
+
+	ucv_stringbuf_append(sfmt, " ");
+
+	for (buflen = 64 + sfmt->bpos * 4; buflen <= 1024 * 1024; buflen *= 2) {
+		buf = xrealloc(buf, buflen);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
+		len = strftime(buf, buflen, sfmt->buf, &tm);
+#pragma GCC diagnostic pop
+
+		if (len > 0) {
+			res = ucv_string_new_length(buf, len - 1);
+			break;
+		}
+	}
+
+	printbuf_free(sfmt);
+	free(buf);
+
+	return res;
+}
+
+/**
+ * Parses the given string according to the given format string, using the
+ * `strptime(3)` C library function, and returns the result as broken-down
+ * {@link module:core.TimeSpec|TimeSpec} dictionary.
+ *
+ * This is the inverse operation of {@link module:core#strftime|strftime()}.
+ * The returned dictionary may be passed to
+ * {@link module:core#timelocal|timelocal()} or
+ * {@link module:core#timegm|timegm()} to obtain an epoch value.
+ *
+ * Fields not covered by the format string default to January 1st, 1900,
+ * 00:00:00. The `isdst` field is set to `-1` unless the parsed input
+ * determines it, which lets `timelocal()` figure out whether daylight saving
+ * time is in effect. The `wday` and `yday` fields are always computed from the
+ * resulting date.
+ *
+ * The entire input string must be matched by the format, only trailing
+ * whitespace is permitted after the last conversion.
+ *
+ * The set of supported conversion specifiers, as well as the accepted input
+ * for locale-dependent ones such as `%a`, `%b` or `%c`, depends on the
+ * underlying C library.
+ *
+ * Returns the broken-down time dictionary.
+ *
+ * Returns `null` if any argument is not a string or if the input does not
+ * match the format.
+ *
+ * @function module:core#strptime
+ *
+ * @param {string} input
+ * The string to parse.
+ *
+ * @param {string} format
+ * The `strptime(3)` format string.
+ *
+ * @returns {?module:core.TimeSpec}
+ *
+ * @example
+ * strptime("2022-03-22 13:51:42", "%Y-%m-%d %H:%M:%S");
+ * // Returns:
+ * // {
+ * //     sec: 42,
+ * //     min: 51,
+ * //     hour: 13,
+ * //     mday: 22,
+ * //     mon: 3,
+ * //     year: 2022,
+ * //     wday: 2,
+ * //     yday: 81,
+ * //     isdst: -1
+ * // }
+ *
+ * timegm(strptime("22/Mar/2022:12:51:42", "%d/%b/%Y:%H:%M:%S"));
+ * // Returns 1647953502
+ *
+ * strptime("2022-03-22", "%Y-%m-%d %H:%M");
+ * // Returns null
+ */
+static uc_value_t *
+uc_strptime(uc_vm_t *vm, size_t nargs)
+{
+	uc_value_t *input = uc_fn_arg(0);
+	uc_value_t *fmt = uc_fn_arg(1);
+	struct tm tm = { .tm_mday = 1, .tm_isdst = -1 }, norm;
+	const char *end;
+
+	if (ucv_type(input) != UC_STRING || ucv_type(fmt) != UC_STRING)
+		return NULL;
+
+	end = strptime(ucv_string_get(input), ucv_string_get(fmt), &tm);
+
+	if (!end)
+		return NULL;
+
+	while (isspace((unsigned char)*end))
+		end++;
+
+	if (*end)
+		return NULL;
+
+	/*
+	 * Not all strptime() implementations compute wday and yday from parsed
+	 * dates, so derive them from a normalized copy of the parsed date.
+	 */
+	norm = tm;
+	norm.tm_isdst = 0;
+	errno = 0;
+
+	if (timegm(&norm) != (time_t)-1 || errno == 0) {
+		tm.tm_wday = norm.tm_wday;
+		tm.tm_yday = norm.tm_yday;
+	}
+
+	return uc_tm_to_timespec(vm, &tm);
 }
 
 /**
@@ -6372,6 +6616,8 @@ const uc_function_list_t uc_stdlib_functions[] = {
 	{ "gmtime",		uc_gmtime },
 	{ "timelocal",	uc_timelocal },
 	{ "timegm",		uc_timegm },
+	{ "strftime",	uc_strftime },
+	{ "strptime",	uc_strptime },
 	{ "clock",		uc_clock },
 	{ "hexdec",		uc_hexdec },
 	{ "hexenc",		uc_hexenc },
