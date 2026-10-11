@@ -1,0 +1,72 @@
+The `strftime()` function formats a point in time, given either as epoch
+timestamp or as broken-down date and time dictionary, according to the
+given `strftime(3)` format string. By default the local timezone is used,
+a truthy third argument selects UTC.
+
+Returns `null` if the format is not a string or if the given time spec is
+invalid.
+
+-- Testcase --
+{%
+	let t = time();
+	let s = strftime("%s");
+	let f = "";
+
+	for (let i = 0; i < 50; i++)
+		f += "%Y-%m-%d ";
+
+	// assert that strftime without time argument uses the current time
+	assert(+s >= t && +s <= t + 5, "strftime() result does not match time()");
+
+	printf("%.J\n", [
+		// epoch value, local time and UTC
+		strftime("%Y-%m-%d %H:%M:%S %Z", 1647953502),
+		strftime("%Y-%m-%d %H:%M:%S %z", 1647953502, true),
+
+		// daylight saving time
+		strftime("%Y-%m-%d %H:%M:%S %z", 1657453502),
+
+		// time spec dictionary, wday/yday are computed
+		strftime("%F %T %u %j", { sec: 42, min: 51, hour: 13, mday: 22, mon: 3, year: 2022 }),
+
+		// out of range values are normalized
+		strftime("%F", { mday: 40, mon: 10, year: 2022 }, true),
+
+		// round trip
+		strftime("%c", localtime(1647953502)) == strftime("%c", 1647953502),
+
+		// literal text, escaped percent and empty results
+		strftime("Year %Y, 100%%", 0, true),
+		length(strftime("", 0)),
+
+		// long output exceeding the initial buffer
+		length(strftime(f, 0, true)),
+
+		// invalid arguments
+		strftime(123),
+		strftime("%Y", { mon: 1 }),
+		strftime("%Y", { mday: 1, year: 2022 })
+	]);
+%}
+-- End --
+
+-- Vars --
+TZ=CET-1CEST,M3.5.0/2,M10.5.0/3
+-- End --
+
+-- Expect stdout --
+[
+	"2022-03-22 13:51:42 CET",
+	"2022-03-22 12:51:42 +0000",
+	"2022-07-10 13:45:02 +0200",
+	"2022-03-22 13:51:42 2 081",
+	"2022-11-09",
+	true,
+	"Year 1970, 100%",
+	0,
+	550,
+	null,
+	null,
+	null
+]
+-- End --

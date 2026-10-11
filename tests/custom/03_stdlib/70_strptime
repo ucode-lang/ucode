@@ -1,0 +1,82 @@
+The `strptime()` function parses a string according to the given
+`strptime(3)` format string and returns the result as broken-down date
+and time dictionary, suitable for `timelocal()` and `timegm()`.
+
+Fields not covered by the format default to 1900-01-01 00:00:00, `isdst`
+defaults to `-1` and `wday` and `yday` are computed from the parsed date.
+
+Returns `null` if an argument is not a string or if the input does not
+entirely match the format.
+
+-- Testcase --
+{%
+	// full date and time
+	printf("%.J\n", strptime("2022-03-22 13:51:42", "%Y-%m-%d %H:%M:%S"));
+
+	// time only, date defaults to 1900-01-01
+	printf("%.J\n", strptime("13:51", "%H:%M"));
+
+	printf("%.J\n", [
+		// round trips with timegm(), timelocal() and strftime()
+		timegm(strptime("22/Mar/2022:12:51:42", "%d/%b/%Y:%H:%M:%S")),
+		timelocal(strptime("2022-03-22 13:51:42", "%F %T")),
+		timelocal(strptime("2022-07-10 13:45:02", "%F %T")),
+		strftime("%F %T", strptime("2022-03-22T13:51:42", "%Y-%m-%dT%H:%M:%S")),
+
+		// leading and trailing whitespace is accepted
+		strptime("  2022-03-22  ", " %Y-%m-%d").yday,
+
+		// mismatching or incomplete input
+		strptime("2022-03-22", "%Y-%m-%d %H:%M"),
+		strptime("2022-03-22 junk", "%Y-%m-%d"),
+		strptime("2022-13-01", "%Y-%m-%d"),
+		strptime("", "%Y"),
+
+		// invalid arguments
+		strptime(2022, "%Y"),
+		strptime("2022", null)
+	]);
+%}
+-- End --
+
+-- Vars --
+TZ=CET-1CEST,M3.5.0/2,M10.5.0/3
+-- End --
+
+-- Expect stdout --
+{
+	"sec": 42,
+	"min": 51,
+	"hour": 13,
+	"mday": 22,
+	"mon": 3,
+	"year": 2022,
+	"wday": 2,
+	"yday": 81,
+	"isdst": -1
+}
+{
+	"sec": 0,
+	"min": 51,
+	"hour": 13,
+	"mday": 1,
+	"mon": 1,
+	"year": 1900,
+	"wday": 1,
+	"yday": 1,
+	"isdst": -1
+}
+[
+	1647953502,
+	1647953502,
+	1657453502,
+	"2022-03-22 13:51:42",
+	81,
+	null,
+	null,
+	null,
+	null,
+	null,
+	null
+]
+-- End --
