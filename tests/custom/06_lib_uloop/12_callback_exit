@@ -1,0 +1,26 @@
+Calling exit() in a uloop callback ends the loop and terminates the script
+with the given code, also when an exception guard is set. The guard does not
+receive the exit request.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+
+	uloop.init();
+
+	uloop.guard((e) => print(`guard: ${e.type}\n`));
+
+	uloop.timer(10, () => exit(4));
+	uloop.timer(100, () => {
+		print("loop kept running\n");
+		uloop.end();
+	});
+
+	uloop.run();
+	print("run() returned\n");
+%}
+-- End --
+
+-- Expect exitcode --
+4
+-- End --

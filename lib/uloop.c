@@ -149,8 +149,16 @@ uc_uloop_vm_call(uc_vm_t *vm, bool mcall, size_t nargs)
 {
 	uc_value_t *exh, *val;
 
-	if (uc_vm_call(vm, mcall, nargs) == EXCEPTION_NONE)
+	switch (uc_vm_call(vm, mcall, nargs)) {
+	case EXCEPTION_NONE:
 		return true;
+
+	case EXCEPTION_EXIT:
+		goto error;
+
+	default:
+		break;
+	}
 
 	exh = uc_vm_registry_get(vm, "uloop.ex_handler");
 	if (!ucv_is_callable(exh))
@@ -1176,6 +1184,93 @@ uc_uloop_process_cb(struct uloop_process *proc, int exitcode)
 	ucv_put(obj);
 }
 
+static char **
+uc_uloop_process_argv(uc_vm_t *vm, uc_value_t *arg0, uc_value_t *list,
+                      size_t first)
+{
+	size_t len = ucv_array_length(list);
+	size_t count = len > first ? len - first : 0;
+	char **argp = calloc(count + 2, sizeof(char *));
+	size_t i;
+
+	if (!argp)
+		return NULL;
+
+	argp[0] = ucv_to_string(vm, arg0);
+
+	for (i = 0; i < count; i++)
+		argp[i + 1] = ucv_to_string(vm, ucv_array_get(list, first + i));
+
+	return argp;
+}
+
+static char **
+uc_uloop_process_envp(uc_vm_t *vm, uc_value_t *env_arg)
+{
+	uc_stringbuf_t *buf;
+	char **envp;
+	size_t i = 0;
+
+	if (!env_arg)
+		return environ;
+
+	envp = calloc(ucv_object_length(env_arg) + 1, sizeof(char *));
+
+	if (!envp)
+		return NULL;
+
+	ucv_object_foreach(env_arg, envk, envv) {
+		buf = xprintbuf_new();
+
+		ucv_stringbuf_printf(buf, "%s=", envk);
+		ucv_to_stringbuf(vm, buf, envv, false);
+
+		envp[i++] = buf->buf;
+
+		free(buf);
+	}
+
+	return envp;
+}
+
+static void
+uc_uloop_process_exec(uc_vm_t *vm, uc_value_t *executable,
+                      uc_value_t *arguments, uc_value_t *env_arg)
+{
+	uc_value_t *argv;
+	char **argp, **envp;
+
+	uloop_done();
+
+	if (ucv_is_callable(executable)) {
+		uc_vm_stack_push(vm, ucv_get(executable));
+		uc_vm_stack_push(vm, ucv_get(arguments));
+		uc_vm_stack_push(vm, ucv_get(env_arg));
+
+		if (!uc_uloop_vm_call(vm, false, 2))
+			_exit(vm->exception.type == EXCEPTION_EXIT ? vm->arg.s32 : -1);
+
+		argv = uc_vm_stack_pop(vm);
+
+		if (ucv_type(argv) != UC_ARRAY || !ucv_array_length(argv))
+			_exit(-1);
+
+		argp = uc_uloop_process_argv(vm, ucv_array_get(argv, 0), argv, 1);
+	}
+	else {
+		argp = uc_uloop_process_argv(vm, executable, arguments, 0);
+	}
+
+	envp = uc_uloop_process_envp(vm, env_arg);
+
+	if (!argp || !envp)
+		_exit(-1);
+
+	execvpe(argp[0], (char * const *)argp, (char * const *)envp);
+
+	_exit(-1);
+}
+
 /**
  * Creates a process instance for executing external programs.
  *
@@ -1184,14 +1279,29 @@ uc_uloop_process_cb(struct uloop_process *proc, int exitcode)
  * vector, an optional dictionary describing environment variables, and a
  * callback function to be invoked when the invoked process ends.
  *
+ * When a function is given instead of the executable path, it is invoked in
+ * the child process after fork(), receiving the argument vector and the
+ * environment dictionary as parameters. It may perform any preparatory work,
+ * such as setting up file descriptors, and must return the complete argument
+ * vector to execute, with the executable path as first element. Changes made
+ * to the environment dictionary by the function apply to the environment of
+ * the executed program; the executable is searched in the `PATH` of the
+ * calling process. If the function calls `exit()`, the child process exits
+ * with the given code. If it throws an exception or does not return a
+ * non-empty array, the child process exits with code 255.
+ *
+ * The function runs outside of the event loop: signals received by the child
+ * process do not invoke the signal callbacks of the event loop.
+ *
  * @function module:uloop#process
  *
- * @param {string} executable
- * The path to the executable program.
+ * @param {string|Function} executable
+ * The path to the executable program, or a function returning the argument
+ * vector to execute.
  *
  * @param {string[]} [args]
  * Optional. An array of strings representing the arguments passed to the
- * executable.
+ * executable, or to the function.
  *
  * @param {Object<string, *>} [env]
  * Optional. A dictionary describing environment variables for the process.
@@ -1203,11 +1313,24 @@ uc_uloop_process_cb(struct uloop_process *proc, int exitcode)
  *
  * @returns {?module:uloop.process}
  * Returns a process instance for executing external programs.
- * Returns `null` on error, e.g. due to `exec()` failure or invalid arguments.
+ * Returns `null` on invalid arguments or `fork()` failure. If the program
+ * cannot be executed, the callback receives the exit code 255.
  *
  * @example
  * // Create a process instance for executing 'ls' command
  * const myProcess = uloop.process("/bin/ls", ["-l", "/tmp"], null, (code) => {
+ *     printf(`Process exited with code ${code}\n`);
+ * });
+ *
+ * // Redirect stderr in the child process before executing 'ls'
+ * const myProcess = uloop.process((args, env) => {
+ *     const fs = require('fs');
+ *     const errlog = fs.open('/tmp/error.log', 'w');
+ *     fs.dup2(errlog.fileno(), 2);
+ *     errlog.close();
+ *
+ *     return ["/bin/ls", ...args];
+ * }, ["-l", "/tmp"], null, (code) => {
  *     printf(`Process exited with code ${code}\n`);
  * });
  */
@@ -1219,55 +1342,25 @@ uc_uloop_process(uc_vm_t *vm, size_t nargs)
 	uc_value_t *env_arg = uc_fn_arg(2);
 	uc_value_t *callback = uc_fn_arg(3);
 	uc_uloop_process_t *process;
-	uc_stringbuf_t *buf;
-	char **argp, **envp;
 	pid_t pid;
-	size_t i;
 
-	if (ucv_type(executable) != UC_STRING ||
+	if ((ucv_type(executable) != UC_STRING && !ucv_is_callable(executable)) ||
 	    (arguments && ucv_type(arguments) != UC_ARRAY) ||
 	    (env_arg && ucv_type(env_arg) != UC_OBJECT) ||
 	    !ucv_is_callable(callback)) {
 		err_return(EINVAL);
 	}
 
+	/* the child may flush the inherited buffer again */
+	fflush(vm->output);
+
 	pid = fork();
 
 	if (pid == -1)
 		err_return(errno);
 
-	if (pid == 0) {
-		argp = calloc(ucv_array_length(arguments) + 2, sizeof(char *));
-		envp = environ;
-
-		if (env_arg) {
-			envp = calloc(ucv_object_length(env_arg) + 1, sizeof(char *));
-			i = 0;
-			ucv_object_foreach(env_arg, envk, envv) {
-				buf = xprintbuf_new();
-
-				ucv_stringbuf_printf(buf, "%s=", envk);
-				ucv_to_stringbuf(vm, buf, envv, false);
-
-				envp[i++] = buf->buf;
-
-				free(buf);
-			}
-		}
-
-		if (!argp || !envp)
-			_exit(-1);
-
-		argp[0] = ucv_to_string(vm, executable);
-
-		for (i = 0; i < ucv_array_length(arguments); i++)
-			argp[i+1] = ucv_to_string(vm, ucv_array_get(arguments, i));
-
-		execvpe((const char *)ucv_string_get(executable),
-		        (char * const *)argp, (char * const *)envp);
-
-		_exit(-1);
-	}
+	if (pid == 0)
+		uc_uloop_process_exec(vm, executable, arguments, env_arg);
 
 	process = uc_uloop_alloc(vm, "uloop.process", sizeof(*process), callback);
 	process->process.pid = pid;

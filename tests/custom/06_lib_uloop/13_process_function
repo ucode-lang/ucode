@@ -1,0 +1,133 @@
+When the first argument of process() is a function, it runs in the child
+process, receives the argument vector and the environment, and returns the
+argument vector to execute. Changes to the environment apply to the executed
+program. exit() in the function sets the exit code of the child. An exception
+or a return value that is not a non-empty array makes the child exit with code
+255. Buffered output of the parent is written once, and SIGTERM ends the
+child.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+	import * as fs from 'fs';
+
+	uloop.init();
+
+	const tmpdir = fs.mkdtemp('/tmp/ucode-uloop-process-XXXXXX');
+	const outfile = tmpdir + '/out';
+
+	function run(label, executable, args, env) {
+		let completed = false;
+		let child = uloop.process(executable, args, env, (status) => {
+			completed = true;
+			printf('%s: %d\n', label, status);
+			uloop.end();
+		});
+
+		if (!child)
+			die('Unable to start child');
+
+		uloop.run();
+
+		if (!completed)
+			die('Missing process callback');
+	}
+
+	run('argv', (args, env) => {
+		let out = fs.open(outfile, 'w');
+		fs.dup2(out.fileno(), 1);
+		out.close();
+
+		env.GREETING = 'changed';
+
+		return ['/bin/sh', '-c', 'echo "$0 $1 $GREETING"; exit 3', ...args];
+	}, ['first', 'second'], { GREETING: 'initial' });
+
+	print(fs.readfile(outfile));
+	fs.unlink(outfile);
+	fs.rmdir(tmpdir);
+
+	run('exception', () => die('setup failed'));
+	run('null', () => null);
+	run('empty', () => []);
+	run('string', () => '/bin/true');
+	run('exit', () => exit(3));
+
+	printf('buffered before fork\n');
+	run('flush', () => {
+		fs.stdout.flush();
+		return ['/bin/true'];
+	});
+
+	uloop.timer(1, () => {
+		let child = uloop.process(() => {
+			sleep(300);
+			return ['/bin/true'];
+		}, null, null, (status) => {
+			printf('TERM: %d\n', status);
+			uloop.end();
+		});
+
+		uloop.timer(100, () => system(['kill', '-TERM', `${child.pid()}`]));
+	});
+
+	uloop.run();
+
+	printf('invalid: %J\n', uloop.process(123, null, null, () => null));
+
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+argv: 3
+first second changed
+exception: 255
+null: 255
+empty: 255
+string: 255
+exit: 3
+buffered before fork
+flush: 0
+TERM: -15
+invalid: null
+-- End --
+
+
+Signals received by the child do not reach the signal callbacks of the
+parent.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+
+	if (!uloop.signal)
+		exit(77);
+
+	uloop.init();
+
+	let usr1_count = 0;
+	let usr1 = uloop.signal('SIGUSR1', () => usr1_count++);
+
+	uloop.timer(1, () => {
+		let child = uloop.process(() => {
+			sleep(300);
+			return ['/bin/true'];
+		}, null, null, (status) => {
+			printf('USR1: %d, parent callbacks: %d\n', status, usr1_count);
+			uloop.end();
+		});
+
+		uloop.timer(100, () => system(['kill', '-USR1', `${child.pid()}`]));
+	});
+
+	uloop.run();
+
+	usr1.delete();
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+USR1: 0, parent callbacks: 0
+-- End --
