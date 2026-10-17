@@ -4528,8 +4528,6 @@ uc_proto(uc_vm_t *vm, size_t nargs)
 		return NULL;
 	}
 
-	ucv_get(proto);
-
 	return ucv_get(val);
 }
 

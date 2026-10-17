@@ -190,3 +190,99 @@ allowed, including pointing at a former ancestor.
 	2
 ]
 -- End --
+
+
+Setting a prototype takes exactly one reference on it, which the value
+releases when it is freed or given another prototype.
+
+-- Testcase --
+{%
+	let getinfo = require("debug").getinfo;
+	let p = { x: 1 };
+	let base = getinfo(p).refcount;
+	let refs = () => getinfo(p).refcount - base;
+	let counts = {};
+
+	for (let i = 0; i < 100; i++)
+		proto({}, p);
+
+	counts.discarded = refs();
+
+	let held = [];
+
+	for (let i = 0; i < 10; i++)
+		push(held, proto({}, p));
+
+	counts.held = refs();
+
+	held = null;
+	counts.released = refs();
+
+	let a = proto({}, p);
+
+	proto(a, { y: 2 });
+	counts.reassigned = refs();
+
+	let c = proto({}, p);
+	let before = getinfo(c).refcount;
+
+	try {
+		proto(p, c);
+	}
+	catch (e) {
+		counts.rejected = getinfo(c).refcount - before;
+	}
+
+	printf("%.J\n", counts);
+%}
+-- End --
+
+-- Expect stdout --
+{
+	"discarded": 0,
+	"held": 10,
+	"released": 0,
+	"reassigned": 0,
+	"rejected": 0
+}
+-- End --
+
+
+Setting the prototype of a resource with an own prototype releases the
+previous one.
+
+-- Testcase --
+{%
+	let ffi;
+
+	try {
+		ffi = require("ffi");
+	}
+	catch (e) {
+		exit(77);
+	}
+
+	let getinfo = require("debug").getinfo;
+	let p = { x: 1 };
+	let q = { y: 2 };
+	let base = getinfo(p).refcount;
+	let counts = {};
+
+	proto(ffi.C, p);
+	counts.held = getinfo(p).refcount - base;
+
+	proto(ffi.C, q);
+	counts.released = getinfo(p).refcount - base;
+	counts.current = (proto(ffi.C) == q);
+
+	printf("%.J\n", counts);
+%}
+-- End --
+
+-- Expect stdout --
+{
+	"held": 1,
+	"released": 0,
+	"current": true
+}
+-- End --

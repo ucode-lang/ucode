@@ -1624,24 +1624,10 @@ ucv_prototype_set(uc_value_t *uv, uc_value_t *proto)
 		return true;
 
 	case UC_RESOURCE:
-		if (uv->ext_flag) {
-			uc_resource_ext_t *res = (uc_resource_ext_t *)uv;
-			uc_value_t **values;
+		if (!ucv_resource_hasproto(uv))
+			return false;
 
-			if (!res->hasproto)
-				return false;
-
-			values = ucv_resource_values(res);
-
-			if (!values)
-				return false;
-
-			values[0] = proto;
-
-			return true;
-		}
-
-		return false;
+		return ucv_resource_proto_set(uv, proto);
 
 	default:
 		return false;
