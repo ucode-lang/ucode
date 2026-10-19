@@ -105,6 +105,10 @@ typedef struct {
 	uc_token_t prev, curr;
 	uc_stringbuf_t *error;
 	bool synchronizing;
+	struct {
+		size_t from, to, count;
+		uc_bracket_t *entries;
+	} scanned;
 } uc_parser_t;
 
 typedef struct uc_compiler {
