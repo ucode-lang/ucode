@@ -942,11 +942,15 @@ render_disassembly(struct json_object *p)
 		if (json_object_object_get_ex(ins, "call_nargs", NULL)) {
 			struct json_object *mcall_j = json_object_object_get(ins, "call_mcall");
 			struct json_object *tail_j = json_object_object_get(ins, "call_tail");
+			struct json_object *stdlib_j = json_object_object_get(ins, "stdlib_name");
 
 			d->have_call = true;
 			d->call_mcall = mcall_j && json_object_get_boolean(mcall_j);
 			d->call_nargs = (uint32_t)jint(ins, "call_nargs", 0);
 			d->call_tail = tail_j && json_object_get_boolean(tail_j);
+
+			if (stdlib_j && json_object_get_type(stdlib_j) == json_type_string)
+				d->stdlib_name = json_object_get_string(stdlib_j);
 		}
 
 		if (json_object_object_get_ex(ins, "return_tailcall", NULL))

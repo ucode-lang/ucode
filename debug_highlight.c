@@ -110,10 +110,10 @@ static struct {
 	{ FG_BYELLOW, "\\<(while|if|else|elif|switch|case|default|for|in|endif|endfor|endwhile|endfunction)\\>", NULL },
 
 	/* keywords */
-	{ FG_BYELLOW, "\\<(export|import|try|catch|delete)\\>", NULL },
+	{ FG_BYELLOW, "\\<(export|import|try|catch|delete|typeof)\\>", NULL },
 
 	/* exit points */
-	{ FG_MAGENTA, "\\<(break|continue|return)\\>", NULL },
+	{ FG_MAGENTA, "\\<(break|continue|return|throw)\\>", NULL },
 
 	/* numeric literals */
 	{ FG_CYAN, "\\<([0-9]+\\.[0-9]+([eE][+-]?[0-9]+)?|[0-9]+[eE][+-]?[0-9]+)\\>", NULL },
@@ -826,8 +826,15 @@ debug_highlight_print_disassembly(FILE *out, const char *function,
 			else if (ins->have_call) {
 				dbuf_printf(&line, " : ");
 
-				if (ins->call_mcall)
+				if (ins->stdlib_name) {
+					dbuf_style(&line, &st_cyan);
+					dbuf_printf(&line, "%s", ins->stdlib_name);
+					dbuf_style(&line, NULL);
+					dbuf_printf(&line, ", ");
+				}
+				else if (ins->call_mcall) {
 					dbuf_printf(&line, "mcall, ");
+				}
 
 				dbuf_style(&line, &st_op);
 				dbuf_printf(&line, "%" PRIu32, ins->call_nargs);

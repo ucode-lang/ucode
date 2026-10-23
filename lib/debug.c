@@ -4852,6 +4852,19 @@ proto_cmd_disasm(uc_vm_t *vm, debug_breakpoint_t *dbk, uc_value_t *payload, int 
 				    bytecode[i + n + 1] == 0x00)
 					ucv_object_add(item, "call_tail", ucv_boolean_new(true));
 			}
+			else if (insn == I_STCALL) {
+				/* See uc_vm_insn_stcall() in vm.c: the upper 16 bits are the
+				 * callee's slot in uc_stdlib_functions[], the low 16 bits the
+				 * argument count. It never takes a this-context and is never a
+				 * tail call - the compiler emits it for typeof, throw and the
+				 * rest elements of destructuring patterns only. */
+				const char *name = uc_stdlib_function_name_by_slot(arg.u32 >> 16);
+
+				ucv_object_add(item, "call_nargs",
+					ucv_uint64_new(arg.u32 & 0xffff));
+				ucv_object_add(item, "stdlib_name",
+					ucv_string_new(name ? name : "(unknown)"));
+			}
 
 			break;
 

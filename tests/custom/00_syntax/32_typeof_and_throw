@@ -1,0 +1,104 @@
+The `typeof` operator and the `throw` statement are provided by the standard
+library `type()` and `die()` functions; the compiler invokes them through an
+internal call which addresses the library table by slot rather than by name.
+
+
+1. typeof yields the type name of a value, like type() does.
+
+-- Testcase --
+{%
+	print(typeof 42, " ", typeof 1.5, " ", typeof "s", " ", typeof [1], "\n");
+	print(typeof {}, " ", typeof true, " ", typeof print, "\n");
+	print("[", typeof null, "]", "\n");
+
+	let o = { a: { b: 1 } };
+
+	print(typeof o.a.b, " ", typeof o.missing, " ", typeof (1 + 2), "\n");
+	print(typeof !0, " ", typeof -1, "\n");
+%}
+-- End --
+
+-- Expect stdout --
+int double string array
+object bool function
+[]
+int  int
+bool int
+-- End --
+
+
+2. The internal call is not affected by user code shadowing the function name.
+
+-- Testcase --
+{%
+	function type(v) { return "hijacked"; }
+	function die(m) { print("die hijacked\n"); }
+
+	print(typeof 1, "\n");
+
+	try { throw "real"; } catch (e) { print(e.message, "\n"); }
+%}
+-- End --
+
+-- Expect stdout --
+int
+real
+-- End --
+
+
+3. throw hands its expression to die(), a bare throw dies without a message and
+   a caught exception object can be re-thrown.
+
+-- Testcase --
+{%
+	try { throw "boom"; } catch (e) { print(e.type, " ", e.message, "\n"); }
+	try { throw; } catch (e) { print(e.message, "\n"); }
+	try { throw { a: 1 }; } catch (e) { print(e.message, "\n"); }
+	try { throw 40 + 2; } catch (e) { print(e.message, "\n"); }
+
+	try {
+		throw "outer";
+	}
+	catch (e) {
+		try { throw e; } catch (f) { print("rethrown: ", f.message, "\n"); }
+	}
+%}
+-- End --
+
+-- Expect stdout --
+Error boom
+Died
+{ "a": 1 }
+42
+rethrown: outer
+-- End --
+
+
+4. throw propagates out of functions and loops until something catches it.
+
+-- Testcase --
+{%
+	function check(v) {
+		if (!v) throw "falsy";
+
+		return v;
+	}
+
+	let caught = [];
+
+	for (let i = 0; i < 4; i++) {
+		try {
+			push(caught, check(i % 2));
+		}
+		catch (e) {
+			push(caught, e.message);
+		}
+	}
+
+	print(caught, "\n");
+%}
+-- End --
+
+-- Expect stdout --
+[ "falsy", 1, "falsy", 1 ]
+-- End --

@@ -144,7 +144,8 @@ struct uc_program {
 	uc_sources_t sources;
 	uc_export_instances_t instances;
 	uc_program_runs_t runs;
-	uint32_t closure_refs;
+	uint32_t closure_refs : 28;
+	uint32_t version : 4;     /* bytecode version required, see uc_program_require_version() */
 };
 
 

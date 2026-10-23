@@ -81,8 +81,10 @@ _uc_type_declare(uc_vm_t *vm, const char *name, const uc_function_list_t *list, 
 	uc_value_t *proto = ucv_object_new(vm);
 
 	while (len-- > 0)
-		ucv_object_add(proto, list[len].name,
-			ucv_cfunction_new(list[len].name, list[len].func));
+		/* skip the empty slot of a retired library function */
+		if (list[len].name)
+			ucv_object_add(proto, list[len].name,
+				ucv_cfunction_new(list[len].name, list[len].func));
 
 	return ucv_resource_type_add(vm, name, proto, freefn);
 }
@@ -102,7 +104,9 @@ _uc_function_list_register(uc_value_t *object, const uc_function_list_t *list, s
 	bool rv = true;
 
 	while (len-- > 0)
-		rv &= uc_function_register(object, list[len].name, list[len].func);
+		/* skip the empty slot of a retired library function */
+		if (list[len].name)
+			rv &= uc_function_register(object, list[len].name, list[len].func);
 
 	return rv;
 }

@@ -39,6 +39,19 @@
 
 #define uc_program_function_last(prog) (uc_function_t *)prog->functions.next
 
+/* Record that the program uses features of the given bytecode version; the
+ * newest version recorded this way is what uc_program_write() stores, so a
+ * program which uses none of them stays loadable by older VMs.
+ *
+ * uc_program_load() raises it to the version of the bytecode it read, which
+ * keeps that version if the program is written back out. */
+static inline void
+uc_program_require_version(uc_program_t *prog, uint8_t version)
+{
+	if (version > prog->version)
+		prog->version = version;
+}
+
 __hidden uc_function_t *uc_program_entry(uc_program_t *);
 
 /* prefix of the registry keys under which a VM holds the closures that

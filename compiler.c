@@ -28,6 +28,7 @@
 static void uc_compiler_compile_unary(uc_compiler_t *compiler);
 static void uc_compiler_compile_binary(uc_compiler_t *compiler);
 static void uc_compiler_compile_delete(uc_compiler_t *compiler);
+static void uc_compiler_compile_typeof(uc_compiler_t *compiler);
 static void uc_compiler_compile_importcall(uc_compiler_t *compiler);
 static void uc_compiler_compile_paren(uc_compiler_t *compiler);
 static void uc_compiler_compile_call(uc_compiler_t *compiler);
@@ -59,6 +60,7 @@ uc_compiler_parse_rules[TK_ERROR + 1] = {
 	[TK_COMPL]		= { uc_compiler_compile_unary, NULL, P_UNARY },
 	[TK_NOT]		= { uc_compiler_compile_unary, NULL, P_UNARY },
 	[TK_DELETE]		= { uc_compiler_compile_delete, NULL, P_UNARY },
+	[TK_TYPEOF]		= { uc_compiler_compile_typeof, NULL, P_UNARY },
 	[TK_IMPORT]		= { uc_compiler_compile_importcall, NULL, P_UNARY },
 	[TK_INC]		= { uc_compiler_compile_unary, uc_compiler_compile_post_inc, P_INC },
 	[TK_DEC]		= { uc_compiler_compile_unary, uc_compiler_compile_post_inc, P_INC },
@@ -758,6 +760,27 @@ uc_compiler_emit_copy(uc_compiler_t *compiler, size_t srcpos, uint8_t depth)
 	return chunk->count - 2;
 }
 
+/* Invoke a standard library function by slot: the arguments are the values on
+ * the stack, the result is pushed back.
+ *
+ * Naming the slot of uc_stdlib_functions[] with a uc_stdlib_fn_t value instead
+ * of looking the function up in the runtime namespace keeps such a call
+ * independent of user code shadowing its name, and makes the callee readable
+ * in the emitted code; an empty or stale slot is reported by the VM at the
+ * instruction. */
+static void
+uc_compiler_emit_stcall(uc_compiler_t *compiler, size_t srcpos, size_t slot, size_t nargs)
+{
+	assert(slot <= 0xffff && nargs <= 0xffff);
+
+	/* the instruction is newer than the oldest bytecode this release writes, so
+	 * record that this program cannot be run by a VM predating it */
+	uc_program_require_version(compiler->program, UCODE_BYTECODE_VERSION);
+
+	uc_compiler_emit_insn(compiler, srcpos, I_STCALL);
+	uc_compiler_emit_u32(compiler, 0, ((uint32_t)slot << 16) | (uint32_t)nargs);
+}
+
 static ssize_t
 uc_compiler_get_jmpaddr(uc_compiler_t *compiler, size_t off)
 {
@@ -1323,6 +1346,16 @@ uc_compiler_compile_delete(uc_compiler_t *compiler)
 	}
 
 	chunk->entries[compiler->last_insn] = I_DELETE;
+}
+
+/* `typeof` is sugar for the standard library's type() function; the value's
+ * type name is pushed, or null for a null value, exactly as type() returns. */
+static void
+uc_compiler_compile_typeof(uc_compiler_t *compiler)
+{
+	uc_compiler_parse_precedence(compiler, P_UNARY);
+
+	uc_compiler_emit_stcall(compiler, 0, UC_FN_TYPE, 1);
 }
 
 static uc_vm_insn_t
@@ -3419,6 +3452,26 @@ uc_compiler_compile_return(uc_compiler_t *compiler)
 		uc_compiler_emit_tailcall_marker(compiler);
 }
 
+/* `throw` is sugar for the standard library's die() function. As a statement
+ * it leaves nothing on the stack: the expression's value is handed to die() and
+ * die()'s own result is discarded. */
+static void
+uc_compiler_compile_throw(uc_compiler_t *compiler)
+{
+	/* a bare `throw` dies without a message, as does die() */
+	if (uc_compiler_compile_expstmt(compiler) == TK_NULL)
+		uc_compiler_emit_insn(compiler, compiler->parser->prev.pos, I_LNULL);
+
+	/* ... otherwise drop the expression statement's trailing I_POP, so that the
+	 * thrown value stays on the stack to become die()'s argument */
+	else
+		uc_chunk_pop(uc_compiler_current_chunk(compiler));
+
+	uc_compiler_emit_stcall(compiler, 0, UC_FN_DIE, 1);
+
+	uc_compiler_emit_insn(compiler, 0, I_POP);
+}
+
 static void
 uc_compiler_compile_tplexp(uc_compiler_t *compiler)
 {
@@ -3533,6 +3586,8 @@ uc_compiler_compile_statement(uc_compiler_t *compiler)
 			uc_compiler_compile_control(compiler);
 		else if (uc_compiler_parse_match(compiler, TK_RETURN))
 			uc_compiler_compile_return(compiler);
+		else if (uc_compiler_parse_match(compiler, TK_THROW))
+			uc_compiler_compile_throw(compiler);
 		else if (uc_compiler_parse_match(compiler, TK_TEXT))
 			uc_compiler_compile_text(compiler);
 		else if (uc_compiler_parse_match(compiler, TK_LEXP))

@@ -33,6 +33,7 @@ uc_program_new(void)
 
 	prog->header.type = UC_PROGRAM;
 	prog->header.refcount = 1;
+	prog->version = UCODE_BYTECODE_VERSION_MIN;
 
 	prog->functions.next = &prog->functions;
 	prog->functions.prev = &prog->functions;
@@ -389,7 +390,9 @@ write_exports(FILE *file, uc_source_t *source, uint32_t flags, const char *subj)
 void
 uc_program_write(uc_program_t *prog, FILE *file, bool debug)
 {
-	uint32_t flags = (UCODE_BYTECODE_VERSION & 0xff) << 24;
+	/* the version this program requires, the oldest one which can run it unless
+	 * the compiler recorded a newer one, see uc_program_require_version() */
+	uint32_t flags = (prog->version & 0xff) << 24;
 	size_t i = 0;
 
 	if (debug)
@@ -1001,14 +1004,18 @@ uc_program_load(uc_source_t *input, char **errp)
 	if (!read_u32(input, &flags, "program flags", errp))
 		goto out;
 
-	if ((flags >> 24) != UCODE_BYTECODE_VERSION) {
-		xasprintf(errp, 
-			"Bytecode version mismatch, got 0x%02x, expected 0x%02x\n",
-			flags >> 24, UCODE_BYTECODE_VERSION);
+	if (!uc_bytecode_version_supported(flags >> 24)) {
+		xasprintf(errp,
+			"Bytecode version mismatch, got 0x%02x, expected 0x%02x to 0x%02x\n",
+			flags >> 24, UCODE_BYTECODE_VERSION_MIN, UCODE_BYTECODE_VERSION);
 		goto out;
 	}
 
 	program = uc_program_new();
+
+	/* keep the version the bytecode came with, so that writing it out again
+	 * does not raise it beyond what the program actually uses */
+	uc_program_require_version(program, flags >> 24);
 
 	if (!read_sourceinfo(input, flags, errp, program))
 		goto out;

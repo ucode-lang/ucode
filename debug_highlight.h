@@ -136,6 +136,9 @@ typedef struct {
 	                              * call's operand span, the VM reuses the current
 	                              * frame for the callee */
 
+	const char *stdlib_name;     /* STCALL: the standard library function it
+	                              * invokes, called without a call frame */
+
 	bool return_tailcall;       /* this I_RETURN terminates a tail call: the 0x00
 	                              * marker byte the compiler emits right after it is
 	                              * consumed as part of this instruction (pure data,

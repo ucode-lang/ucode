@@ -78,7 +78,9 @@ const int8_t uc_vm_insn_format[__I_MAX] = {
 
 	[I_IMPORT] = 4,
 	[I_EXPORT] = 4,
-	[I_DYNLOAD] = 4
+	[I_DYNLOAD] = 4,
+
+	[I_STCALL] = 4
 };
 
 const char *exception_type_strings[] = {
@@ -1116,6 +1118,15 @@ uc_dump_insn(uc_vm_t *vm, uint8_t *pos, uc_vm_insn_t insn)
 	case I_UVAL:
 		fprintf(stderr, "\t; (%s)", uc_vm_insn_to_name(vm->arg.u8));
 		break;
+
+	case I_STCALL: {
+		/* the operand packs the callee's uc_stdlib_functions[] slot in its
+		 * upper half, the argument count in the lower one */
+		const char *name = uc_stdlib_function_name_by_slot(vm->arg.u32 >> 16);
+
+		fprintf(stderr, "\t; %s", name ? name : "(?)");
+		break;
+	}
 
 	default:
 		break;
@@ -2485,6 +2496,48 @@ uc_vm_insn_nobj(uc_vm_t *vm, uc_vm_insn_t insn)
 	uc_vm_stack_push(vm, obj);
 }
 
+/* Invoke a standard library function without pushing a call frame.
+ *
+ * The arguments occupy the top `nargs` stack entries, which is exactly the
+ * layout uc_fn_arg() expects, so the callee can be entered as an ordinary C
+ * function; it restores the stack to the argument boundary itself when it
+ * calls back into managed code.
+ *
+ * The callee is addressed by its slot in the order-frozen
+ * uc_stdlib_functions[] table rather than by name, so a shadowing `slice`,
+ * `type` or `die` in the runtime namespace cannot affect the call.
+ *
+ * Since no frame is involved, an exception raised by the callee reports the
+ * position of this instruction in the calling chunk, not of a synthetic one. */
+static void
+uc_vm_insn_stcall(uc_vm_t *vm, uc_vm_insn_t insn)
+{
+	uc_cfn_ptr_t fptr = uc_stdlib_function_by_slot(vm->arg.u32 >> 16);
+	size_t nargs = vm->arg.u32 & 0xffff;
+	size_t keep = vm->stack.count - nargs;
+	uc_value_t *res = NULL;
+
+	if (!fptr) {
+		uc_vm_raise_exception(vm, EXCEPTION_RUNTIME,
+		                      "unknown standard library slot %zu", vm->arg.u32 >> 16);
+	}
+	else {
+		res = fptr(vm, nargs);
+	}
+
+	/* a callee reads the arguments with uc_fn_arg() but does not consume them -
+	 * ordinary calls consume them through the callframe pop - so drop them here,
+	 * along with anything the callee left above them */
+	while (vm->stack.count > keep)
+		ucv_put(uc_vm_stack_pop(vm));
+
+	/* as in uc_vm_call_native(), a result is only kept when no exception fired */
+	if (vm->exception.type)
+		ucv_put(res);
+	else
+		uc_vm_stack_push(vm, res);
+}
+
 static void
 uc_vm_insn_sobj(uc_vm_t *vm, uc_vm_insn_t insn)
 {
@@ -3500,6 +3553,10 @@ uc_vm_execute_chunk(uc_vm_t *vm)
 
 		case I_MOBJ:
 			uc_vm_insn_mobj(vm, insn);
+			break;
+
+		case I_STCALL:
+			uc_vm_insn_stcall(vm, insn);
 			break;
 
 		case I_SVAR:

@@ -91,7 +91,8 @@ __insn(NEXTKV) \
 __insn(DELETE) \
 __insn(IMPORT) \
 __insn(EXPORT) \
-__insn(DYNLOAD)
+__insn(DYNLOAD) \
+__insn(STCALL)
 
 
 #undef __insn

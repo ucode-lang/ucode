@@ -6287,82 +6287,95 @@ uc_signal(uc_vm_t *vm, size_t nargs)
 }
 
 
+/* The slot of every entry is pinned by its designated initializer, see
+ * uc_stdlib_fn_t, so the layout of this table does not depend on the order the
+ * entries are written in: adding a function appends a slot at the end, retiring
+ * one drops its initializer and leaves that slot empty.
+ *
+ * Slots are baked into compiled bytecode; one beyond the table or an empty one
+ * is reported by the VM rather than silently invoking another function. */
 const uc_function_list_t uc_stdlib_functions[] = {
-	{ "chr",		uc_chr },
-	{ "die",		uc_die },
-	{ "exists",		uc_exists },
-	{ "rawget",		uc_rawget },
-	{ "rawset",		uc_rawset },
-	{ "rawdelete",		uc_rawdelete },
-	{ "exit",		uc_exit },
-	{ "filter",		uc_filter },
-	{ "getenv",		uc_getenv },
-	{ "hex",		uc_hex },
-	{ "index",		uc_lindex },
-	{ "int",		uc_int },
-	{ "join",		uc_join },
-	{ "keys",		uc_keys },
-	{ "lc",			uc_lc },
-	{ "length",		uc_length },
-	{ "ltrim",		uc_ltrim },
-	{ "map",		uc_map },
-	{ "ord",		uc_ord },
-	{ "pop",		uc_pop },
-	{ "print",		uc_print },
-	{ "push",		uc_push },
-	{ "reverse",	uc_reverse },
-	{ "rindex",		uc_rindex },
-	{ "rtrim",		uc_rtrim },
-	{ "shift",		uc_shift },
-	{ "sort",		uc_sort },
-	{ "splice",		uc_splice },
-	{ "slice",		uc_slice },
-	{ "split",		uc_split },
-	{ "substr",		uc_substr },
-	{ "time",		uc_time },
-	{ "trim",		uc_trim },
-	{ "type",		uc_type },
-	{ "uchr",		uc_uchr },
-	{ "uc",			uc_uc },
-	{ "unshift",	uc_unshift },
-	{ "values",		uc_values },
-	{ "sprintf",	uc_sprintf },
-	{ "printf",		uc_printf },
-	{ "require",	uc_require },
-	{ "iptoarr",	uc_iptoarr },
-	{ "arrtoip",	uc_arrtoip },
-	{ "match",		uc_match },
-	{ "replace",	uc_replace },
-	{ "json",		uc_json },
-	{ "include",	uc_include },
-	{ "warn",		uc_warn },
-	{ "system",		uc_system },
-	{ "trace",		uc_trace },
-	{ "proto",		uc_proto },
-	{ "sleep",		uc_sleep },
-	{ "assert",		uc_assert },
-	{ "render",		uc_render },
-	{ "regexp",		uc_regexp },
-	{ "wildcard",	uc_wildcard },
-	{ "sourcepath",	uc_sourcepath },
-	{ "min",		uc_min },
-	{ "max",		uc_max },
-	{ "b64dec",		uc_b64dec },
-	{ "b64enc",		uc_b64enc },
-	{ "uniq",		uc_uniq },
-	{ "localtime",	uc_localtime },
-	{ "gmtime",		uc_gmtime },
-	{ "timelocal",	uc_timelocal },
-	{ "timegm",		uc_timegm },
-	{ "clock",		uc_clock },
-	{ "hexdec",		uc_hexdec },
-	{ "hexenc",		uc_hexenc },
-	{ "gc",			uc_gc },
-	{ "loadstring",	uc_loadstring },
-	{ "loadfile",	uc_loadfile },
-	{ "call",		uc_callfunc },
-	{ "signal",		uc_signal },
+	[UC_FN_CHR       ] = { "chr",       uc_chr },
+	[UC_FN_DIE       ] = { "die",       uc_die },
+	[UC_FN_EXISTS    ] = { "exists",    uc_exists },
+	[UC_FN_RAWGET    ] = { "rawget",    uc_rawget },
+	[UC_FN_RAWSET    ] = { "rawset",    uc_rawset },
+	[UC_FN_RAWDELETE ] = { "rawdelete", uc_rawdelete },
+	[UC_FN_EXIT      ] = { "exit",      uc_exit },
+	[UC_FN_FILTER    ] = { "filter",    uc_filter },
+	[UC_FN_GETENV    ] = { "getenv",    uc_getenv },
+	[UC_FN_HEX       ] = { "hex",       uc_hex },
+	[UC_FN_INDEX     ] = { "index",     uc_lindex },
+	[UC_FN_INT       ] = { "int",       uc_int },
+	[UC_FN_JOIN      ] = { "join",      uc_join },
+	[UC_FN_KEYS      ] = { "keys",      uc_keys },
+	[UC_FN_LC        ] = { "lc",        uc_lc },
+	[UC_FN_LENGTH    ] = { "length",    uc_length },
+	[UC_FN_LTRIM     ] = { "ltrim",     uc_ltrim },
+	[UC_FN_MAP       ] = { "map",       uc_map },
+	[UC_FN_ORD       ] = { "ord",       uc_ord },
+	[UC_FN_POP       ] = { "pop",       uc_pop },
+	[UC_FN_PRINT     ] = { "print",     uc_print },
+	[UC_FN_PUSH      ] = { "push",      uc_push },
+	[UC_FN_REVERSE   ] = { "reverse",   uc_reverse },
+	[UC_FN_RINDEX    ] = { "rindex",    uc_rindex },
+	[UC_FN_RTRIM     ] = { "rtrim",     uc_rtrim },
+	[UC_FN_SHIFT     ] = { "shift",     uc_shift },
+	[UC_FN_SORT      ] = { "sort",      uc_sort },
+	[UC_FN_SPLICE    ] = { "splice",    uc_splice },
+	[UC_FN_SLICE     ] = { "slice",     uc_slice },
+	[UC_FN_SPLIT     ] = { "split",     uc_split },
+	[UC_FN_SUBSTR    ] = { "substr",    uc_substr },
+	[UC_FN_TIME      ] = { "time",      uc_time },
+	[UC_FN_TRIM      ] = { "trim",      uc_trim },
+	[UC_FN_TYPE      ] = { "type",      uc_type },
+	[UC_FN_UCHR      ] = { "uchr",      uc_uchr },
+	[UC_FN_UC        ] = { "uc",        uc_uc },
+	[UC_FN_UNSHIFT   ] = { "unshift",   uc_unshift },
+	[UC_FN_VALUES    ] = { "values",    uc_values },
+	[UC_FN_SPRINTF   ] = { "sprintf",   uc_sprintf },
+	[UC_FN_PRINTF    ] = { "printf",    uc_printf },
+	[UC_FN_REQUIRE   ] = { "require",   uc_require },
+	[UC_FN_IPTOARR   ] = { "iptoarr",   uc_iptoarr },
+	[UC_FN_ARRTOIP   ] = { "arrtoip",   uc_arrtoip },
+	[UC_FN_MATCH     ] = { "match",     uc_match },
+	[UC_FN_REPLACE   ] = { "replace",   uc_replace },
+	[UC_FN_JSON      ] = { "json",      uc_json },
+	[UC_FN_INCLUDE   ] = { "include",   uc_include },
+	[UC_FN_WARN      ] = { "warn",      uc_warn },
+	[UC_FN_SYSTEM    ] = { "system",    uc_system },
+	[UC_FN_TRACE     ] = { "trace",     uc_trace },
+	[UC_FN_PROTO     ] = { "proto",     uc_proto },
+	[UC_FN_SLEEP     ] = { "sleep",     uc_sleep },
+	[UC_FN_ASSERT    ] = { "assert",    uc_assert },
+	[UC_FN_RENDER    ] = { "render",    uc_render },
+	[UC_FN_REGEXP    ] = { "regexp",    uc_regexp },
+	[UC_FN_WILDCARD  ] = { "wildcard",  uc_wildcard },
+	[UC_FN_SOURCEPATH] = { "sourcepath", uc_sourcepath },
+	[UC_FN_MIN       ] = { "min",       uc_min },
+	[UC_FN_MAX       ] = { "max",       uc_max },
+	[UC_FN_B64DEC    ] = { "b64dec",    uc_b64dec },
+	[UC_FN_B64ENC    ] = { "b64enc",    uc_b64enc },
+	[UC_FN_UNIQ      ] = { "uniq",      uc_uniq },
+	[UC_FN_LOCALTIME ] = { "localtime", uc_localtime },
+	[UC_FN_GMTIME    ] = { "gmtime",    uc_gmtime },
+	[UC_FN_TIMELOCAL ] = { "timelocal", uc_timelocal },
+	[UC_FN_TIMEGM    ] = { "timegm",    uc_timegm },
+	[UC_FN_CLOCK     ] = { "clock",     uc_clock },
+	[UC_FN_HEXDEC    ] = { "hexdec",    uc_hexdec },
+	[UC_FN_HEXENC    ] = { "hexenc",    uc_hexenc },
+	[UC_FN_GC        ] = { "gc",        uc_gc },
+	[UC_FN_LOADSTRING] = { "loadstring", uc_loadstring },
+	[UC_FN_LOADFILE  ] = { "loadfile",  uc_loadfile },
+	[UC_FN_CALL      ] = { "call",      uc_callfunc },
+	[UC_FN_SIGNAL    ] = { "signal",    uc_signal },
 };
+
+
+/* The table holds exactly the slots the enum enumerates. */
+_Static_assert(ARRAY_SIZE(uc_stdlib_functions) == UC_FN_COUNT,
+	"uc_stdlib_functions[] and uc_stdlib_fn_t are out of step");
+
 
 
 void
@@ -6377,8 +6390,32 @@ uc_stdlib_function(const char *name)
 	size_t i;
 
 	for (i = 0; i < ARRAY_SIZE(uc_stdlib_functions); i++)
-		if (!strcmp(uc_stdlib_functions[i].name, name))
+		if (uc_stdlib_functions[i].name &&
+		    !strcmp(uc_stdlib_functions[i].name, name))
 			return uc_stdlib_functions[i].func;
 
 	return NULL;
+}
+
+/* Resolve a bytecode slot to the C function, for the VM; returns NULL for
+ * slots out of range, i.e. for bytecode built against another table order. */
+uc_cfn_ptr_t
+uc_stdlib_function_by_slot(size_t slot)
+{
+	if (slot >= ARRAY_SIZE(uc_stdlib_functions))
+		return NULL;
+
+	return uc_stdlib_functions[slot].func;
+}
+
+/* Resolve a bytecode slot to the name of its function, for the trace output
+ * and the debugger's disassembly; returns NULL for slots out of range and for
+ * empty ones, i.e. functions retired since the bytecode was compiled. */
+const char *
+uc_stdlib_function_name_by_slot(size_t slot)
+{
+	if (slot >= ARRAY_SIZE(uc_stdlib_functions))
+		return NULL;
+
+	return uc_stdlib_functions[slot].name;
 }

@@ -21,8 +21,25 @@
 
 #include <ucode/types.h>
 
-/* Serialized bytecode format version. */
-#define UCODE_BYTECODE_VERSION 0x02
+/* Serialized bytecode format versions.
+ *
+ * Instructions are appended rather than reordered, so the encodings stay
+ * decodable across releases; what the versions keep apart is bytecode using an
+ * instruction which a VM predating it cannot run.
+ *
+ * UCODE_BYTECODE_VERSION_MIN is the oldest bytecode this release accepts, and
+ * what a program requiring nothing newer is written as, so that a VM predating
+ * the newest instruction can still load it.  UCODE_BYTECODE_VERSION is the
+ * newest this release knows; a program records it once it is compiled to use an
+ * instruction introduced since then, see uc_program_require_version().
+ *
+ * 0x03 introduced I_STCALL. */
+#define UCODE_BYTECODE_VERSION_MIN 0x02
+#define UCODE_BYTECODE_VERSION     0x03
+
+/* Whether bytecode of this version can be loaded by this release. */
+#define uc_bytecode_version_supported(_v) \
+	((_v) >= UCODE_BYTECODE_VERSION_MIN && (_v) <= UCODE_BYTECODE_VERSION)
 
 /* Create a new, empty program. */
 uc_program_t *uc_program_new(void);
