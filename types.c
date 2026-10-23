@@ -2042,6 +2042,7 @@ ucv_to_stringbuf_formatted(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, size
 {
 	bool json = (pad_char != '\0');
 	bool constified = false;
+	bool pending = false;
 	size_t stackoff = 0;
 	uc_resource_type_t *restype;
 	uc_cfunction_t *cfunction;
@@ -2064,17 +2065,22 @@ ucv_to_stringbuf_formatted(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, size
 	/* with a VM, keep the value on the stack while its tostring callback (or
 	 * those of its children) may unlink it or run the collector, and make the
 	 * container constant so those callbacks cannot modify it during the
-	 * traversal; no callbacks are invoked once exit() has been called */
+	 * traversal; no callbacks are invoked while an exception is pending since
+	 * calling them would discard it */
 	if (vm != NULL) {
 		stackoff = vm->stack.count;
 		uc_vm_stack_push(vm, ucv_get(uv));
 
-		if (vm->exception.type != EXCEPTION_EXIT &&
-		    ucv_call_tostring(vm, pb, uv, json))
+		pending = (vm->exception.type != EXCEPTION_NONE);
+
+		if (!pending && ucv_call_tostring(vm, pb, uv, json))
 			goto out;
 
-		/* exit() may have released uv while resetting the VM stack. */
-		if (vm->exception.type == EXCEPTION_EXIT)
+		/* do not fall back to formatting the value after its callback
+		 * failed, exit() may also have released uv while resetting the
+		 * VM stack */
+		if (vm->exception.type == EXCEPTION_EXIT ||
+		    (!pending && vm->exception.type != EXCEPTION_NONE))
 			goto out;
 
 		constified = ucv_set_constant(uv, true);
@@ -2145,6 +2151,9 @@ ucv_to_stringbuf_formatted(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, size
 
 			ucv_to_stringbuf_add_padding(pb, pad_char, (depth + 1) * pad_size);
 			ucv_to_stringbuf_formatted(vm, pb, array->entries[i], depth + 1, pad_char ? pad_char : '\1', pad_size);
+
+			if (vm != NULL && !pending && vm->exception.type != EXCEPTION_NONE)
+				break;
 		}
 
 		ucv_to_stringbuf_add_padding(pb, pad_char, depth * pad_size);
@@ -2163,6 +2172,9 @@ ucv_to_stringbuf_formatted(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, size
 			ucv_to_string_json_encoded(pb, key, strlen(key), false);
 			ucv_stringbuf_append(pb, ": ");
 			ucv_to_stringbuf_formatted(vm, pb, val, depth + 1, pad_char ? pad_char : '\1', pad_size);
+
+			if (vm != NULL && !pending && vm->exception.type != EXCEPTION_NONE)
+				break;
 		}
 
 		ucv_to_stringbuf_add_padding(pb, pad_char, depth * pad_size);
@@ -2293,6 +2305,8 @@ ucv_to_stringbuf_formatted(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, size
 			json ? "\"" : "");
 	}
 
+	/* exit() within a child callback may have reset the VM stack, but uv
+	 * is not freed while marked, so its flags can still be restored */
 	ucv_clear_mark(uv);
 
 	if (constified)

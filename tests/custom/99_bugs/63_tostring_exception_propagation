@@ -1,0 +1,226 @@
+An exception raised by a tostring() callback must reach the caller of
+the string conversion. A failed callback made the formatter fall back to
+traversing the value, and the next callback invoked by the traversal or
+by a subsequent conversion discarded the pending exception, so that the
+error got lost and further callbacks ran.
+
+1. A failed callback must neither fall back to formatting the value nor
+let later conversions invoke further callbacks.
+
+-- Testcase --
+for (let name in [ 'tostring', '__tostring__' ]) {
+	for (let format in [ '%s%s', '%J%J' ]) {
+		let events = [];
+		let later = proto({}, { tostring: () => {
+			push(events, 'unexpected');
+
+			return 'Y';
+		} });
+		let value = proto({ child: later }, {
+			[name]: () => {
+				push(events, 'throw');
+				gc();
+				die('original');
+			}
+		});
+
+		try {
+			sprintf(format, value, later);
+			push(events, 'success');
+		}
+		catch (e) {
+			push(events, e.message);
+		}
+
+		print(name, ' ', format, ': ', join(',', events), '\n');
+	}
+}
+-- End --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+tostring %s%s: throw,original
+tostring %J%J: throw,original
+__tostring__ %s%s: throw,original
+__tostring__ %J%J: throw,original
+-- End --
+
+
+2. Traversing nested arrays and objects stops at the first failing
+callback, the containers are writable and formattable again afterwards.
+
+-- Testcase --
+for (let shape in [ 'array', 'object' ]) {
+	let events = [];
+	let first = proto({}, { tostring: () => {
+		push(events, 'throw');
+		gc();
+		die('original');
+	} });
+	let later = proto({}, { tostring: () => {
+		push(events, 'unexpected');
+
+		return 'Y';
+	} });
+	let inner = (shape == 'array') ? [ first, later ] : { a: first, b: later };
+	let outer = [ inner, later ];
+
+	try {
+		sprintf('%.2J', outer);
+		push(events, 'success');
+	}
+	catch (e) {
+		push(events, e.message);
+	}
+
+	print(shape, ': ', join(',', events), '\n');
+
+	if (shape == 'array') {
+		inner[0] = 'A';
+		inner[1] = 'B';
+		push(inner, 'C');
+	}
+	else {
+		inner.a = 'A';
+		inner.b = 'B';
+		inner.c = 'C';
+	}
+
+	outer[1] = 'D';
+	push(outer, 'E');
+	gc();
+
+	print(sprintf('%J', outer), '\n');
+}
+-- End --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+array: throw,original
+[ [ "A", "B", "C" ], "D", "E" ]
+object: throw,original
+[ { "a": "A", "b": "B", "c": "C" }, "D", "E" ]
+-- End --
+
+
+3. Packing a character receives the original exception, neither the
+callbacks of the properties of the failing value nor the one of the next
+field are invoked.
+
+-- Testcase --
+let struct;
+
+try {
+	struct = require('struct');
+}
+catch (e) {
+	exit(77);
+}
+
+for (let mode in [ 'buffer', 'module', 'format' ]) {
+	let events = [];
+	let child = proto({}, { tostring: () => {
+		push(events, 'child');
+
+		return 'C';
+	} });
+	let first = proto({ child }, { tostring: () => {
+		push(events, 'throw');
+		die('original');
+	} });
+	let second = proto({}, { tostring: () => {
+		push(events, 'next');
+
+		return 'Y';
+	} });
+
+	try {
+		if (mode == 'buffer')
+			struct.buffer().put('2c', first, second);
+		else if (mode == 'module')
+			struct.pack('2c', first, second);
+		else
+			struct.new('2c').pack(first, second);
+
+		push(events, 'success');
+	}
+	catch (e) {
+		push(events, e.message);
+	}
+
+	print(mode, ': ', join(',', events), '\n');
+}
+-- End --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+buffer: throw,original
+module: throw,original
+format: throw,original
+-- End --
+
+
+4. An exception caught within a callback does not affect the conversion
+invoking that callback.
+
+-- Testcase --
+let bad = proto({}, { tostring: () => die('inner') });
+let first = proto({}, { tostring: () => {
+	try {
+		sprintf('%J', [ bad ]);
+	}
+	catch (e) {
+		print(e.message, '\n');
+	}
+
+	gc();
+
+	return 'A';
+} });
+let second = proto({}, { tostring: () => 'B' });
+
+print(sprintf('%s%s', first, second), '\n');
+-- End --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+inner
+AB
+-- End --
+
+
+5. Calling exit() within the callback of a nested value still stops the
+traversal without invoking further callbacks.
+
+-- Testcase --
+sprintf('%J', {
+	a: { value: proto({}, { tostring: () => exit(3) }) },
+	b: proto({}, { tostring: () => {
+		print('unexpected callback\n');
+
+		return 'B';
+	} })
+});
+
+print('not reached\n');
+-- End --
+
+-- Args --
+-R
+-- End --
+
+-- Expect exitcode --
+3
+-- End --
