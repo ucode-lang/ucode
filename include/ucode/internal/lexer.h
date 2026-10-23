@@ -188,6 +188,24 @@ uc_token_t *uc_lexer_next_token(uc_lexer_t *lex);
 
 __hidden bool uc_lexer_is_keyword(uc_value_t *label);
 
+/* What follows a closing bracket. */
+typedef enum {
+	UC_FOLLOW_OTHER,
+	UC_FOLLOW_ASSIGN,   /* = */
+	UC_FOLLOW_ARROW     /* => */
+} uc_follow_t;
+
+typedef struct {
+	size_t pos;
+	uc_follow_t follow;
+} uc_bracket_t;
+
+uc_declare_vector(uc_bracketlist_t, uc_bracket_t);
+uc_declare_vector(uc_offsetstack_t, size_t);
+
+__hidden bool uc_lexer_skip_balanced(uc_lexer_t *lex, size_t off, size_t *end,
+                                     uc_follow_t *follow, uc_bracketlist_t *enclosed);
+
 __hidden bool utf8enc(char **out, int *rem, int code);
 
 __hidden const char *uc_tokenname(unsigned type);

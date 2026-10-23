@@ -39,6 +39,8 @@ __hidden size_t uc_source_offset(uc_source_t *source);
 __hidden size_t uc_source_remaining(uc_source_t *source);
 
 __hidden void uc_source_reset(uc_source_t *source);
+__hidden size_t uc_source_read_at(uc_source_t *source, size_t off, void *buf, size_t len);
+__hidden void uc_source_resync(uc_source_t *source);
 
 __hidden uc_source_type_t uc_source_begin(uc_source_t *source);
 

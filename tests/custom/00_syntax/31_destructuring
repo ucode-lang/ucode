@@ -1,0 +1,296 @@
+Arrays and objects can be destructured, both in declarations and in
+assignment expressions.
+
+1. Array and object destructuring declarations.
+
+-- Testcase --
+{%
+	let [a, b] = [1, 2];
+	const { x, y: z, w = 5 } = { x: 10, y: 20 };
+	let [p, [q, r = 7], , s] = [1, [2], 3, 4];
+
+	print(a, " ", b, "\n");
+	print(x, " ", z, " ", w, "\n");
+	print(p, " ", q, " ", r, " ", s, "\n");
+%}
+-- End --
+
+-- Expect stdout --
+1 2
+10 20 5
+1 2 7 4
+-- End --
+
+
+2. Destructuring assignments evaluate to the assigned value and may target
+   variables, properties and array items.
+
+-- Testcase --
+{%
+	let m, n, o = {}, arr = [1, 2, 3];
+
+	[m, n] = [3, 4];
+	[m, n] = [n, m];
+	print(m, " ", n, "\n");
+
+	[o.a, o["b"], arr[1]] = [10, 20, 30];
+	print(o, " ", arr, "\n");
+
+	({ m, n: o.k = 99 } = { m: "M" });
+	print(m, " ", o, "\n");
+
+	let v = [m, n] = [8, 9];
+	print(v, " ", m, " ", n, "\n");
+
+	let i = 0;
+	[arr[i + 1], arr[i]] = [arr[i], arr[i + 1]];
+	print(arr, "\n");
+%}
+-- End --
+
+-- Expect stdout --
+4 3
+{ "a": 10, "b": 20 } [ 1, 30, 3 ]
+M { "a": 10, "b": 20, "k": 99 }
+[ 8, 9 ] 8 9
+[ 30, 1, 3 ]
+-- End --
+
+
+3. Targets are evaluated left to right, after the right-hand side.
+
+-- Testcase --
+{%
+	let log = [];
+	let t = [];
+
+	function k(n) { push(log, n); return n; }
+	function src() { push(log, "src"); return ["a", "b"]; }
+
+	[t[k(1)], t[k(2)]] = src();
+	print(t, " ", log, "\n");
+%}
+-- End --
+
+-- Expect stdout --
+[ null, "a", "b" ] [ "src", 1, 2 ]
+-- End --
+
+
+4. Default values apply for null items, may refer to preceding items and may
+   be arbitrary expressions, including closures.
+
+-- Testcase --
+{%
+	let [a = 1, b = a + 1] = [];
+	let [c = 1, d = 2] = [null, 0];
+	let f;
+
+	[f = () => 5] = [];
+
+	print(a, " ", b, " ", c, " ", d, " ", f(), "\n");
+%}
+-- End --
+
+-- Expect stdout --
+1 2 1 0 5
+-- End --
+
+
+5. Rest elements collect the remaining array items or object properties.
+
+-- Testcase --
+{%
+	let [a, ...r] = [1, 2, 3, 4];
+	let { b, ...o } = { b: 1, c: 2, d: 3 };
+	let { x: { y, ...z }, ...w } = { x: { y: 1, q: 2 }, e: 3 };
+	let [h, ...[i, ...j]] = [1, 2, 3, 4];
+	let s, t = {};
+
+	[s, ...t.rest] = [5, 6, 7];
+
+	print(a, r, "\n", b, o, "\n", y, z, w, "\n", h, i, j, "\n", s, t, "\n");
+%}
+-- End --
+
+-- Expect stdout --
+1[ 2, 3, 4 ]
+1{ "c": 2, "d": 3 }
+1{ "q": 2 }{ "e": 3 }
+12[ 3, 4 ]
+5{ "rest": [ 6, 7 ] }
+-- End --
+
+
+6. Computed keys and reserved words as keys.
+
+-- Testcase --
+{%
+	let k = "z";
+	let { [k]: v, if: x, "a b": y } = { z: 3, if: 1, "a b": 2 };
+	let a;
+
+	({ [k]: a } = { z: 4 });
+
+	print(v, x, y, a, "\n");
+%}
+-- End --
+
+-- Expect stdout --
+3124
+-- End --
+
+
+7. Declared variables are closed over like any other local.
+
+-- Testcase --
+{%
+	function mk() {
+		let [a, { b, c: [d] }] = [1, { b: 2, c: [3] }];
+
+		return () => [a, b, d];
+	}
+
+	let fns = [];
+
+	for (let i = 0; i < 2; i++) {
+		let { x, y = i } = { x: i * 10 };
+
+		push(fns, () => x + y);
+	}
+
+	print(mk()(), " ", map(fns, f => f()), "\n");
+%}
+-- End --
+
+-- Expect stdout --
+[ 1, 2, 3 ] [ 0, 11 ]
+-- End --
+
+
+8. Ordinary literals are not affected.
+
+-- Testcase --
+{%
+	let a = 1, b, o = { b: 7 };
+
+	print([a], [a, a], [a, ], [a = 2], [a + 1], [o.b], { a }, { a: b = 3 }, "\n");
+	print([[a]], [{ a }], { a: [a] }, "\n");
+%}
+-- End --
+
+-- Expect stdout --
+[ 1 ][ 1, 1 ][ 1 ][ 2 ][ 3 ][ 7 ]{ "a": 2 }{ "a": 3 }
+[ [ 2 ] ][ { "a": 2 } ]{ "a": [ 2 ] }
+-- End --
+
+
+9. Pattern-only syntax is rejected in ordinary literals.
+
+-- Testcase --
+{%
+	let a;
+
+	print([, a]);
+%}
+-- End --
+
+-- Expect stderr --
+Syntax error: Expecting expression
+In line 4, byte 9:
+
+ `    print([, a]);`
+  Near here -^
+
+
+-- End --
+
+
+10. Patterns must consist of assignment targets only.
+
+-- Testcase --
+{%
+	let a;
+
+	[a + 1] = [2];
+%}
+-- End --
+
+-- Expect stderr --
+Syntax error: Invalid destructuring target
+In line 4, byte 3:
+
+ `    [a + 1] = [2];`
+      ~^
+
+
+-- End --
+
+
+11. Declared variables are not accessible from the initializer.
+
+-- Testcase --
+{%
+	let [a] = a;
+%}
+-- End --
+
+-- Expect stderr --
+Syntax error: Can't access lexical declaration 'a' before initialization
+In line 2, byte 2:
+
+ `    let [a] = a;`
+      ^-- Near here
+
+
+-- End --
+
+
+12. Destructuring null or non-container values is an error pointing at the
+    pattern.
+
+-- Testcase --
+{%
+	let a;
+
+	[a] = null;
+%}
+-- End --
+
+-- Expect stderr --
+Reference error: left-hand side expression is null
+In line 4, byte 3:
+
+ `    [a] = null;`
+      ~^~~~~~~~~~
+
+
+-- End --
+
+
+13. A pattern is an assignment expression and can be used wherever an
+    expression can, evaluating to the assigned value.
+
+-- Testcase --
+{%
+	let a, b, c, v, w;
+
+	v = [a, b] = [1, 2];
+	[a, b] = [b, a], [a, b] = [a + 10, b + 10];
+
+	print(v, " ", a, " ", b, "\n");
+
+	function f(x) { return x; }
+
+	print(f([a, b] = [5, 6]), " ", a, b, "\n");
+	print([[a] = [7], { c } = { c: 8 }], " ", a, c, "\n");
+	print(true ? [a] = [9] : 0, " ", a, "\n");
+%}
+-- End --
+
+-- Expect stdout --
+[ 1, 2 ] 12 11
+[ 5, 6 ] 56
+[ [ 7 ], { "c": 8 } ] 78
+[ 9 ] 9
+-- End --

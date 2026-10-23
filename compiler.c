@@ -47,6 +47,9 @@ static void uc_compiler_compile_ternary(uc_compiler_t *compiler);
 static void uc_compiler_compile_array(uc_compiler_t *compiler);
 static void uc_compiler_compile_object(uc_compiler_t *compiler);
 
+static bool uc_compiler_compile_destructuring(uc_compiler_t *compiler);
+static void uc_compiler_compile_destructuring_declaration(uc_compiler_t *compiler, bool constant);
+
 static uc_tokentype_t uc_compiler_compile_declaration(uc_compiler_t *compiler);
 static uc_tokentype_t uc_compiler_compile_statement(uc_compiler_t *compiler);
 static uc_tokentype_t uc_compiler_compile_expstmt(uc_compiler_t *compiler);
@@ -2318,6 +2321,10 @@ uc_compiler_compile_array(uc_compiler_t *compiler)
 {
 	size_t hint_off, hint_count = 0, len = 0;
 
+	/* a literal followed by `=` is a destructuring assignment */
+	if (uc_compiler_compile_destructuring(compiler))
+		return;
+
 	/* create empty array on stack */
 	uc_compiler_emit_insn(compiler, 0, I_NARR);
 	hint_off = uc_compiler_emit_u32(compiler, 0, 0);
@@ -2448,6 +2455,10 @@ static void
 uc_compiler_compile_object(uc_compiler_t *compiler)
 {
 	size_t hint_off, hint_count = 0, len = 0;
+
+	/* a literal followed by `=` is a destructuring assignment */
+	if (uc_compiler_compile_destructuring(compiler))
+		return;
 
 	/* create empty object on stack */
 	uc_compiler_emit_insn(compiler, compiler->parser->prev.pos, I_NOBJ);
@@ -2608,12 +2619,673 @@ uc_compiler_declare_internal(uc_compiler_t *compiler, size_t srcpos, const char 
 	return locals->count - 1;
 }
 
+/*
+ * Destructuring
+ *
+ * Whether a leading `[` or `{` starts a literal or a pattern is determined by
+ * scanning ahead to the matching closing bracket and checking whether an `=`
+ * follows, see uc_compiler_scan_literal(). Nothing is compiled or tokenized
+ * while doing so, the parser state is not affected.
+ *
+ * The initializer of a pattern has to be evaluated first, but follows the
+ * pattern in the source text. To generate code in source order nevertheless,
+ * the code of the pattern precedes the code of the initializer and jumps are
+ * used to run them in the right order, see uc_compiler_compile_pattern_assignment().
+ */
+
+static int
+uc_bracket_cmp(const void *a, const void *b)
+{
+	size_t x = ((const uc_bracket_t *)a)->pos, y = ((const uc_bracket_t *)b)->pos;
+
+	return (x > y) - (x < y);
+}
+
+/* Whether the literal whose opening bracket has just been consumed is followed
+ * by an equals sign. */
+static uc_follow_t
+uc_compiler_literal_follow(uc_compiler_t *compiler)
+{
+	uc_parser_t *parser = compiler->parser;
+	uc_bracketlist_t enclosed = { 0 };
+	size_t pos = parser->prev.pos, end;
+	uc_bracket_t *hit;
+	uc_follow_t follow;
+
+	/* the first token already tells that most literals are not patterns, which
+	 * start with an assignment target, a nested pattern, a hole or a rest
+	 * element in case of arrays and with a key in case of objects */
+	switch (parser->curr.type) {
+	case TK_LABEL:
+	case TK_LBRACK:
+	case TK_ELLIP:
+		break;
+
+	case TK_THIS:
+	case TK_LPAREN:
+	case TK_COMMA:
+	case TK_LBRACE:
+	case TK_RBRACK:
+		if (parser->prev.type != TK_LBRACK)
+			return UC_FOLLOW_OTHER;
+
+		break;
+
+	case TK_STRING:
+	case TK_RBRACE:
+		if (parser->prev.type != TK_LBRACE)
+			return UC_FOLLOW_OTHER;
+
+		break;
+
+	default:
+		return UC_FOLLOW_OTHER;
+	}
+
+	/* a literal enclosed in one that has been scanned already is known not to
+	 * be followed by an equals sign unless found back then */
+	if (pos > parser->scanned.from && pos < parser->scanned.to) {
+		hit = bsearch(&pos, parser->scanned.entries, parser->scanned.count,
+			sizeof(uc_bracket_t), uc_bracket_cmp);
+
+		if (!hit)
+			return UC_FOLLOW_OTHER;
+
+		return hit->follow;
+	}
+
+	if (!uc_lexer_skip_balanced(&parser->lex, parser->prev.end, &end, &follow, &enclosed))
+		return UC_FOLLOW_OTHER;
+
+	/* remember the result for the literals enclosed in this one */
+	free(parser->scanned.entries);
+
+	qsort(enclosed.entries, enclosed.count, sizeof(uc_bracket_t), uc_bracket_cmp);
+
+	parser->scanned.from = pos;
+	parser->scanned.to = end;
+	parser->scanned.count = enclosed.count;
+	parser->scanned.entries = enclosed.entries;
+
+	return follow;
+}
+
+static void
+uc_compiler_emit_uint(uc_compiler_t *compiler, uint64_t u)
+{
+	if (u <= 0xff) {
+		uc_compiler_emit_insn(compiler, 0, I_LOAD8);
+		uc_compiler_emit_u8(compiler, 0, u);
+	}
+	else if (u <= 0xffff) {
+		uc_compiler_emit_insn(compiler, 0, I_LOAD16);
+		uc_compiler_emit_u16(compiler, 0, u);
+	}
+	else {
+		uc_compiler_emit_insn(compiler, 0, I_LOAD32);
+		uc_compiler_emit_u32(compiler, 0, u);
+	}
+}
+
+/* Replace the value on top of the stack by the default value, if it is null.
+ * The default value expression is the next one in the source text. */
+static void
+uc_compiler_compile_default(uc_compiler_t *compiler)
+{
+	uc_chunk_t *chunk = uc_compiler_current_chunk(compiler);
+	size_t jmpz_off, jmp_off;
+
+	uc_compiler_emit_copy(compiler, 0, 0);
+	uc_compiler_emit_insn(compiler, 0, I_LNULL);
+	uc_compiler_emit_insn(compiler, 0, I_NES);
+	jmpz_off = uc_compiler_emit_jmpz(compiler, 0);
+	jmp_off = uc_compiler_emit_jmp(compiler, 0);
+	uc_compiler_set_jmpaddr(compiler, jmpz_off, chunk->count);
+	uc_compiler_emit_insn(compiler, 0, I_POP);
+	uc_compiler_parse_precedence(compiler, P_ASSIGN);
+	uc_compiler_set_jmpaddr(compiler, jmp_off, chunk->count);
+}
+
+uc_declare_vector(uc_keylist_t, uc_value_t *);
+
+typedef struct {
+	bool array;        /* array pattern, otherwise object pattern */
+	bool decl;         /* declaration, otherwise assignment */
+	bool constant;     /* declaration of constants */
+	size_t slot;       /* declaration: local holding the container */
+	size_t depth;      /* assignment: stack entries above the container */
+	size_t index;      /* array pattern: index of the current element */
+	uc_keylist_t keys; /* object pattern: preceding constant keys */
+	bool computed;     /* object pattern: preceding computed keys */
+} uc_pattern_t;
+
+static void
+uc_compiler_compile_pattern_body(uc_compiler_t *compiler, uc_pattern_t *pat);
+
+/* Make the variables declared since `first` (in)accessible, e.g. while
+ * compiling code which runs before they are assigned. */
+static void
+uc_compiler_locals_set_depth(uc_compiler_t *compiler, size_t first, ssize_t depth)
+{
+	size_t i;
+
+	for (i = first; i < compiler->locals.count; i++)
+		compiler->locals.entries[i].depth = depth;
+}
+
+/* Compile a nested pattern. The value to destructure is on top of the stack
+ * and the opening bracket is the current token. The default value, if any,
+ * follows the closing bracket in the source text but needs to run first, so
+ * it is emitted behind the code of the pattern:
+ *
+ *       COPY 0; LNULL; NES; JMPZ default
+ *   pat:  <pattern>
+ *       JMP end
+ *   default: POP; <default value>; JMP pat
+ *   end:
+ */
+static void
+uc_compiler_compile_nested_pattern(uc_compiler_t *compiler, bool decl, bool constant)
+{
+	uc_chunk_t *chunk = uc_compiler_current_chunk(compiler);
+	uc_pattern_t nested = {
+		.array = uc_compiler_parse_check(compiler, TK_LBRACK),
+		.decl = decl,
+		.constant = constant
+	};
+
+	size_t jmpz_off = 0, jmp_off = 0, pat_off, first;
+	uc_follow_t follow;
+	size_t end;
+	bool dflt = false;
+
+	if (!nested.array)
+		compiler->parser->lex.no_keyword = true;
+
+	uc_compiler_parse_advance(compiler);
+
+	/* the value on the stack becomes a local variable holding the container */
+	if (decl) {
+		nested.slot = uc_compiler_declare_internal(compiler, 0, "(destructure)");
+		uc_compiler_initialize_local(compiler);
+	}
+
+	first = compiler->locals.count;
+
+	if (uc_lexer_skip_balanced(&compiler->parser->lex, compiler->parser->prev.end,
+	                           &end, &follow, NULL))
+		dflt = (follow == UC_FOLLOW_ASSIGN);
+
+	if (dflt) {
+		uc_compiler_emit_copy(compiler, 0, 0);
+		uc_compiler_emit_insn(compiler, 0, I_LNULL);
+		uc_compiler_emit_insn(compiler, 0, I_NES);
+		jmpz_off = uc_compiler_emit_jmpz(compiler, 0);
+	}
+
+	pat_off = chunk->count;
+
+	uc_compiler_compile_pattern_body(compiler, &nested);
+
+	if (dflt && uc_compiler_parse_match(compiler, TK_ASSIGN)) {
+		jmp_off = uc_compiler_emit_jmp(compiler, 0);
+		uc_compiler_set_jmpaddr(compiler, jmpz_off, chunk->count);
+
+		/* variables of the pattern are not assigned yet */
+		uc_compiler_locals_set_depth(compiler, first, -1);
+
+		uc_compiler_emit_insn(compiler, 0, I_POP);
+		uc_compiler_parse_precedence(compiler, P_ASSIGN);
+		uc_compiler_emit_jmp_dest(compiler, 0, pat_off);
+
+		uc_compiler_locals_set_depth(compiler, first, compiler->scope_depth);
+		uc_compiler_set_jmpaddr(compiler, jmp_off, chunk->count);
+	}
+}
+
+/* Emit code loading the property of the container selected by the current
+ * item. */
+static void
+uc_compiler_emit_pattern_load(uc_compiler_t *compiler, uc_pattern_t *pat, size_t depth)
+{
+	if (pat->decl) {
+		uc_compiler_emit_insn(compiler, 0, I_LLOC);
+		uc_compiler_emit_u32(compiler, 0, pat->slot);
+	}
+	else if (depth > 0xff) {
+		uc_compiler_syntax_error(compiler, 0, "Destructuring pattern too complex");
+	}
+	else {
+		uc_compiler_emit_copy(compiler, 0, depth);
+	}
+}
+
+/* Compile a rest element, leaving the collected value on top of the stack.
+ *
+ * The copy destination is created *below* the container, so that the merge
+ * consumes the value the pattern load pushed and the stack stays as balanced
+ * as it does for an ordinary item.
+ *
+ * The container is copied first and the items already bound are taken off the
+ * copy: an array copy keeps its tail once `splice` removed the bound items
+ * from it, an object copy keeps its unbound keys once `rawdelete` dropped the
+ * bound ones. Both copies are plain values, so neither operation dispatches
+ * metamethods, and the merge is what reports an unsuitable container - `MARR`
+ * for a non-array, `MOBJ` for a non-container - like a literal spread does. */
+static void
+uc_compiler_compile_pattern_rest(uc_compiler_t *compiler, uc_pattern_t *pat, size_t depth)
+{
+	size_t i;
+
+	if (pat->array) {
+		/* copy the array */
+		uc_compiler_emit_insn(compiler, 0, I_NARR);
+		uc_compiler_emit_u32(compiler, 0, 0);
+		/* the destination was pushed first, so the container lies one deeper */
+		uc_compiler_emit_pattern_load(compiler, pat, depth + 1);
+		uc_compiler_emit_insn(compiler, 0, I_MARR);
+
+		/* drop the items already bound; splice removes them from the copy and
+		 * returns it, so the copy holding the tail is the result */
+		uc_compiler_emit_insn(compiler, 0, I_LOAD8);
+		uc_compiler_emit_u8(compiler, 0, 0);
+		uc_compiler_emit_uint(compiler, pat->index);
+		uc_compiler_emit_stcall(compiler, 0, UC_FN_SPLICE, 3);
+	}
+	else {
+		/* copy the properties */
+		uc_compiler_emit_insn(compiler, 0, I_NOBJ);
+		uc_compiler_emit_u32(compiler, 0, 0);
+		uc_compiler_emit_pattern_load(compiler, pat, depth + 1);
+		uc_compiler_emit_insn(compiler, 0, I_MOBJ);
+
+		/* drop the keys the pattern binds; the call consumes its arguments, so
+		 * each key is dropped from a duplicate of the copy */
+		for (i = 0; i < pat->keys.count; i++) {
+			uc_compiler_emit_copy(compiler, 0, 0);
+			uc_compiler_emit_constant(compiler, 0, pat->keys.entries[i]);
+			uc_compiler_emit_stcall(compiler, 0, UC_FN_RAWDELETE, 2);
+			uc_compiler_emit_insn(compiler, 0, I_POP);
+		}
+	}
+}
+
+/* Compile an item of a pattern, returns true for a rest element. */
+static bool
+uc_compiler_compile_pattern_item(uc_compiler_t *compiler, uc_pattern_t *pat)
+{
+	enum { T_NAME, T_VAR, T_MEMBER, T_NESTED } target = T_NAME;
+	uc_exprstack_t barrier = { .token = TK_LABEL }, *exprstack;
+	uc_chunk_t *chunk = uc_compiler_current_chunk(compiler);
+	uc_value_t *key = NULL, *name = NULL, *cname;
+	size_t start, d = pat->depth, operand = 0, tpos = 0;
+	bool rest, computed = false, loaded = false;
+	uc_vm_insn_t store = 0, load;
+	ssize_t slot = -1;
+
+	rest = uc_compiler_parse_match(compiler, TK_ELLIP);
+
+	/* property key */
+	if (!pat->array && !rest) {
+		if (uc_compiler_parse_match(compiler, TK_LBRACK)) {
+			computed = true;
+			pat->computed = true;
+
+			if (pat->decl) {
+				/* the container is loaded first, followed by the key */
+				uc_compiler_emit_pattern_load(compiler, pat, 0);
+				uc_compiler_parse_precedence(compiler, P_ASSIGN);
+				uc_compiler_emit_insn(compiler, 0, I_LVAL);
+				loaded = true;
+			}
+			else {
+				/* the key stays on the stack below the target */
+				uc_compiler_parse_precedence(compiler, P_ASSIGN);
+				d++;
+			}
+
+			uc_compiler_parse_consume(compiler, TK_RBRACK);
+			uc_compiler_parse_consume(compiler, TK_COLON);
+		}
+		else if (uc_compiler_parse_match(compiler, TK_LABEL) ||
+		         uc_compiler_parse_match(compiler, TK_STRING)) {
+			bool label = (compiler->parser->prev.type == TK_LABEL);
+
+			key = ucv_get(compiler->parser->prev.uv);
+
+			if (!uc_compiler_parse_match(compiler, TK_COLON)) {
+				if (!label || uc_lexer_is_keyword(key))
+					uc_compiler_syntax_error(compiler, compiler->parser->prev.pos,
+						label ? "Invalid identifier" : "Unexpected token\nExpecting ':'");
+
+				/* shorthand property, the key is also the variable name */
+				name = ucv_get(key);
+			}
+
+			uc_vector_push(&pat->keys, ucv_get(key));
+		}
+		else {
+			uc_compiler_syntax_error(compiler, compiler->parser->curr.pos,
+				"Expecting label");
+
+			return true;
+		}
+	}
+
+	/* declarations load the value before the target is parsed */
+	if (pat->decl && !loaded) {
+		if (rest) {
+			if (!pat->array && pat->computed)
+				uc_compiler_syntax_error(compiler, compiler->parser->prev.pos,
+					"Computed keys cannot precede a rest element");
+
+			uc_compiler_compile_pattern_rest(compiler, pat, 0);
+		}
+		else {
+			uc_compiler_emit_pattern_load(compiler, pat, 0);
+
+			if (pat->array)
+				uc_compiler_emit_uint(compiler, pat->index);
+			else
+				uc_compiler_emit_constant(compiler, 0, key);
+
+			uc_compiler_emit_insn(compiler, 0, I_LVAL);
+		}
+
+		loaded = true;
+	}
+
+	/* target */
+	if (name) {
+		target = T_NAME;
+	}
+	else if (uc_compiler_parse_check(compiler, TK_LBRACK) ||
+	         uc_compiler_parse_check(compiler, TK_LBRACE)) {
+		target = T_NESTED;
+	}
+	else if (pat->decl) {
+		if (!uc_compiler_parse_match(compiler, TK_LABEL)) {
+			uc_compiler_syntax_error(compiler, compiler->parser->curr.pos,
+				"Expecting variable name or pattern");
+
+			ucv_put(key);
+
+			return true;
+		}
+
+		name = ucv_get(compiler->parser->prev.uv);
+	}
+	else {
+		tpos = compiler->parser->curr.pos;
+		start = chunk->count;
+
+		/* the target must not consume a following `= default` as assignment */
+		exprstack = compiler->exprstack;
+		compiler->exprstack = &barrier;
+		uc_compiler_parse_precedence(compiler, P_CALL);
+		compiler->exprstack = exprstack;
+
+		load = (chunk->count > start) ? chunk->entries[compiler->last_insn] : 0;
+
+		if (chunk->count - start == 5 && (load == I_LLOC || load == I_LUPV || load == I_LVAR)) {
+			operand = uc_compiler_get_u32(compiler, compiler->last_insn + 1);
+
+			if ((load == I_LLOC && compiler->locals.entries[operand].constant) ||
+			    (load == I_LUPV && compiler->upvals.entries[operand].constant)) {
+				cname = (load == I_LLOC)
+					? compiler->locals.entries[operand].name
+					: compiler->upvals.entries[operand].name;
+
+				uc_compiler_syntax_error(compiler, tpos,
+					"Invalid assignment to constant '%s'", ucv_string_get(cname));
+			}
+
+			store = (load == I_LLOC) ? I_SLOC : (load == I_LUPV) ? I_SUPV : I_SVAR;
+			target = T_VAR;
+
+			for (int i = 0; i < 5; i++)
+				uc_chunk_pop(chunk);
+		}
+		else if (load == I_LVAL && uc_compiler_check_assignment_lhs(compiler)) {
+			target = T_MEMBER;
+			d += 2;
+
+			uc_chunk_pop(chunk);
+		}
+		else {
+			uc_compiler_syntax_error(compiler, tpos, "Invalid destructuring target");
+
+			ucv_put(key);
+
+			return true;
+		}
+	}
+
+	/* a target is followed by a default value or the end of the item */
+	if (!uc_compiler_parse_check(compiler, TK_COMMA) &&
+	    !uc_compiler_parse_check(compiler, TK_ASSIGN) &&
+	    !uc_compiler_parse_check(compiler, pat->array ? TK_RBRACK : TK_RBRACE) &&
+	    target != T_NESTED) {
+		uc_compiler_syntax_error(compiler, tpos ? tpos : compiler->parser->curr.pos,
+			"Invalid destructuring target");
+	}
+
+	/* assignments load the value after evaluating the target */
+	if (!loaded) {
+		if (rest) {
+			if (!pat->array && pat->computed)
+				uc_compiler_syntax_error(compiler, compiler->parser->prev.pos,
+					"Computed keys cannot precede a rest element");
+
+			uc_compiler_compile_pattern_rest(compiler, pat, d);
+		}
+		else {
+			uc_compiler_emit_pattern_load(compiler, pat, d);
+
+			if (pat->array)
+				uc_compiler_emit_uint(compiler, pat->index);
+			else if (key)
+				uc_compiler_emit_constant(compiler, 0, key);
+			else
+				uc_compiler_emit_copy(compiler, 0, (target == T_MEMBER ? 2 : 0) + 1);
+
+			uc_compiler_emit_insn(compiler, 0, I_LVAL);
+		}
+	}
+
+	if (target == T_NESTED) {
+		if (rest && uc_compiler_parse_check(compiler, TK_ASSIGN))
+			uc_compiler_syntax_error(compiler, compiler->parser->curr.pos,
+				"Rest element cannot have a default value");
+
+		uc_compiler_compile_nested_pattern(compiler, pat->decl, pat->constant);
+
+		if (!pat->decl)
+			uc_compiler_emit_insn(compiler, 0, I_POP);
+	}
+	else {
+		/* declare the variable before parsing the default value so that it
+		 * cannot refer to itself */
+		if (pat->decl)
+			slot = uc_compiler_declare_local(compiler, name, pat->constant);
+
+		if (uc_compiler_parse_match(compiler, TK_ASSIGN)) {
+			if (rest)
+				uc_compiler_syntax_error(compiler, compiler->parser->prev.pos,
+					"Rest element cannot have a default value");
+
+			uc_compiler_compile_default(compiler);
+		}
+
+		if (pat->decl) {
+			if (slot == -1) {
+				uc_compiler_initialize_local(compiler);
+			}
+			else {
+				uc_compiler_emit_insn(compiler, 0, I_SLOC);
+				uc_compiler_emit_u32(compiler, 0, slot);
+				uc_compiler_emit_insn(compiler, 0, I_POP);
+			}
+		}
+		else if (target == T_NAME) {
+			uc_compiler_emit_variable_rw(compiler, name, TK_ASSIGN);
+			uc_compiler_emit_insn(compiler, 0, I_POP);
+		}
+		else if (target == T_VAR) {
+			uc_compiler_emit_insn(compiler, 0, store);
+			uc_compiler_emit_u32(compiler, 0, operand);
+			uc_compiler_emit_insn(compiler, 0, I_POP);
+		}
+		else {
+			uc_compiler_emit_insn(compiler, 0, I_SVAL);
+			uc_compiler_emit_insn(compiler, 0, I_POP);
+		}
+	}
+
+	if (computed && !pat->decl)
+		uc_compiler_emit_insn(compiler, 0, I_POP);
+
+	ucv_put(key);
+	ucv_put(name);
+
+	return rest;
+}
+
+static void
+uc_compiler_compile_pattern_body(uc_compiler_t *compiler, uc_pattern_t *pat)
+{
+	uc_tokentype_t closer = pat->array ? TK_RBRACK : TK_RBRACE;
+	size_t i;
+
+	while (!uc_compiler_parse_check(compiler, closer)) {
+		/* hole */
+		if (pat->array && uc_compiler_parse_match(compiler, TK_COMMA)) {
+			pat->index++;
+
+			continue;
+		}
+
+		if (uc_compiler_compile_pattern_item(compiler, pat)) {
+			if (!uc_compiler_parse_check(compiler, closer))
+				uc_compiler_syntax_error(compiler, compiler->parser->curr.pos,
+					"Rest element must be last element");
+
+			break;
+		}
+
+		pat->index++;
+
+		if (!pat->array)
+			compiler->parser->lex.no_keyword = true;
+
+		if (!uc_compiler_parse_match(compiler, TK_COMMA))
+			break;
+	}
+
+	uc_compiler_parse_consume(compiler, closer);
+
+	for (i = 0; i < pat->keys.count; i++)
+		ucv_put(pat->keys.entries[i]);
+
+	uc_vector_clear(&pat->keys);
+}
+
+/* Compile the pattern and initializer of a destructuring assignment or
+ * declaration. The initializer has to be evaluated first but follows the
+ * pattern in the source text, so the code of the pattern precedes the code of
+ * the initializer and jumps are used to run them in the right order:
+ *
+ *       JMP init
+ *   pat:  <pattern>
+ *       JMP end
+ *   init: <initializer>
+ *       JMP pat
+ *   end:
+ *
+ * The opening bracket has been consumed already. */
+static void
+uc_compiler_compile_pattern_assignment(uc_compiler_t *compiler, uc_pattern_t *pat)
+{
+	uc_chunk_t *chunk = uc_compiler_current_chunk(compiler);
+	size_t first = compiler->locals.count, jmp_init, jmp_end, pat_off;
+
+	jmp_init = uc_compiler_emit_jmp(compiler, 0);
+	pat_off = chunk->count;
+
+	uc_compiler_compile_pattern_body(compiler, pat);
+
+	jmp_end = uc_compiler_emit_jmp(compiler, 0);
+	uc_compiler_set_jmpaddr(compiler, jmp_init, chunk->count);
+
+	if (!uc_compiler_parse_match(compiler, TK_ASSIGN)) {
+		uc_compiler_syntax_error(compiler, compiler->parser->curr.pos,
+			"Expecting initializer expression");
+
+		return;
+	}
+
+	/* declared variables must not be accessible from the initializer */
+	uc_compiler_locals_set_depth(compiler, first, -1);
+
+	uc_compiler_parse_precedence(compiler, P_ASSIGN);
+
+	uc_compiler_locals_set_depth(compiler, first, compiler->scope_depth);
+
+	uc_compiler_emit_jmp_dest(compiler, 0, pat_off);
+	uc_compiler_set_jmpaddr(compiler, jmp_end, chunk->count);
+}
+
+/* Compile a destructuring assignment if the array or object literal whose
+ * opening bracket has just been consumed is followed by `=`. */
+static bool
+uc_compiler_compile_destructuring(uc_compiler_t *compiler)
+{
+	uc_pattern_t pat = { .array = (compiler->parser->prev.type == TK_LBRACK) };
+
+	/* a literal starting an assignment expression might be a pattern */
+	if (!(compiler->exprstack->flags & F_ASSIGNABLE) ||
+	    uc_compiler_literal_follow(compiler) != UC_FOLLOW_ASSIGN)
+		return false;
+
+	uc_compiler_compile_pattern_assignment(compiler, &pat);
+
+	return true;
+}
+
+static void
+uc_compiler_compile_destructuring_declaration(uc_compiler_t *compiler, bool constant)
+{
+	uc_pattern_t pat = {
+		.array = uc_compiler_parse_check(compiler, TK_LBRACK),
+		.decl = true,
+		.constant = constant
+	};
+
+	if (!pat.array)
+		compiler->parser->lex.no_keyword = true;
+
+	uc_compiler_parse_advance(compiler);
+
+	/* the initializer becomes the container */
+	pat.slot = uc_compiler_declare_internal(compiler, 0, "(destructure)");
+
+	uc_compiler_compile_pattern_assignment(compiler, &pat);
+}
+
 static void
 uc_compiler_compile_declexpr(uc_compiler_t *compiler, bool constant)
 {
 	ssize_t slot;
 
 	do {
+		/* destructuring declaration */
+		if (uc_compiler_parse_check(compiler, TK_LBRACK) ||
+		    uc_compiler_parse_check(compiler, TK_LBRACE)) {
+			uc_compiler_compile_destructuring_declaration(compiler, constant);
+
+			continue;
+		}
+
 		/* parse variable name */
 		if (!uc_compiler_parse_match(compiler, TK_LABEL)) {
 			uc_compiler_syntax_error(compiler, compiler->parser->curr.pos,
@@ -3713,6 +4385,10 @@ uc_compiler_compile_export(uc_compiler_t *compiler)
 		uc_compiler_syntax_error(compiler, compiler->parser->curr.pos,
 			"Unexpected token\nExpecting 'let', 'const', 'function', 'default' or '{'");
 
+	/* skip internal variables of destructuring declarations */
+	while (off < locals->count && !strncmp(ucv_string_get(locals->entries[off].name), "(destructure)", 13))
+		off++;
+
 	if (off == locals->count) {
 		name = ucv_string_new("(module default export)");
 		slot = uc_compiler_declare_local(compiler, name, true);
@@ -3726,7 +4402,8 @@ uc_compiler_compile_export(uc_compiler_t *compiler)
 	}
 	else {
 		for (; off < locals->count; off++)
-			uc_compiler_export_add(compiler, locals->entries[off].name, off);
+			if (strncmp(ucv_string_get(locals->entries[off].name), "(destructure)", 13))
+				uc_compiler_export_add(compiler, locals->entries[off].name, off);
 	}
 
 	uc_compiler_parse_consume(compiler, TK_SCOL);
@@ -4360,6 +5037,7 @@ uc_compile_from_source(uc_parse_config_t *config, uc_source_t *source, uc_progra
 	}
 
 	uc_lexer_free(&parser.lex);
+	free(parser.scanned.entries);
 	uc_vector_clear(&exports);
 
 	if (!fn) {

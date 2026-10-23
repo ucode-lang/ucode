@@ -1299,6 +1299,405 @@ uc_tokenname(unsigned type)
 	return tokennames[type] ? tokennames[type] : "?";
 }
 
+typedef struct {
+	uc_source_t *source;
+	uint8_t buf[4096];
+	size_t base, pos, len, chunk;
+} uc_rawscan_t;
+
+/* Return the byte `ahead` positions in front of the cursor or -1 at the end
+ * of the text. */
+static int
+uc_rawscan_peek(uc_rawscan_t *rs, size_t ahead)
+{
+	size_t n;
+
+	if (rs->pos + ahead >= rs->len) {
+		memmove(rs->buf, rs->buf + rs->pos, rs->len - rs->pos);
+		rs->base += rs->pos;
+		rs->len -= rs->pos;
+		rs->pos = 0;
+
+		/* most literals are short, so start with a small amount of text */
+		n = rs->chunk;
+
+		if (n > sizeof(rs->buf) - rs->len)
+			n = sizeof(rs->buf) - rs->len;
+
+		rs->chunk *= 2;
+
+		n = uc_source_read_at(rs->source, rs->base + rs->len,
+			rs->buf + rs->len, n);
+
+		rs->len += n;
+
+		if (ahead >= rs->len)
+			return -1;
+	}
+
+	return rs->buf[rs->pos + ahead];
+}
+
+static int
+uc_rawscan_next(uc_rawscan_t *rs)
+{
+	int c = uc_rawscan_peek(rs, 0);
+
+	if (c >= 0)
+		rs->pos++;
+
+	return c;
+}
+
+/* Skip the rest of a comment, `kind` is the character following the slash. */
+static void
+uc_rawscan_skip_comment(uc_rawscan_t *rs, int kind)
+{
+	int c;
+
+	if (kind == '/') {
+		while ((c = uc_rawscan_next(rs)) >= 0 && c != '\n')
+			;
+	}
+	else {
+		while ((c = uc_rawscan_next(rs)) >= 0)
+			if (c == '*' && uc_rawscan_peek(rs, 0) == '/')
+				break;
+
+		if (c >= 0)
+			rs->pos++;
+	}
+}
+
+/* Skip white space and comments. */
+static void
+uc_rawscan_skip_blank(uc_rawscan_t *rs)
+{
+	int c, n;
+
+	while ((c = uc_rawscan_peek(rs, 0)) >= 0) {
+		n = (c == '/') ? uc_rawscan_peek(rs, 1) : -1;
+
+		if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+			rs->pos++;
+		}
+		else if (n == '/' || n == '*') {
+			rs->pos += 2;
+			uc_rawscan_skip_comment(rs, n);
+		}
+		else {
+			break;
+		}
+	}
+}
+
+static uc_follow_t
+uc_rawscan_follow(uc_rawscan_t *rs)
+{
+	int n;
+
+	uc_rawscan_skip_blank(rs);
+
+	if (uc_rawscan_peek(rs, 0) != '=')
+		return UC_FOLLOW_OTHER;
+
+	n = uc_rawscan_peek(rs, 1);
+
+	if (n == '>')
+		return UC_FOLLOW_ARROW;
+
+	return (n == '=') ? UC_FOLLOW_OTHER : UC_FOLLOW_ASSIGN;
+}
+
+/* Skip a string or regular expression literal up to its closing delimiter,
+ * the opening one has been consumed already. */
+static bool
+uc_rawscan_skip_literal(uc_rawscan_t *rs, int delim)
+{
+	bool class = false;
+	int c, n;
+
+	while ((c = uc_rawscan_next(rs)) >= 0) {
+		if (c == '\\') {
+			if (uc_rawscan_next(rs) < 0)
+				return false;
+		}
+		else if (delim == '/' && class) {
+			/* skip POSIX classes like [:alpha:] within a bracket expression */
+			n = uc_rawscan_peek(rs, 0);
+
+			if (c == '[' && (n == ':' || n == '.' || n == '=')) {
+				rs->pos++;
+
+				while ((c = uc_rawscan_next(rs)) >= 0)
+					if (c == n && uc_rawscan_peek(rs, 0) == ']')
+						break;
+
+				if (c < 0)
+					return false;
+
+				rs->pos++;
+			}
+			else if (c == ']') {
+				class = false;
+			}
+		}
+		else if (delim == '/' && c == '[') {
+			class = true;
+
+			/* a leading ^ and ] are part of the expression */
+			if (uc_rawscan_peek(rs, 0) == '^')
+				rs->pos++;
+
+			if (uc_rawscan_peek(rs, 0) == ']')
+				rs->pos++;
+		}
+		else if (c == delim) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/* Character classes for skipping text, the tables are used since the library
+ * is built for size, which rules out depending on inlining. */
+#define RS_IDENT 1
+#define RS_BLANK 2
+
+static const uint8_t uc_rawscan_class[256] = {
+	[' '] = RS_BLANK, ['\t'] = RS_BLANK, ['\n'] = RS_BLANK, ['\r'] = RS_BLANK,
+	['0' ... '9'] = RS_IDENT, ['a' ... 'z'] = RS_IDENT, ['A' ... 'Z'] = RS_IDENT,
+	['_'] = RS_IDENT, [0x80 ... 0xff] = RS_IDENT
+};
+
+/* Skip over the text up to the bracket closing the one which ends at offset
+ * `off`, e.g. the contents of an array or object literal or of a parenthesized
+ * expression. Returns false if no closing bracket was found. Otherwise `end`
+ * is the offset behind the closing bracket and `follow` tells what comes next
+ * after it. If `enclosed` is given, it receives all brackets inside the skipped
+ * text which are followed by something other than ordinary syntax, see
+ * uc_follow_t, so that skipping them again can be avoided. The caller releases
+ * the list.
+ *
+ * The text is looked at directly without involving the lexer, and only knows
+ * enough about the syntax to not be confused by what can hide brackets:
+ * strings, template literals, regular expressions and comments. Whether a
+ * slash starts a regular expression or is a division is guessed from the
+ * preceding character. The lexer is not affected by skipping.
+ *
+ * Most of the text is plain code which is passed over using a tight loop on the
+ * read buffer, the cursor is only handed to the helpers above for anything
+ * that is not. */
+bool
+uc_lexer_skip_balanced(uc_lexer_t *lex, size_t off, size_t *end,
+                       uc_follow_t *follow, uc_bracketlist_t *enclosed)
+{
+	uc_rawscan_t rsbuf, *rs = &rsbuf;
+	uc_offsetstack_t tpl = { 0 };
+	size_t depth = 1, wabs = 0, wlen = 0, *open = NULL, nopen = 0, copen = 0;
+	bool result = false, intpl = false, value = false, inword = false, lastword = false;
+	const uint8_t *p, *e, *w;
+	uc_follow_t f;
+	uc_bracket_t b;
+	int c, n;
+
+#define SYNC_OUT() (rs->pos = p - rs->buf)
+#define SYNC_IN()  (p = rs->buf + rs->pos, e = rs->buf + rs->len)
+
+	rs->source = lex->source;
+	rs->base = off;
+	rs->pos = rs->len = 0;
+	rs->chunk = 256;
+
+	p = e = rs->buf;
+
+	while (true) {
+		if (p >= e) {
+			SYNC_OUT();
+
+			if (uc_rawscan_peek(rs, 0) < 0)
+				break;
+
+			SYNC_IN();
+		}
+
+		c = *p++;
+
+		/* identifiers and numbers */
+		if (!intpl && (uc_rawscan_class[c] & RS_IDENT)) {
+			if (!inword) {
+				wabs = rs->base + (p - 1 - rs->buf);
+				wlen = 0;
+				inword = true;
+			}
+
+			w = p;
+
+			while (p < e && (uc_rawscan_class[*p] & RS_IDENT))
+				p++;
+
+			wlen += 1 + (p - w);
+			value = lastword = true;
+
+			continue;
+		}
+
+		inword = false;
+
+		/* white space */
+		if (uc_rawscan_class[c] & RS_BLANK) {
+			if (!intpl)
+				while (p < e && (uc_rawscan_class[*p] & RS_BLANK))
+					p++;
+
+			continue;
+		}
+
+		SYNC_OUT();
+
+		/* template literal text */
+		if (intpl) {
+			if (c == '\\') {
+				uc_rawscan_next(rs);
+			}
+			else if (c == '`') {
+				intpl = false;
+				value = true;
+			}
+			else if (c == '$' && uc_rawscan_peek(rs, 0) == '{') {
+				rs->pos++;
+				intpl = false;
+				value = false;
+
+				uc_vector_push(&tpl, ++depth);
+			}
+
+			SYNC_IN();
+
+			continue;
+		}
+
+		switch (c) {
+		case '"':
+		case '\'':
+			if (!uc_rawscan_skip_literal(rs, c))
+				goto out;
+
+			value = true;
+			lastword = false;
+			break;
+
+		case '`':
+			intpl = true;
+			lastword = false;
+			break;
+
+		case '/':
+			n = uc_rawscan_peek(rs, 0);
+
+			if (n == '/' || n == '*') {
+				rs->pos++;
+				uc_rawscan_skip_comment(rs, n);
+
+				break;
+			}
+
+			/* a slash is a division after a value, otherwise it starts a
+			 * regular expression; words like `return` are no values */
+			if (value && !(lastword && wabs >= rs->base &&
+			    ((wlen == 6 && !memcmp(rs->buf + (wabs - rs->base), "return", 6)) ||
+			     (wlen == 2 && !memcmp(rs->buf + (wabs - rs->base), "in", 2))))) {
+				value = false;
+			}
+			else {
+				if (!uc_rawscan_skip_literal(rs, '/'))
+					goto out;
+
+				value = true;
+			}
+
+			lastword = false;
+			break;
+
+		case '[':
+		case '{':
+		case '(':
+			if (nopen == copen) {
+				copen = copen ? copen * 2 : 64;
+				open = xrealloc(open, copen * sizeof(*open));
+			}
+
+			open[nopen++] = rs->base + rs->pos - 1;
+			depth++;
+			value = lastword = false;
+			break;
+
+		case ']':
+		case '}':
+		case ')':
+			/* end of a template placeholder */
+			if (c == '}' && tpl.count && tpl.entries[tpl.count - 1] == depth) {
+				uc_vector_pop(&tpl);
+				depth--;
+				intpl = true;
+				break;
+			}
+
+			depth--;
+			value = true;
+			lastword = false;
+
+			f = uc_rawscan_follow(rs);
+
+			if (depth == 0) {
+				*end = rs->base + rs->pos;
+				*follow = f;
+				result = true;
+
+				goto out;
+			}
+
+			b.pos = nopen ? open[--nopen] : 0;
+
+			if (enclosed && f != UC_FOLLOW_OTHER) {
+				b.follow = f;
+				uc_vector_push(enclosed, b);
+			}
+
+			break;
+
+		case '%':
+			/* end of a statement block */
+			if (uc_rawscan_peek(rs, 0) == '}')
+				goto out;
+
+			value = lastword = false;
+			break;
+
+		default:
+			value = lastword = false;
+			break;
+		}
+
+		SYNC_IN();
+	}
+
+out:
+	uc_source_resync(lex->source);
+
+	free(open);
+	uc_vector_clear(&tpl);
+
+	if (!result && enclosed)
+		uc_vector_clear(enclosed);
+
+	return result;
+
+#undef SYNC_OUT
+#undef SYNC_IN
+}
+
 bool
 uc_lexer_is_keyword(uc_value_t *label)
 {

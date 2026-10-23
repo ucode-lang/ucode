@@ -162,6 +162,8 @@ uc_source_reset(uc_source_t *source)
 	source->off = 0;
 	source->done = false;
 	source->sized = false;
+	source->moved = false;
+	source->ahead_len = 0;
 
 	if (source->buffer) {
 		fseek(source->fp, 0, SEEK_SET);
@@ -170,6 +172,54 @@ uc_source_reset(uc_source_t *source)
 		fclose(source->fp);
 		source->fp = NULL;
 	}
+}
+
+/* Number of source bytes kept for looking ahead of the lexer. */
+#define UC_SOURCE_AHEAD 16384
+
+/* Read text at an arbitrary offset, e.g. to look ahead of the lexer. Returns
+ * the number of bytes read, which can be less than requested. Looking ahead is
+ * done in a cache which is refilled on demand, so that doing it frequently for
+ * nearby text does not come at the price of repositioning the stream each time.
+ * Call uc_source_resync() afterwards. */
+size_t
+uc_source_read_at(uc_source_t *source, size_t off, void *buf, size_t len)
+{
+	size_t n;
+
+	if (off < source->ahead_off || off >= source->ahead_off + source->ahead_len) {
+		if (!uc_source_stream_ensure(source) || fseek(source->fp, off, SEEK_SET) != 0)
+			return 0;
+
+		if (!source->ahead)
+			source->ahead = xalloc(UC_SOURCE_AHEAD);
+
+		source->moved = true;
+		source->ahead_off = off;
+		source->ahead_len = fread(source->ahead, 1, UC_SOURCE_AHEAD, source->fp);
+
+		if (source->ahead_len == 0)
+			return 0;
+	}
+
+	n = source->ahead_off + source->ahead_len - off;
+
+	if (n > len)
+		n = len;
+
+	memcpy(buf, source->ahead + (off - source->ahead_off), n);
+
+	return n;
+}
+
+/* Continue sequential reading where it has been left off. */
+void
+uc_source_resync(uc_source_t *source)
+{
+	if (source->moved && source->fp && !source->done)
+		fseek(source->fp, source->off, SEEK_SET);
+
+	source->moved = false;
 }
 
 const uint8_t *
@@ -428,6 +478,7 @@ uc_source_free(uc_source_t *source)
 	if (source->buffer)
 		fclose(source->fp);
 
+	free(source->ahead);
 	free(source->buffer);
 	free(source->path);
 }

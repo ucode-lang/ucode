@@ -47,7 +47,9 @@ struct uc_source {
 	FILE *fp;
 	uint8_t *rbuf;
 	size_t off, size;
-	bool done, sized;
+	uint8_t *ahead;
+	size_t ahead_off, ahead_len;
+	bool done, sized, moved;
 	uc_lineinfo_t lineinfo;
 	struct {
 		size_t count, offset;
