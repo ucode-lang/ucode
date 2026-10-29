@@ -128,9 +128,9 @@ static void
 uc_vm_close_upvals(uc_vm_t *vm, size_t slot);
 
 static void
-uc_vm_reset_callframes(uc_vm_t *vm)
+uc_vm_reset_callframes(uc_vm_t *vm, size_t depth)
 {
-	while (vm->callframes.count > 0)
+	while (vm->callframes.count > depth)
 		ucv_put(uc_vm_callframe_pop(vm));
 }
 
@@ -318,7 +318,7 @@ void uc_vm_free(uc_vm_t *vm)
 	for (i = 0; i < vm->restypes.count; i++)
 		ucv_put(vm->restypes.entries[i]->proto);
 
-	uc_vm_reset_callframes(vm);
+	uc_vm_reset_callframes(vm, 0);
 	uc_vm_reset_stack(vm);
 	uc_vector_clear(&vm->stack);
 	uc_vector_clear(&vm->callframes);
@@ -589,6 +589,13 @@ uc_vm_stack_peek(uc_vm_t *vm, size_t offset)
 }
 
 static void
+uc_vm_stack_drop(uc_vm_t *vm, size_t count)
+{
+	while (count-- > 0)
+		ucv_put(uc_vm_stack_pop(vm));
+}
+
+static void
 uc_vm_stack_set(uc_vm_t *vm, size_t offset, uc_value_t *value)
 {
 	if (vm->trace) {
@@ -621,10 +628,7 @@ uc_vm_call_native(uc_vm_t *vm, uc_value_t *ctx, uc_cfunction_t *fptr, bool mcall
 
 	res = fptr->cfn(vm, nargs);
 
-	/* Reset stack, check for callframe depth since an uncatched exception in managed
-	 * code executed by fptr->cfn() could've reset the callframe stack already. */
-	if (vm->callframes.count > 0)
-		ucv_put(uc_vm_callframe_pop(vm));
+	ucv_put(uc_vm_callframe_pop(vm));
 
 	/* push return value */
 	if (!vm->exception.type)
@@ -1432,10 +1436,21 @@ uc_vm_get_error_context(uc_vm_t *vm)
 	return stacktrace;
 }
 
+/* An exit ends every active invocation: it stays pending until the C
+ * functions that go on after a failed uc_vm_call() returned. */
+static bool
+uc_vm_exit_pending(uc_vm_t *vm)
+{
+	return vm->exception.type == EXCEPTION_EXIT && vm->callframes.count > 0;
+}
+
 void __attribute__((format(printf, 3, 0)))
 uc_vm_raise_exception(uc_vm_t *vm, uc_exception_type_t type, const char *fmt, ...)
 {
 	va_list ap;
+
+	if (uc_vm_exit_pending(vm))
+		return;
 
 	vm->exception.type = type;
 
@@ -1447,6 +1462,23 @@ uc_vm_raise_exception(uc_vm_t *vm, uc_exception_type_t type, const char *fmt, ..
 
 	ucv_put(vm->exception.stacktrace);
 	vm->exception.stacktrace = uc_vm_get_error_context(vm);
+}
+
+void
+uc_vm_raise_exception_trace(uc_vm_t *vm, uc_exception_type_t type,
+                            const char *message, uc_value_t *stacktrace)
+{
+	if (uc_vm_exit_pending(vm))
+		return;
+
+	vm->exception.type = type;
+
+	free(vm->exception.message);
+	vm->exception.message = xstrdup(message);
+
+	ucv_get(stacktrace);
+	ucv_put(vm->exception.stacktrace);
+	vm->exception.stacktrace = stacktrace;
 }
 
 static bool
@@ -3718,7 +3750,7 @@ exception:
 		if (vm->exception.type != EXCEPTION_NONE) {
 			/* VM termination was requested */
 			if (vm->exception.type == EXCEPTION_EXIT) {
-				uc_vm_reset_callframes(vm);
+				uc_vm_reset_callframes(vm, caller);
 
 				return STATUS_EXIT;
 			}
@@ -3740,7 +3772,7 @@ exception:
 						/* "quit" was issued from within the breakpoint's
 						 * CLI session */
 						if (vm->exception.type == EXCEPTION_EXIT) {
-							uc_vm_reset_callframes(vm);
+							uc_vm_reset_callframes(vm, caller);
 
 							return STATUS_EXIT;
 						}
@@ -3868,14 +3900,30 @@ uc_vm_execute(uc_vm_t *vm, uc_program_t *program, uc_value_t **retval)
 uc_exception_type_t
 uc_vm_call(uc_vm_t *vm, bool mcall, size_t nargs)
 {
-	uc_value_t *ctx = mcall ? ucv_get(uc_vm_stack_peek(vm, nargs + 1)) : NULL;
-	uc_value_t *fno = ucv_get(uc_vm_stack_peek(vm, nargs));
-	bool native = (ucv_type(fno) == UC_CFUNCTION);
+	size_t argc = nargs & 0xffff;
+	uc_value_t *ctx, *fno;
+	bool native;
+
+	if (uc_vm_exit_pending(vm))
+		goto drop;
+
+	ctx = mcall ? ucv_get(uc_vm_stack_peek(vm, nargs + 1)) : NULL;
+	fno = ucv_get(uc_vm_stack_peek(vm, nargs));
+	native = (ucv_type(fno) == UC_CFUNCTION);
 
 	uc_vm_clear_exception(vm);
 
-	if (uc_vm_call_function(vm, ctx, fno, mcall, nargs & 0xffff, false) && !native)
+	if (uc_vm_call_function(vm, ctx, fno, mcall, argc, false) && !native)
 		uc_vm_execute_chunk(vm);
+
+	return vm->exception.type;
+
+drop:
+	/* the release of the call frame drops the callee, its arguments and the
+	 * receiver of a method call after a call that failed; a call that a
+	 * pending exit prevents drops them here, so that each caller finds the
+	 * same stack */
+	uc_vm_stack_drop(vm, argc + 1 + (mcall ? 1 : 0));
 
 	return vm->exception.type;
 }

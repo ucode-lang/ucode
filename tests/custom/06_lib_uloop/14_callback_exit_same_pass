@@ -1,0 +1,27 @@
+Calling exit() in a uloop callback terminates the script with the given
+code, also when the loop runs a further callback in the same pass.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+
+	uloop.init();
+
+	uloop.timer(1, () => { print("first\n"); exit(5); });
+	uloop.timer(1, () => print("second\n"));
+
+	// both timers are due when the loop starts
+	sleep(50);
+
+	uloop.run();
+	print("run() returned\n");
+%}
+-- End --
+
+-- Expect stdout --
+first
+-- End --
+
+-- Expect exitcode --
+5
+-- End --

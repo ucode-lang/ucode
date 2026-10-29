@@ -20,6 +20,7 @@
 #define UCODE_INTERNAL_VM_H
 
 #include "ucode/vm.h"
+#include "ucode/internal/util.h"
 
 #define __insns \
 __insn(NOOP) \
@@ -108,6 +109,9 @@ extern uint32_t insns[__I_MAX];
 extern const int8_t uc_vm_insn_format[__I_MAX];
 
 int8_t uc_vm_insn_to_argtype(uc_vm_insn_t insn);
+
+__hidden void uc_vm_raise_exception_trace(uc_vm_t *vm, uc_exception_type_t type,
+                                          const char *message, uc_value_t *stacktrace);
 
 static inline bool
 uc_vm_is_strict(uc_vm_t *vm)

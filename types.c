@@ -2043,7 +2043,6 @@ ucv_to_stringbuf_formatted(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, size
 	bool json = (pad_char != '\0');
 	bool constified = false;
 	bool pending = false;
-	size_t stackoff = 0;
 	uc_resource_type_t *restype;
 	uc_cfunction_t *cfunction;
 	uc_function_t *function;
@@ -2068,7 +2067,6 @@ ucv_to_stringbuf_formatted(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, size
 	 * traversal; no callbacks are invoked while an exception is pending since
 	 * calling them would discard it */
 	if (vm != NULL) {
-		stackoff = vm->stack.count;
 		uc_vm_stack_push(vm, ucv_get(uv));
 
 		pending = (vm->exception.type != EXCEPTION_NONE);
@@ -2077,8 +2075,7 @@ ucv_to_stringbuf_formatted(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, size
 			goto out;
 
 		/* do not fall back to formatting the value after its callback
-		 * failed, exit() may also have released uv while resetting the
-		 * VM stack */
+		 * failed, nor while an exit is pending: the program ends */
 		if (vm->exception.type == EXCEPTION_EXIT ||
 		    (!pending && vm->exception.type != EXCEPTION_NONE))
 			goto out;
@@ -2305,16 +2302,13 @@ ucv_to_stringbuf_formatted(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, size
 			json ? "\"" : "");
 	}
 
-	/* exit() within a child callback may have reset the VM stack, but uv
-	 * is not freed while marked, so its flags can still be restored */
 	ucv_clear_mark(uv);
 
 	if (constified)
 		ucv_set_constant(uv, false);
 
 out:
-	/* exit() within a callback resets the entire stack, our slot included */
-	if (vm != NULL && vm->stack.count > stackoff)
+	if (vm != NULL)
 		ucv_put(uc_vm_stack_pop(vm));
 }
 
