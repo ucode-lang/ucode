@@ -109,9 +109,11 @@ typedef enum {
 	UC_FN_LOADFILE   = 71,
 	UC_FN_CALL       = 72,
 	UC_FN_SIGNAL     = 73,
+	UC_FN_STRFTIME   = 74,
+	UC_FN_STRPTIME   = 75,
 
 	/* Number of slots; keeps the table and this enum in step, see lib.c. */
-	UC_FN_COUNT       = 74
+	UC_FN_COUNT       = 76
 } uc_stdlib_fn_t;
 
 __hidden extern const uc_function_list_t uc_stdlib_functions[];
