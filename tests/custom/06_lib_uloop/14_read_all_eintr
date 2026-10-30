@@ -1,0 +1,33 @@
+read("all") retries a read that a signal interrupted instead of treating it
+as end of file, whether or not data arrived before the interruption.
+
+libubox installs its SIGCHLD handler without SA_RESTART, so in a uloop based
+host (rpcd, uhttpd, ...) any child exiting while the VM is blocked in a read
+interrupts that read with EINTR.
+
+-- Testcase --
+{%
+	import * as uloop from 'uloop';
+	import { popen, error } from 'fs';
+
+	uloop.init();
+
+	// An unrelated child that exits while we are blocked reading
+	let other = popen('sleep 1', 'r');
+
+	let proc = popen('sleep 2; echo payload', 'r');
+
+	let data = proc.read('all');
+
+	printf('data: %J\nerror: %J\nexit: %d\n', data, error(), proc.close());
+
+	other.close();
+	uloop.done();
+%}
+-- End --
+
+-- Expect stdout --
+data: "payload\n"
+error: null
+exit: 0
+-- End --

@@ -197,6 +197,7 @@ uc_fs_read_common(uc_vm_t *vm, size_t nargs, FILE **fp)
 	const char *lstr;
 	int64_t lsize;
 	ssize_t llen;
+	int err;
 
 	if (!fp || !*fp)
 		err_return(EBADF);
@@ -216,23 +217,44 @@ uc_fs_read_common(uc_vm_t *vm, size_t nargs, FILE **fp)
 			len = (size_t)llen;
 		}
 		else if (llen == 3 && !strcmp(lstr, "all")) {
+			clearerr(*fp);
+
 			while (true) {
+				errno = 0;
 				rlen = fread(buf, 1, sizeof(buf), *fp);
+				err = errno;
 
-				tmp = realloc(p, len + rlen);
+				if (rlen > 0) {
+					tmp = realloc(p, len + rlen);
 
-				if (!tmp) {
-					free(p);
-					err_return(ENOMEM);
+					if (!tmp) {
+						free(p);
+						err_return(ENOMEM);
+					}
+
+					memcpy(tmp + len, buf, rlen);
+
+					p = tmp;
+					len += rlen;
 				}
 
-				memcpy(tmp + len, buf, rlen);
+				if (rlen == sizeof(buf))
+					continue;
 
-				p = tmp;
-				len += rlen;
-
-				if (rlen == 0)
+				/* no error means EOF */
+				if (!ferror(*fp))
 					break;
+
+				clearerr(*fp);
+
+				if (err == EINTR)
+					continue;
+
+				if (err == EAGAIN || err == EWOULDBLOCK)
+					break;
+
+				free(p);
+				err_return(err ? err : EIO);
 			}
 		}
 		else if (llen == 1) {

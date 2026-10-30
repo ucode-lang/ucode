@@ -1,0 +1,17 @@
+read("all") reports a read error as null plus fs.error() instead of
+returning an empty string as if it had reached end of file.
+
+-- Testcase --
+{%
+	import { open, error } from 'fs';
+
+	let fp = open('/', 'r');
+
+	printf('data: %J\nerror: %J\n', fp.read('all'), error());
+%}
+-- End --
+
+-- Expect stdout --
+data: null
+error: "Is a directory"
+-- End --
