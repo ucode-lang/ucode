@@ -189,7 +189,7 @@ uc_compiler_syntax_error(uc_compiler_t *compiler, size_t off, const char *fmt, .
 	compiler->parser->synchronizing = true;
 
 	if (!buf)
-		buf = compiler->parser->error = xprintbuf_new();
+		buf = compiler->parser->error = uc_stringbuf_new();
 
 	if (!off)
 		off = uc_program_function_srcpos(compiler->function,
@@ -5039,7 +5039,7 @@ uc_compile_from_source(uc_parse_config_t *config, uc_source_t *source, uc_progra
 		free(parser.error);
 	}
 	else {
-		printbuf_free(parser.error);
+		uc_stringbuf_free(parser.error);
 	}
 
 	uc_lexer_free(&parser.lex);
@@ -5057,24 +5057,6 @@ uc_compile_from_source(uc_parse_config_t *config, uc_source_t *source, uc_progra
 #endif
 }
 
-static uc_program_t *
-uc_compile_from_bytecode(uc_parse_config_t *config, uc_source_t *source, char **errp)
-{
-	uc_program_t *prog;
-
-	prog = uc_program_load(source, errp);
-
-	if (prog && !uc_program_entry(prog)) {
-		if (errp)
-			xasprintf(errp, "Program file contains no entry function\n");
-
-		ucv_put(&prog->header);
-		prog = NULL;
-	}
-
-	return prog;
-}
-
 uc_program_t *
 uc_compile(uc_parse_config_t *config, uc_source_t *source, char **errp)
 {
@@ -5089,7 +5071,7 @@ uc_compile(uc_parse_config_t *config, uc_source_t *source, char **errp)
 		break;
 
 	case UC_SOURCE_TYPE_PRECOMPILED:
-		prog = uc_compile_from_bytecode(config, source, errp);
+		prog = uc_program_load_entry(source, errp);
 		break;
 
 	case UC_SOURCE_TYPE_UNAVAILABLE:
@@ -5109,4 +5091,10 @@ uc_compile(uc_parse_config_t *config, uc_source_t *source, char **errp)
 	uc_source_reset(source);
 
 	return prog;
+}
+
+static void __attribute__((constructor))
+uc_compiler_register(void)
+{
+	uc_loader_compile_set(uc_compile);
 }

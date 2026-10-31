@@ -69,7 +69,7 @@ typedef enum {
 
 typedef struct uc_patchlist {
 	struct uc_patchlist *parent;
-	size_t depth, count, *entries;
+	size_t depth, count, *entries, capacity;
 	uc_tokentype_t token;
 } uc_patchlist_t;
 

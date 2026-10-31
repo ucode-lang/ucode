@@ -191,7 +191,7 @@ ct_hashname(uc_value_t *uv)
 
 	while (len > 0)
 	{
-		h = h * 129 + (*u8++) + LH_PRIME;
+		h = h * 129 + (*u8++) + 0x9e370001UL;
 		len--;
 	}
 

@@ -1,0 +1,378 @@
+Cache mutation reload and closures.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+let a=require("counter"), b=require("counter"); a.value=9;
+                print(a===b," ",b.value," ",a.next()," "); delete modules.counter;
+                let c=require("counter"); gc(); print(a===c," ",c.next()," ",a.next()," ");
+                let f=require("plain"); delete modules.plain; let g=require("plain");
+                print(f===g," ",f()," ",g(),"\n");
+-- End (no-eol) --
+
+-- File counter.uc --
+let n=0; return {value:1,next(){gc();return ++n;}};
+-- End (no-eol) --
+
+-- File plain.uc --
+return function(){return 42;};
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+true 9 1 false 1 2 false 42 42
+-- End --
+
+
+Errors uncached and nested retry.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+modules.attempts=0;
+                try {require("outer");} catch(e){print(e.message," ");}
+                print(exists(modules,"outer")," ",exists(modules,"inner")," ");
+                let v=require("outer"); gc(); print(v.value," ",modules.attempts,"\n");
+-- End (no-eol) --
+
+-- File outer.uc --
+let x=require("inner"); return {value:x};
+-- End (no-eol) --
+
+-- File inner.uc --
+gc(); if (++modules.attempts==1) die("retry"); return 7;
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+retry false false 7 2
+-- End --
+
+
+Exit unwinds.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+try {require("quit");} catch(e){print("caught");} print("unreachable");
+-- End (no-eol) --
+
+-- File quit.uc --
+let o={};o.self=o;gc();print("bye\n");exit(7);
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+bye
+-- End --
+
+-- Expect exitcode --
+7
+-- End --
+
+
+Falsey cache.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+modules.count=0; require("m0"); print(require("m0") === null," ");require("m1"); print(require("m1") === false," ");require("m2"); print(require("m2") === 0," ");require("m3"); print(require("m3") === ""," ");print(modules.count,"\n");
+-- End (no-eol) --
+
+-- File m0.uc --
+modules.count++; return null;
+-- End (no-eol) --
+
+-- File m1.uc --
+modules.count++; return false;
+-- End (no-eol) --
+
+-- File m2.uc --
+modules.count++; return 0;
+-- End (no-eol) --
+
+-- File m3.uc --
+modules.count++; return "";
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+true true true true 4
+-- End --
+
+
+Import tables nested gc and reload.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+import {n,inc} from './base.uc'; let a=require("outer");
+                import * as after from './after.uc'; let old=a.inc;
+                delete modules.outer; let b=require("outer"); gc();
+                print(n," ",inc()," ",a.value," ",old()," ",b.inc()," ",after.value,"\n");
+-- End (no-eol) --
+
+-- File base.uc --
+export let n=10; export function inc(){gc();return ++n;}
+-- End (no-eol) --
+
+-- File after.uc --
+export let value=99;
+-- End (no-eol) --
+
+-- File outer.uc --
+import {n,inc} from './base.uc'; let nested=require("inner");
+                gc(); import * as later from './after.uc';
+                return {value:n+later.value+nested(),inc:inc};
+-- End (no-eol) --
+
+-- File inner.uc --
+import {n,inc} from "./base.uc"; gc(); return inc;
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+10 11 120 11 11 99
+-- End --
+
+
+Lazy transitive and dotted.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+function unused(){return require("unused");} print("main "); let a=require("pkg.outer"); print(a.value," ",a===require("pkg.outer"),"\n");
+-- End (no-eol) --
+
+-- File unused.uc --
+die("must not run");
+-- End (no-eol) --
+
+-- File pkg/outer.uc --
+print("outer "); return require("pkg.inner");
+-- End (no-eol) --
+
+-- File pkg/inner.uc --
+print("inner "); return {value:42};
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+main outer inner 42 true
+-- End --
+
+
+Local alias discovery and shadowing.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+let r=require, name="dep";print(r(name)," ");
+            function f(require){return require("trap");}print(f(x=>x),"\n");
+-- End (no-eol) --
+
+-- File dep.uc --
+return 5;
+-- End (no-eol) --
+
+-- File trap.uc --
+this is invalid source!
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+5 trap
+-- End --
+
+
+Nonstring and nul.
+
+-- Testcase --
+print(require()," ",require(null)," ",require(17),"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+  
+-- End --
+
+
+Preseeded cycle and virtual modules.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+modules.virtual=null;print(require("virtual")," ");let a=require("a");gc();print(a===a.b.a,"\n");
+-- End (no-eol) --
+
+-- File a.uc --
+let a={};modules.a=a;a.b=require("b");return a;
+-- End (no-eol) --
+
+-- File b.uc --
+return {a:require("a")};
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+ true
+-- End --
+
+
+Cycle and retry.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+for(let i=0;i<2;i++) try {require("a");} catch(e){print(e.message,"\n");}
+            modules.b=9;print(require("a"),"\n");
+-- End (no-eol) --
+
+-- File a.uc --
+return require("b");
+-- End (no-eol) --
+
+-- File b.uc --
+return require("a");
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+Too much recursion
+Too much recursion
+9
+-- End --
+
+-- Expect stderr --
+-- End --
+
+
+Nul in name.
+
+-- Testcase --
+try {require("bad\u0000name");} catch(e){print(e.message,"\n");}
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+No module named 'bad' could be found
+-- End --
+
+
+Captured alias invalidation assignment.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+let r=require;function change(){r=x=>x;}change();print(r("trap"),"\n");
+-- End (no-eol) --
+
+-- File trap.uc --
+this is invalid source!
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+trap
+-- End --
+
+
+Captured alias invalidation getter.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+let r,o={};proto(o,{__get__(key){r=x=>x;return 0;}});r=require;o.x;print(r("trap"),"\n");
+-- End (no-eol) --
+
+-- File trap.uc --
+this is invalid source!
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+trap
+-- End --

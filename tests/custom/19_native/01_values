@@ -1,0 +1,767 @@
+Numeric updates.
+
+-- Testcase --
+let x="12";global.y="12";let o={z:"12"};function f(){return ++x;}print(f()," ",++global.y," ",++o.z," ",x+=1," ",global.y+=1);
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+13 13 13 14 14
+-- End (no-eol) --
+
+
+Object array spread.
+
+-- Testcase --
+print({...{a:1},...[2,3]});for(let x in [null,4,"bad"])try{let o={...x};}catch(e){print(e.type," ",e.message);}try{let a=[...4];}catch(e){print(e.type," ",e.message);}
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+{ "a": 1, "0": 2, "1": 3 }Type error Value (null) is not iterableType error Value (4) is not iterableType error Value (bad) is not iterableType error (4) is not iterable
+-- End (no-eol) --
+
+
+Entry tail gc.
+
+-- Testcase --
+function f(){gc();print("alive");} return f();
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+alive
+-- End (no-eol) --
+
+
+Closure identity.
+
+-- Testcase --
+function make(){return function(){return 1;};} print(make()===make());
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+false
+-- End (no-eol) --
+
+
+Catch.
+
+-- Testcase --
+function f(){ let a={}; a.self=a; die("broken"); } try { f(); } catch(e) { print(e.type," ",e.message,"\n"); } try {null.x;} catch(e) {print(e.type," ",e.message,"\n");}
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+Error broken
+Reference error left-hand side expression is null
+-- End --
+
+
+Catch nested.
+
+-- Testcase --
+try {try {die("nested");} catch(e) {die(e);}} catch(e) {print(e,"\n");} print("alive\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+nested
+alive
+-- End --
+
+
+Gc callback.
+
+-- Testcase --
+let a={x:1}; let values=map([2,3],function(x){gc();a.x+=x;return a;}); gc(); print(values[0]===a," ",a.x,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+true 6
+-- End --
+
+
+Gc unwind.
+
+-- Testcase --
+let callbacks=[]; for(let i=0;i<100;i++) {let a={x:i};a.self=a;try {push(callbacks,()=>a.x);die("x");}catch(e){gc();}} print(callbacks[99](),"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+99
+-- End --
+
+
+Loop gc.
+
+-- Testcase --
+gc("start",1000);for(let i=0;i<5000;i++){let a={};a.self=a;}print(gc("count")<1100,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+true
+-- End --
+
+
+Prototype.
+
+-- Testcase --
+let a={}; proto(a,{__get__(key){gc();return "value:"+key;}}); print(a.x,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+value:x
+-- End --
+
+
+Builtin alias.
+
+-- Testcase --
+let a=[]; let f=push; f(a,4); let g=pop; print(g(a),"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+4
+-- End --
+
+
+Builtin join.
+
+-- Testcase --
+let a=[]; let f=true ? push : pop; f(a,4); print(a,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ 4 ]
+-- End --
+
+
+Builtin nested.
+
+-- Testcase --
+let a=[]; print(length(a)," ",push(a,pop([1,2]))," ",a,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+0 2 [ 2 ]
+-- End --
+
+
+Bitwise coercion.
+
+-- Testcase --
+print(3.3<<4.1," ",120.3&54.3," ",~0," ",~10.4," ",~-1,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+48 48 18446744073709551615 18446744073709551605 0
+-- End --
+
+
+Array indices.
+
+-- Testcase --
+let a=[1,2,3]; a[-1]=9; print(a[-1]," ",a[1.0]," ",a[true]," ",a[null]," ",a["01"],"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+9 2   2
+-- End --
+
+
+Json numbers.
+
+-- Testcase --
+print([1.0,NaN,Infinity,-Infinity]," ","x"+1.0,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ 1.0, "NaN", 1e309, -1e309 ] x1
+-- End --
+
+
+Arithmetic matrix.
+
+-- Testcase --
+let xs=[-9223372036854775808,-2,-1,0,1,2,9223372036854775807,9223372036854775808,18446744073709551615]; for(let i=0;i<length(xs);i++) for(let j=0;j<length(xs);j++) { let a=xs[i], b=xs[j]; print(a+b," ",a-b," ",a*b," ",a/b," ",a%b," ",a<b,"\n"); }
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+0 0 0 1 0 false
+9223372036854775806 -9223372036854775806 0 4611686018427387904 0 true
+9223372036854775807 -9223372036854775807 9223372036854775808 9223372036854775808 0 true
+-9223372036854775808 -9223372036854775808 0 -Infinity NaN true
+-9223372036854775807 9223372036854775807 -9223372036854775808 -9223372036854775808 0 true
+-9223372036854775806 9223372036854775806 0 -4611686018427387904 0 true
+-1 1 -9223372036854775808 -1 -1 true
+0 1 -9223372036854775808 -1 -1 true
+9223372036854775807 1 -9223372036854775808 -1 -1 true
+9223372036854775806 9223372036854775806 0 0 -2 false
+-4 0 4 1 0 false
+-3 -1 2 2 0 true
+-2 -2 0 -Infinity NaN true
+-1 -3 -2 -2 0 true
+0 -4 -4 -1 0 true
+9223372036854775805 9223372036854775807 2 0 -2 true
+9223372036854775806 9223372036854775807 2 0 -2 true
+18446744073709551613 9223372036854775807 2 0 -2 true
+9223372036854775807 9223372036854775807 9223372036854775808 0 -1 false
+-3 1 2 0 -1 false
+-2 0 1 1 0 false
+-1 -1 0 -Infinity NaN true
+0 -2 -1 -1 0 true
+1 -3 -2 0 -1 true
+9223372036854775806 -9223372036854775808 -9223372036854775807 0 -1 true
+9223372036854775807 -9223372036854775808 -9223372036854775807 0 -1 true
+18446744073709551614 -9223372036854775808 -9223372036854775807 0 -1 true
+-9223372036854775808 9223372036854775808 0 0 0 false
+-2 2 0 0 0 false
+-1 1 0 0 0 false
+0 0 0 NaN NaN false
+1 -1 0 0 0 true
+2 -2 0 0 0 true
+9223372036854775807 -9223372036854775807 0 0 0 true
+9223372036854775808 -9223372036854775808 0 0 0 true
+18446744073709551615 1 0 0 0 true
+-9223372036854775807 9223372036854775809 -9223372036854775808 0 1 false
+-1 3 -2 0 1 false
+0 2 -1 -1 0 false
+1 1 0 Infinity NaN false
+2 0 1 1 0 false
+3 -1 2 0 1 true
+9223372036854775808 -9223372036854775806 9223372036854775807 0 1 true
+9223372036854775809 -9223372036854775807 9223372036854775808 0 1 true
+0 2 18446744073709551615 0 1 true
+-9223372036854775806 9223372036854775810 0 0 2 false
+0 4 -4 -1 0 false
+1 3 -2 -2 0 false
+2 2 0 Infinity NaN false
+3 1 2 2 0 false
+4 0 4 1 0 false
+9223372036854775809 -9223372036854775805 18446744073709551614 0 2 true
+9223372036854775810 -9223372036854775806 0 0 2 true
+1 3 18446744073709551614 0 2 true
+-1 18446744073709551615 -9223372036854775808 0 9223372036854775807 false
+9223372036854775805 9223372036854775809 2 -4611686018427387903 1 false
+9223372036854775806 9223372036854775808 -9223372036854775807 -9223372036854775807 0 false
+9223372036854775807 9223372036854775807 0 Infinity NaN false
+9223372036854775808 9223372036854775806 9223372036854775807 9223372036854775807 0 false
+9223372036854775809 9223372036854775805 18446744073709551614 4611686018427387903 1 false
+18446744073709551614 0 1 1 0 false
+18446744073709551615 -1 9223372036854775808 0 9223372036854775807 true
+9223372036854775806 -9223372036854775808 9223372036854775809 0 9223372036854775807 true
+0 0 -9223372036854775808 0 9223372036854775807 false
+9223372036854775806 9223372036854775810 2 -4611686018427387903 1 false
+9223372036854775807 9223372036854775809 -9223372036854775807 -9223372036854775807 0 false
+9223372036854775808 9223372036854775808 0 Infinity NaN false
+9223372036854775809 9223372036854775807 9223372036854775808 9223372036854775808 0 false
+9223372036854775810 9223372036854775806 0 4611686018427387904 0 false
+18446744073709551615 1 9223372036854775808 1 1 false
+0 0 0 1 0 false
+9223372036854775807 -9223372036854775807 9223372036854775808 0 9223372036854775808 true
+9223372036854775807 9223372036854775807 -9223372036854775808 0 9223372036854775807 false
+18446744073709551613 1 2 -4611686018427387903 1 false
+18446744073709551614 0 -9223372036854775807 -9223372036854775807 0 false
+18446744073709551615 18446744073709551615 0 Infinity NaN false
+0 18446744073709551614 18446744073709551615 18446744073709551615 0 false
+1 18446744073709551613 18446744073709551614 9223372036854775807 1 false
+9223372036854775806 9223372036854775808 9223372036854775809 2 1 false
+9223372036854775807 9223372036854775807 9223372036854775808 1 9223372036854775807 false
+18446744073709551614 0 1 1 0 false
+-- End --
+
+
+Integers.
+
+-- Testcase --
+print(1+2," ",19/3," ",-19%3," ",2**10," ",1<<40,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+3 6 -1 1024 1099511627776
+-- End --
+
+
+Overflow.
+
+-- Testcase --
+print(18446744073709551615+1," ",9223372036854775808*2," ",-9223372036854775808+-1," ",18446744073709551615*-1," ",-9223372036854775807*-2," ",0-9223372036854775809,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+0 0 9223372036854775807 -9223372036854775807 18446744073709551614 9223372036854775807
+-- End --
+
+
+Division edges.
+
+-- Testcase --
+print(-9223372036854775808/-1," ",-9223372036854775808%-1," ",1/0," ",0/0," ",-1/0,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+9223372036854775808 0 Infinity NaN -Infinity
+-- End --
+
+
+Floats.
+
+-- Testcase --
+print(1.5+2.5," ",9.0/2," ",2.0**-2," ",NaN === NaN," ",Infinity > 10,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+4 4.5 0.25 false true
+-- End --
+
+
+Coercion.
+
+-- Testcase --
+print("12"*2," ",null+1," ",true+3," ","abc"*2," ",+"0x20"," ",-"9223372036854775808","\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+24 1 4 NaN 32 -9223372036854775808
+-- End --
+
+
+Strings.
+
+-- Testcase --
+let a="hello"; print(a+" world"," ",length(a)," ","a"<"b"," ","x"+null,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+hello world 5 true xnull
+-- End --
+
+
+Branches.
+
+-- Testcase --
+let a=0; for(let i=0;i<1000;i++){ if(i%3) a+=i; else a-=i; } print(a,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+165834
+-- End --
+
+
+Short circuit.
+
+-- Testcase --
+let n=0; print(false && ++n," ",true || ++n," ",null ?? ++n," ",n,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+false true 1 1
+-- End --
+
+
+Optional.
+
+-- Testcase --
+let f=null; print(f?.(1)," ",f?.x," ",({x:7})?.x,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+  7
+-- End --
+
+
+Array.
+
+-- Testcase --
+let a=[1,2,3]; a[1]=9; a[5]=7; print(a," ",pop(a)," ",length(a)," ",push(a,4,5),"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ 1, 9, 3, null, null, 4, 5 ] 7 5 5
+-- End --
+
+
+Objects.
+
+-- Testcase --
+let o={x:1,y:2}; o.x+=4; o.z="ok"; print(o," ",delete o.y," ",keys(o)," ",o.missing,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+{ "x": 5, "z": "ok" } true [ "x", "z" ] 
+-- End --
+
+
+Spread.
+
+-- Testcase --
+let a=[1,2]; let b=[0,...a,3]; let o={x:1}; print(b," ",{...o,y:2},"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ 0, 1, 2, 3 ] { "x": 1, "y": 2 }
+-- End --
+
+
+Function.
+
+-- Testcase --
+function add(a,b) { return a+b; } print(add(3,4)," ",add(1)," ",add(1,2,3),"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+7 1 3
+-- End --
+
+
+Varargs.
+
+-- Testcase --
+function count(x,...args) { return x+length(args); } print(count(4,1,2)," ",count(4),"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+6 4
+-- End --
+
+
+Closure.
+
+-- Testcase --
+function make(x) { return function(y) { x+=y; return x; }; } let f=make(10); print(f(2)," ",f(5),"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+12 17
+-- End --
+
+
+Capture forward.
+
+-- Testcase --
+function outer(x) { return function() { return () => ++x; }; } let f=outer(7)(); print(f()," ",f(),"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+8 9
+-- End --
+
+
+Capture loop.
+
+-- Testcase --
+let a=[]; for(let i=0;i<3;i++){ let x=i; push(a,()=>x); } print(a[0]()," ",a[1]()," ",a[2](),"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+0 1 2
+-- End --
+
+
+Method.
+
+-- Testcase --
+let o={x:3, inc(n) { this.x+=n; return this.x; }}; print(o.inc(4)," ",o.x,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+7 7
+-- End --
+
+
+Arrow this.
+
+-- Testcase --
+let f=()=>this.x; let o={x:9, g() { return f(); }}; print(o.g(),"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+9
+-- End --
+
+
+Tail.
+
+-- Testcase --
+function count(n,acc) { if(!n) return acc; return count(n-1,acc+1); } print(count(100000,0),"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+100000
+-- End --
+
+
+Mutual tail.
+
+-- Testcase --
+let even,odd; even=(n)=>{ if(!n) return true; return odd(n-1); }; odd=(n)=>{ if(!n) return false; return even(n-1); }; print(even(100000)," ",odd(100001),"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+true true
+-- End --
+
+
+Cycles.
+
+-- Testcase --
+let a={}; a.self=a; let b=[]; push(b,b); print(a.self===a," ",b[0]===b,"\n"); a=null; b=null; gc(); print("collected\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+true true
+collected
+-- End --
+
+
+Cycle live.
+
+-- Testcase --
+let a={}, b={}; a.b=b; b.a=a; b=null; gc(); print(a.b.a===a,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+true
+-- End --
+
+
+Many objects.
+
+-- Testcase --
+let a=[]; for(let i=0;i<10000;i++) push(a,{}); gc(); print(length(a),"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+10000
+-- End --
+
+
+Many records.
+
+-- Testcase --
+let a=[]; for(let i=0;i<10000;i++) push(a,{x:i,y:i+1}); print(length(a)," ",a[9999].y,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+10000 10000
+-- End --
+
+
+Runtime error cleanup call.
+
+-- Testcase --
+let a={}; a.self=a; a();
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+-- End --
+
+-- Expect stderr --
+Type error: `a` is not a function, got { "self": null } instead
+In line 1, byte 23:
+
+ `let a={}; a.self=a; a();`
+                      ~~^~
+
+
+-- End --
+
+-- Expect exitcode --
+254
+-- End --
+
+
+Runtime error cleanup property.
+
+-- Testcase --
+let a=[{}]; a[0]=null; print(a[0].x);
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+-- End --
+
+-- Expect stderr --
+Reference error: left-hand side expression is null
+In line 1, byte 35:
+
+ `let a=[{}]; a[0]=null; print(a[0].x);`
+                         ~~~~~~~~~~~^~~
+
+
+-- End --
+
+-- Expect exitcode --
+254
+-- End --

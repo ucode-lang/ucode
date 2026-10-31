@@ -1,0 +1,152 @@
+Arguments.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+print(ARGV);
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+one
+two
+-D
+☀
+-- End --
+
+-- Expect stdout --
+[ "one", "two", "-D", "☀", "-" ]
+-- End (no-eol) --
+
+
+Definitions.
+
+-- Testcase --
+print([n,word,obj,nil,flag,arr]);
+-- End (no-eol) --
+
+-- Args --
+-R
+-D
+n=42
+-D
+word=unquoted
+-D
+obj={"x":7}
+-D
+nil=null
+-D
+flag=true
+-D
+arr=[1,2]
+-- End --
+
+-- Expect stdout --
+[ 42, "unquoted", { "x": 7 }, null, true, [ 1, 2 ] ]
+-- End (no-eol) --
+
+
+Order and undefine.
+
+-- Testcase --
+print([a,b,exists(global,"gone"),ARGV]);
+-- End (no-eol) --
+
+-- Args --
+-R
+-D
+{"a":1,"b":2,"gone":3}
+-D
+a=9
+-U
+gone
+-D
+ARGV=[4]
+-- End --
+
+-- Expect stdout --
+[ 9, 2, false, [ 4 ] ]
+-- End (no-eol) --
+
+
+File and stdin.
+
+-- Testcase --
+{"y":9}
+-- End (no-eol) --
+
+-- File main.uc --
+print([x,cfg]);
+-- End (no-eol) --
+
+-- File globals.json --
+{"x":8}
+-- End (no-eol) --
+
+-- Args --
+-R
+-F
+files/globals.json
+-F
+cfg=-
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+[ 8, { "y": 9 } ]
+-- End (no-eol) --
+
+
+Builtin override.
+
+-- Testcase --
+print(length);
+-- End (no-eol) --
+
+-- Args --
+-R
+-D
+length=7
+-- End --
+
+-- Expect stdout --
+7
+-- End (no-eol) --
+
+
+Globals in bundles.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+include("part.uc");print(require("worker"));
+-- End (no-eol) --
+
+-- File part.uc --
+print(ARGV[0]," ");
+-- End (no-eol) --
+
+-- File worker.uc --
+gc();return configured;
+-- End (no-eol) --
+
+-- Args --
+-R
+-D
+configured=42
+-L
+files/*.uc
+files/main.uc
+arg
+-- End --
+
+-- Expect stdout --
+arg 42
+-- End (no-eol) --

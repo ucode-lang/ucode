@@ -1,0 +1,9 @@
+# Test cases that native programs cannot pass, read through UCODE_TEST_SKIP
+# by the custom-native test. Format: category/test case-number reason
+
+03_stdlib/39_trace 1 expects the instruction trace of the interpreter
+03_stdlib/62_loadfile 7 runs /proc/self/exe as the ucode CLI
+04_modules/20_repeated_source_compile 1 runs /proc/self/exe as the ucode CLI
+04_modules/22_unseekable_source_compile 1 runs /proc/self/exe as the ucode CLI
+04_modules/26_export_lifetime 1 runs /proc/self/exe as the ucode CLI
+04_modules/27_precompiled_module_exports 1 runs /proc/self/exe as the ucode CLI

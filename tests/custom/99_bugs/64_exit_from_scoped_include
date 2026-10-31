@@ -1,0 +1,52 @@
+When exit() was called within code that a C function such as include()
+or call() invoked with a scope, the VM released the call frames of all
+active invocations, so the C function popped a value from an empty stack
+afterwards and corrupted the memory below it.
+
+-- Testcase --
+{%
+	try {
+		include("files/part.uc", { value: 7 });
+	}
+	catch (e) {
+		print("caught\n");
+	}
+%}
+-- End --
+
+-- File part.uc --
+{%
+	let o = {};
+	o.self = o;
+	gc();
+	print(value, "\n");
+	exit(value);
+%}
+-- End --
+
+-- Expect stdout --
+7
+-- End --
+
+-- Expect exitcode --
+7
+-- End --
+
+
+Calling exit() within a function that call() runs with a scope ends the
+program with the given code.
+
+-- Testcase --
+{%
+	call(function() { print(a, "\n"); exit(3); }, null, { a: 1 });
+	print("not reached\n");
+%}
+-- End --
+
+-- Expect stdout --
+1
+-- End --
+
+-- Expect exitcode --
+3
+-- End --

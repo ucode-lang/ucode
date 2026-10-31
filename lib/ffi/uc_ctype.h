@@ -185,6 +185,7 @@ typedef struct CType {
 typedef struct {
   CTypeID1 *entries;
   size_t count;
+  size_t capacity;
 } vcbid_t;
 
 /* C type state. */
@@ -193,6 +194,7 @@ typedef struct CTState {
 	struct {
 	  size_t count;
 	  CType *entries;
+	  size_t capacity;
 	} vtab;
 	vcbid_t vcbid;		/* Callback type table (used by ffi.import) */
 	uc_vm_t *vm;

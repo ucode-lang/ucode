@@ -1,0 +1,79 @@
+Reading and writing the own key of an object takes a shorter path than
+other property accesses, which must give the same results: own keys
+shadow the prototype, __get__ only runs for missing keys, and objects
+with many keys find their keys by hash.
+
+-- Testcase --
+{%
+	let base = { a: "proto-a", b: "proto-b" };
+	let o = proto({ a: "own-a" }, base);
+	print(o.a, " ", o.b, "\n");
+
+	let m = proto({ a: 1 }, { __get__: function(k) { return "meta-" + k; } });
+	print(m.a, " ", m.missing, "\n");
+
+	let big = {};
+	for (let i = 0; i < 20; i++)
+		big["k" + i] = i;
+	print(big.k7, " ", big.k19, " ", big.k20 ?? "none", "\n");
+%}
+-- End --
+
+-- Expect stdout --
+own-a proto-b
+1 meta-missing
+7 19 none
+-- End --
+
+
+Assigning a property its own value keeps the value alive.
+
+-- Testcase --
+{%
+	let f = { a: [ 1, 2 ] };
+	f.a = f.a;
+	f.s = "a string that is " + "not a constant";
+	f.s = f.s;
+	print(f, "\n");
+%}
+-- End --
+
+-- Expect stdout --
+{ "a": [ 1, 2 ], "s": "a string that is not a constant" }
+-- End --
+
+
+The values of a module namespace follow the exports, and the namespace
+cannot be changed.
+
+-- Testcase --
+import * as ns from "./files/counter.uc";
+
+ns.inc();
+ns.inc();
+print(ns.count, "\n");
+
+try {
+	ns.count = 5;
+}
+catch (e) {
+	print(e.message, "\n");
+}
+
+print(ns.count, "\n");
+-- End --
+
+-- File counter.uc --
+export let count = 0;
+export function inc() { count++; };
+-- End --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+2
+object value is immutable
+2
+-- End --

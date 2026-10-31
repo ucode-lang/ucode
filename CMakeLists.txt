@@ -118,11 +118,15 @@ if(NOT COMPILE_SUPPORT)
   target_compile_definitions(uc_defines INTERFACE NO_COMPILE)
 endif()
 
+option(LLVM_SUPPORT "Support native programs: LLVM IR output and runtime (Linux only)" OFF)
+if(LLVM_SUPPORT)
+  target_compile_definitions(uc_defines INTERFACE HAVE_LLVM_SUPPORT)
+endif()
+
 if(NOT UCODE_WASM)
   find_library(libuci NAMES uci)
   find_library(libubox NAMES ubox)
   find_library(libubus NAMES ubus)
-  find_library(libblobmsg_json NAMES blobmsg_json)
   find_package(ZLIB)
   find_library(libmd NAMES libmd.a md)
   find_library(libffi NAMES ffi)
@@ -139,7 +143,7 @@ if(NOT UCODE_WASM)
     set(DEFAULT_UCI_SUPPORT ON)
   endif()
 
-  if(libubus AND libblobmsg_json)
+  if(libubus)
     set(DEFAULT_UBUS_SUPPORT ON)
   endif()
 
@@ -231,19 +235,14 @@ endif()
 
 if(UCODE_WASM)
   include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/emscripten-deps.cmake)
-  set(JSONC_INCLUDE_DIRS ${UCODE_DEPS_PREFIX}/json-c/dist/include)
-  set(JSONC_LINK_LIBRARIES libjson-c)
-  include_directories(${JSONC_INCLUDE_DIRS})
-  # json-c is pinned by emscripten-deps.cmake; the features checked for
-  # below are all present in it
-  target_compile_definitions(uc_defines INTERFACE HAVE_PARSE_END HAVE_ARRAY_EXT HAVE_JSON_UINT64)
 else()
   include(FindPkgConfig)
-  pkg_check_modules(JSONC REQUIRED json-c)
-  include_directories(${JSONC_INCLUDE_DIRS})
 endif()
 
-set(UCODE_SOURCES lexer.c lib.c vm.c chunk.c vallist.c compiler.c source.c types.c program.c platform.c)
+set(UCODE_SOURCES lexer.c lib.c vm.c vmcore.c chunk.c vallist.c compiler.c source.c types.c json.c program.c bytecode.c platform.c cli.c)
+if(LLVM_SUPPORT)
+  list(APPEND UCODE_SOURCES llvm.c native_trace.c)
+endif()
 if(UCODE_WASM)
   add_library(libucode STATIC ${UCODE_SOURCES})
   set_target_properties(libucode PROPERTIES OUTPUT_NAME ucode)
@@ -252,12 +251,134 @@ else()
   set(SOVERSION 0 CACHE STRING "Override ucode library version")
   set_target_properties(libucode PROPERTIES OUTPUT_NAME ucode SOVERSION ${SOVERSION})
 endif()
-target_link_libraries(libucode uc_defines ${JSONC_LINK_LIBRARIES})
+target_link_libraries(libucode uc_defines)
 
 if(NOT UCODE_WASM)
   set(CLI_SOURCES main.c)
   add_executable(ucode ${CLI_SOURCES})
   target_link_libraries(ucode uc_defines libucode)
+
+  if(LLVM_SUPPORT)
+    add_executable(ucode-trace trace.c)
+    target_link_libraries(ucode-trace uc_defines libucode)
+  endif()
+endif()
+
+if(LLVM_SUPPORT AND NOT UCODE_WASM)
+  # Bindings that are linked against libucode load this library in its place,
+  # see native_abi.c. Native programs name its install directory in their
+  # RUNPATH. musl reuses a loaded library only if a search by name found it,
+  # so a program cannot load it by an absolute path.
+  add_library(ucode-native-abi SHARED native_abi.c)
+  set_target_properties(ucode-native-abi PROPERTIES
+    OUTPUT_NAME ucode SOVERSION ${SOVERSION}
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/native-abi)
+
+  # The runtime of native programs, as LLVM bitcode: everything of libucode
+  # except the interpreter and the compiler. The lexer only provides utf8enc()
+  # there. A native program is linked with it at the IR level, so that LLVM
+  # inlines the runtime into the generated code. The bitcode must match the
+  # LLVM version of opt and llc.
+  find_program(NATIVE_CLANG NAMES clang clang-21 clang-20 clang-19 clang-18 clang-17 clang-16)
+  find_program(NATIVE_LLVM_LINK NAMES llvm-link llvm-link-21 llvm-link-20 llvm-link-19
+                                      llvm-link-18 llvm-link-17 llvm-link-16)
+  find_program(NATIVE_LLVM_DIS NAMES llvm-dis llvm-dis-21 llvm-dis-20 llvm-dis-19
+                                     llvm-dis-18 llvm-dis-17 llvm-dis-16)
+  find_program(NATIVE_LLVM_AS NAMES llvm-as llvm-as-21 llvm-as-20 llvm-as-19
+                                    llvm-as-18 llvm-as-17 llvm-as-16)
+  set(NATIVE_TARGET "" CACHE STRING "Target triple of the runtime bitcode, empty for the host")
+  # The triple does not select the CPU or the float ABI of a target, such as
+  # the soft float of OpenWrt mips_24kc. The runtime bitcode keeps no target
+  # attributes (see cmake/native-strip.cmake), so a program build passes the
+  # same flags to clang when it compiles the linked program bitcode.
+  set(NATIVE_TARGET_FLAGS "" CACHE STRING
+    "Target CPU and ABI flags of the runtime bitcode in clang syntax, e.g. -march=mips32r2 -msoft-float")
+
+  if(NOT NATIVE_CLANG OR NOT NATIVE_LLVM_LINK OR NOT NATIVE_LLVM_DIS OR NOT NATIVE_LLVM_AS)
+    message(FATAL_ERROR "LLVM_SUPPORT requires clang, llvm-link, llvm-dis and llvm-as")
+  endif()
+
+  set(native_bc_flags -O2 -std=gnu99 -fPIE -emit-llvm -c
+    -DUC_NATIVE_ABI_SONAME="libucode.so.${SOVERSION}"
+    "-D$<JOIN:$<TARGET_PROPERTY:libucode,COMPILE_DEFINITIONS>,$<SEMICOLON>-D>"
+    "-I$<JOIN:$<TARGET_PROPERTY:libucode,INCLUDE_DIRECTORIES>,$<SEMICOLON>-I>")
+
+  if(NATIVE_TARGET)
+    list(APPEND native_bc_flags --target=${NATIVE_TARGET})
+  endif()
+
+  if(NATIVE_TARGET_FLAGS)
+    separate_arguments(native_target_flags UNIX_COMMAND "${NATIVE_TARGET_FLAGS}")
+    list(APPEND native_bc_flags ${native_target_flags})
+  endif()
+
+  if(CMAKE_SYSROOT)
+    list(APPEND native_bc_flags --sysroot=${CMAKE_SYSROOT})
+  endif()
+
+  set(native_bc_files)
+
+  # vm.c and bytecode.c run the scripts that a native program does not contain,
+  # which the ucode CLI compiles when the program loads them
+  foreach(src lib.c vmcore.c chunk.c vallist.c source.c types.c json.c program.c platform.c
+              cli.c native.c native_insn.c lexer.c vm.c bytecode.c)
+    get_filename_component(name ${src} NAME_WE)
+    set(bc ${CMAKE_BINARY_DIR}/native-bc/${name}.bc)
+
+    if(src STREQUAL "lexer.c")
+      set(extra -DNO_COMPILE)
+    else()
+      set(extra)
+    endif()
+
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.20)
+      set(deps DEPFILE ${bc}.d)
+      set(depflags -MD -MF ${bc}.d)
+    else()
+      set(deps IMPLICIT_DEPENDS C ${CMAKE_CURRENT_SOURCE_DIR}/${src})
+      set(depflags)
+    endif()
+
+    add_custom_command(
+      OUTPUT ${bc}
+      COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/native-bc
+      COMMAND ${NATIVE_CLANG} ${native_bc_flags} ${extra} ${depflags}
+              ${CMAKE_CURRENT_SOURCE_DIR}/${src} -o ${bc}
+      DEPENDS ${src}
+      ${deps}
+      COMMAND_EXPAND_LISTS
+      VERBATIM)
+
+    list(APPEND native_bc_files ${bc})
+  endforeach()
+
+  add_custom_command(
+    OUTPUT ${CMAKE_BINARY_DIR}/libucode-native.bc ${CMAKE_BINARY_DIR}/native-bc/libucode-native.ll
+    COMMAND ${NATIVE_LLVM_LINK} ${native_bc_files}
+            -o ${CMAKE_BINARY_DIR}/native-bc/linked.bc
+    COMMAND ${NATIVE_LLVM_DIS} ${CMAKE_BINARY_DIR}/native-bc/linked.bc
+            -o ${CMAKE_BINARY_DIR}/native-bc/linked.ll
+    COMMAND ${CMAKE_COMMAND} -DINPUT=${CMAKE_BINARY_DIR}/native-bc/linked.ll
+            -DOUTPUT=${CMAKE_BINARY_DIR}/native-bc/libucode-native.ll
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/native-strip.cmake
+    COMMAND ${NATIVE_LLVM_AS} ${CMAKE_BINARY_DIR}/native-bc/libucode-native.ll
+            -o ${CMAKE_BINARY_DIR}/libucode-native.bc
+    DEPENDS ${native_bc_files} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/native-strip.cmake
+    VERBATIM)
+
+  # the symbols to keep when the program is linked with opt's internalize
+  # pass: -internalize-public-api-file=libucode-native.api
+  add_custom_command(
+    OUTPUT ${CMAKE_BINARY_DIR}/libucode-native.api
+    COMMAND ${CMAKE_COMMAND} -DINPUT=${CMAKE_BINARY_DIR}/native-bc/libucode-native.ll
+            -DOUTPUT=${CMAKE_BINARY_DIR}/libucode-native.api
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/native-api.cmake
+    DEPENDS ${CMAKE_BINARY_DIR}/native-bc/libucode-native.ll
+            ${CMAKE_CURRENT_SOURCE_DIR}/cmake/native-api.cmake
+    VERBATIM)
+
+  add_custom_target(ucode-native ALL
+    DEPENDS ${CMAKE_BINARY_DIR}/libucode-native.bc ${CMAKE_BINARY_DIR}/libucode-native.api)
 endif()
 
 # Ensure rpath is used on macOS
@@ -298,23 +419,6 @@ if(NOT UCODE_WASM)
   check_function_exists(fmod FMOD_FUNCTION_EXISTS)
   if(NOT FMOD_FUNCTION_EXISTS)
     target_link_libraries(libucode m)
-  endif()
-endif()
-
-if(NOT UCODE_WASM)
-  list(APPEND CMAKE_REQUIRED_INCLUDES ${JSONC_INCLUDE_DIRS})
-  list(APPEND CMAKE_REQUIRED_LIBRARIES ${JSONC_LINK_LIBRARIES})
-  check_symbol_exists(json_tokener_get_parse_end "json-c/json.h" HAVE_PARSE_END)
-  if(HAVE_PARSE_END)
-    target_compile_definitions(uc_defines INTERFACE HAVE_PARSE_END)
-  endif()
-  check_symbol_exists(json_object_new_array_ext "json-c/json.h" HAVE_ARRAY_EXT)
-  if(HAVE_ARRAY_EXT)
-    target_compile_definitions(uc_defines INTERFACE HAVE_ARRAY_EXT)
-  endif()
-  check_symbol_exists(json_object_new_uint64 "json-c/json.h" HAVE_JSON_UINT64)
-  if(HAVE_JSON_UINT64)
-    target_compile_definitions(uc_defines INTERFACE HAVE_JSON_UINT64)
   endif()
 endif()
 
@@ -367,7 +471,7 @@ if(NOT UCODE_WASM)
     add_library(ubus_lib MODULE lib/ubus.c)
     set_target_properties(ubus_lib PROPERTIES OUTPUT_NAME ubus PREFIX "")
     target_link_options(ubus_lib PRIVATE ${UCODE_MODULE_LINK_OPTIONS})
-    target_link_libraries(ubus_lib ${libubus} ${libblobmsg_json})
+    target_link_libraries(ubus_lib ${libubus})
     list(APPEND CMAKE_REQUIRED_LIBRARIES ${libubox} ${libubus})
     file(WRITE "${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/CMakeTmp/test.c" "
       #include <libubus.h>
@@ -595,9 +699,7 @@ if(UCODE_WASM)
   foreach(mod IN LISTS UCODE_WASM_MODULES)
     add_library(ucode_mod_${mod} OBJECT lib/${mod}.c)
     target_compile_definitions(ucode_mod_${mod} PRIVATE uc_module_init=uc_module_init_${mod})
-    target_include_directories(ucode_mod_${mod} PRIVATE include ${JSONC_INCLUDE_DIRS})
-    # the json-c headers only exist once the external project has built
-    add_dependencies(ucode_mod_${mod} json-c-build)
+    target_include_directories(ucode_mod_${mod} PRIVATE include)
     if(mod STREQUAL "zlib")
       target_compile_options(ucode_mod_${mod} PRIVATE -sUSE_ZLIB=1)
     endif()
@@ -615,7 +717,7 @@ if(UCODE_WASM)
 
   add_library(ucode-modules STATIC ${UCODE_MODULE_OBJECTS})
   set_target_properties(ucode-modules PROPERTIES PREFIX "")
-  target_link_libraries(ucode-modules PUBLIC libucode libjson-c)
+  target_link_libraries(ucode-modules PUBLIC libucode)
   if("digest" IN_LIST UCODE_WASM_MODULES)
     target_link_libraries(ucode-modules PUBLIC libmd)
   endif()
@@ -634,7 +736,7 @@ if(NOT UCODE_WASM)
     if(CMAKE_C_COMPILER_ID STREQUAL "Clang")
       add_executable(ucode-san ${CLI_SOURCES} ${UCODE_SOURCES})
       set_property(TARGET ucode-san PROPERTY ENABLE_EXPORTS 1)
-      target_link_libraries(ucode-san uc_defines ${JSONC_LINK_LIBRARIES})
+      target_link_libraries(ucode-san uc_defines)
       target_compile_options(ucode-san PRIVATE -g -fno-omit-frame-pointer -fsanitize=undefined,address,leak -fno-sanitize-recover=all)
       target_link_options(ucode-san PRIVATE -fsanitize=undefined,address,leak)
     endif()
@@ -643,15 +745,25 @@ endif() # UCODE_WASM
 
 if(NOT UCODE_WASM)
   add_executable(udbg udbg.c debug_highlight.c debug_lineedit.c)
-  target_link_libraries(udbg PRIVATE libucode ${JSONC_LINK_LIBRARIES})
+  target_link_libraries(udbg PRIVATE libucode)
 endif()
 
 if(UCODE_WASM)
   install(TARGETS libucode ucode-modules ARCHIVE DESTINATION lib)
 else()
   install(TARGETS ucode udbg RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+  if(LLVM_SUPPORT)
+    install(TARGETS ucode-trace RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+  endif()
+
   install(TARGETS libucode LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
   install(TARGETS ${LIBRARIES} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}/ucode)
+
+  if(LLVM_SUPPORT)
+    install(TARGETS ucode-native-abi LIBRARY
+      DESTINATION ${CMAKE_INSTALL_LIBDIR}/ucode/native NAMELINK_SKIP)
+  endif()
 endif()
 
 if(NOT UCODE_WASM)

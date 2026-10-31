@@ -1112,6 +1112,7 @@ typedef struct {
 typedef struct {
 	path_token *entries;
 	size_t count;
+	size_t capacity;
 } path_tokens;
 
 /* Free path tokens */
@@ -2327,16 +2328,19 @@ uc_ctype_call(uc_vm_t *vm, size_t nargs)
 	struct {
 		size_t count;
 		ffi_type **entries;
+		size_t capacity;
 	} argtypes = { 0 };
 
 	struct {
 		size_t count;
 		void **entries;
+		size_t capacity;
 	} argvalues = { 0 };
 
 	struct {
 		size_t count;
 		void **entries;
+		size_t capacity;
 	} argmem = { 0 };
 
 	uc_value_t *rv = NULL;

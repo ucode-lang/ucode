@@ -7,7 +7,7 @@
 # libucode.a and ucode-modules.a for static linking into an embedder's
 # executable; see the UCODE_WASM section of CMakeLists.txt.
 #
-# Note: the dependency setup (json-c, libmd) cannot live in this file --
+# Note: the dependency setup (libmd) cannot live in this file --
 # toolchain files are re-included by every try_compile() probe build --
 # so CMakeLists.txt pulls in cmake/emscripten-deps.cmake when it detects
 # the emscripten compiler.

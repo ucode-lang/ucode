@@ -54,6 +54,7 @@ struct uc_source {
 	struct {
 		size_t count, offset;
 		uc_value_t **entries;
+		size_t capacity;
 	} exports;
 };
 
@@ -80,6 +81,7 @@ uc_declare_vector(uc_offsetinfo_t, uc_offset_t);
 typedef struct {
 	size_t count;
 	uint8_t *entries;
+	size_t capacity;
 	uc_ehranges_t ehranges;
 	struct {
 		uc_variables_t variables;
@@ -100,6 +102,9 @@ struct uc_function {
 	size_t srcpos;
 	uc_chunk_t chunk;
 	struct uc_program *program;
+	/* the native code of a function of a native program, which has no
+	 * bytecode */
+	struct uc_native_function_info *native;
 	char name[];
 };
 
@@ -108,14 +113,8 @@ struct uc_function {
 
 typedef struct {
 	uc_list_t list;
-	struct lh_table *table;
-	union {
-		struct lh_entry *pos;
-		struct {
-			const void *k;
-			unsigned long hash;
-		} kh;
-	} u;
+	uc_object_t *object;
+	size_t pos;
 } uc_object_iterator_t;
 
 
@@ -123,11 +122,20 @@ typedef struct {
 
 uc_declare_vector(uc_sources_t, uc_source_t *);
 
+typedef struct {
+	size_t from, count;
+	uc_value_t *object;
+} uc_namespace_t;
+
+uc_declare_vector(uc_namespaces_t, uc_namespace_t);
+
 /* The exports of the modules that a program links statically, as created by
- * the runs of one closure of its entry function. */
+ * the runs of one closure of its entry function, and the namespace objects
+ * of the wildcard imports of these modules, one per module. */
 typedef struct {
 	uc_closure_t *closure;
 	uc_modexports_t exports;
+	uc_namespaces_t namespaces;
 } uc_export_instance_t;
 
 typedef struct {
@@ -138,10 +146,16 @@ typedef struct {
 
 uc_declare_vector(uc_export_instances_t, uc_export_instance_t);
 uc_declare_vector(uc_program_runs_t, uc_program_run_t);
+uc_declare_vector(uc_constant_values_t, uc_value_t *);
+uc_declare_vector(uc_constant_hashes_t, uint64_t);
 
 struct uc_program {
 	uc_value_t header;
 	uc_value_list_t constants;
+	/* the values of the constants, created on their first use */
+	uc_constant_values_t constant_values;
+	/* their hashes as object keys, 0 until first use */
+	uc_constant_hashes_t constant_hashes;
 	uc_weakref_t functions;
 	uc_sources_t sources;
 	uc_export_instances_t instances;
@@ -162,6 +176,10 @@ typedef struct {
 
 	/* Object iteration */
 	uc_list_t object_iterators;
+
+	/* Marks the values that a runtime holds outside of the VM state, such
+	 * as the locals of native code */
+	void (*gc_roots_mark)(uc_vm_t *vm, void (*mark)(uc_value_t *));
 } uc_thread_context_t;
 
 __hidden uc_thread_context_t *uc_thread_context_get(void);
@@ -171,6 +189,35 @@ __hidden void uc_thread_context_free(void);
 
 /* Internal value entry points */
 
+/* Whether the value is an integer that the pointer itself holds, which needs
+ * no reference counting and fits an int64_t with room for one addition */
+static inline bool
+ucv_is_small_integer(uc_value_t *uv)
+{
+	return ((uintptr_t)uv & 3) == UC_INTEGER;
+}
+
+/* The value of an integer that the pointer holds: the bits above the type and
+ * the sign bit hold its magnitude */
+static inline int64_t
+ucv_small_integer_get(uc_value_t *uv)
+{
+	uintptr_t pv = (uintptr_t)uv;
+
+	if (((pv >> 2) & 1) == 0)
+		return (int64_t)(pv >> 3);
+
+	return -(int64_t)(pv >> 3);
+}
+
+/* Whether the value has a reference count, unlike null and the values that
+ * the pointer itself holds */
+static inline bool
+ucv_is_counted(uc_value_t *uv)
+{
+	return uv != NULL && ((uintptr_t)uv & 3) == 0;
+}
+
 __hidden bool ucv_compare(int, uc_value_t *, uc_value_t *, int *);
 
 __hidden uc_value_t *ucv_closure_new(uc_vm_t *, uc_function_t *, bool);
@@ -179,6 +226,49 @@ __hidden void ucv_free(uc_value_t *, bool);
 __hidden void ucv_unref(uc_weakref_t *);
 __hidden void ucv_ref(uc_weakref_t *, uc_weakref_t *);
 __hidden void ucv_freeall(uc_vm_t *);
+
+/* ucv_object_get(), ucv_object_add() and ucv_object_delete() for keys of a
+ * given length, which may contain NUL bytes */
+__hidden uc_value_t *ucv_object_lookup(uc_value_t *, const char *, size_t, bool *);
+__hidden bool ucv_object_insert(uc_value_t *, const char *, size_t, uc_value_t *);
+__hidden bool ucv_object_remove(uc_value_t *, const char *, size_t);
+
+/* ucv_object_get() and ucv_object_add() with the key as a string value,
+ * which the object shares */
+__hidden uc_value_t *ucv_object_lookup_string(uc_value_t *, uc_value_t *, bool *);
+__hidden bool ucv_object_insert_string(uc_value_t *, uc_value_t *, uc_value_t *);
+
+/* The hash of the string `key` as an object key, ucv_object_lookup_string()
+ * with that hash, and ucv_key_get() of an own key of the object `obj` with
+ * that hash, which returns false if `obj` is no object or lacks the key */
+__hidden uint64_t ucv_object_key_hash(uc_value_t *key);
+__hidden uc_value_t *ucv_object_lookup_hashed(uc_value_t *, uc_value_t *, uint64_t, bool *);
+__hidden bool ucv_key_get_hashed(uc_vm_t *vm, uc_value_t *obj, uc_value_t *key, uint64_t hash,
+                                 uc_value_t **res);
+
+__hidden void ucv_object_sort_entries(uc_value_t *,
+	int (*)(const uc_object_entry_t *, const uc_object_entry_t *, void *), void *);
+
+/* Returns the entry after `e`, or the first one if `e` is NULL, skipping
+ * deleted entries; NULL at the end or if `uv` is no object. */
+static inline uc_object_entry_t *
+ucv_object_entry_next(uc_value_t *uv, uc_object_entry_t *e)
+{
+	uc_object_t *object = (uc_object_t *)uv;
+
+	if (ucv_type(uv) != UC_OBJECT)
+		return NULL;
+
+	for (e = e ? e + 1 : object->entries; e && e < object->entries + object->used; e++)
+		if (e->key)
+			return e;
+
+	return NULL;
+}
+
+#define ucv_object_foreach_entry(obj, e) \
+	for (uc_object_entry_t *e = ucv_object_entry_next((obj), NULL); e; \
+	     e = ucv_object_entry_next((obj), e))
 
 /* Type-cast helpers */
 #define ucv_as_integer(v)   ((uc_integer_t *)   (v))

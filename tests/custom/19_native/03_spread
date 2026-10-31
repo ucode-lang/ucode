@@ -1,0 +1,272 @@
+Builtin.
+
+-- Testcase --
+let a=[];push(...[a,1],...[2,3]);let f=push;f(a,...[4]);print(...a);print(sprintf(...["%d:%s",7,"x"]));
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+12347:x
+-- End (no-eol) --
+
+
+Callable object.
+
+-- Testcase --
+let o={n:2};proto(o,{__call__(...v){gc();return this.n+v[0]+v[1];}});print(o(...[3,4]));
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+9
+-- End (no-eol) --
+
+
+Captured identity.
+
+-- Testcase --
+let a={};function f(...v){gc();print(v[0]===a,v[0]===v[1]);return ()=>v;}let keep=f(...[a,a]);a=null;gc();print(keep()[0]===keep()[1]);
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+truetruetrue
+-- End (no-eol) --
+
+
+Error conversion gc.
+
+-- Testcase --
+let o={};proto(o,{tostring(){gc();return "custom";}});try{print(...[{}],...o);}catch(e){print(e.type,e.message);}
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+Type error(custom) is not iterable
+-- End (no-eol) --
+
+
+Error order.
+
+-- Testcase --
+let n=0;try{print(...null,++n);}catch(e){print(n," ",e.type);}print(" ok");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+1 Type error ok
+-- End (no-eol) --
+
+
+Evaluation order.
+
+-- Testcase --
+let a=[1],seen=[];function mutate(){push(a,2);push(seen,"mutate");return 3;}function f(...v){print(v,seen);}f(...a,mutate());
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ 1, 2, 3 ][ "mutate" ]
+-- End (no-eol) --
+
+
+Exception cleanup.
+
+-- Testcase --
+gc("start",1);for(let i=0;i<50;i++){let o={};o.self=o;try{((...v)=>die("x"))(...[o],...[o]);}catch(e){gc();}}print("ok");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+ok
+-- End (no-eol) --
+
+
+Fixed varargs.
+
+-- Testcase --
+function f(a,b,...rest){print(a,b,rest);}f(...[]);f(...[1]);f(...[1,2,3,4]);
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ ]1[ ]12[ 3, 4 ]
+-- End (no-eol) --
+
+
+Invalid.
+
+-- Testcase --
+for(let bad in [null,1,true,"ab",{},/x/])try{print(...bad);}catch(e){print(e.type,":",e.message,";");}
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+Type error:(null) is not iterable;Type error:(1) is not iterable;Type error:(true) is not iterable;Type error:(ab) is not iterable;Type error:({ }) is not iterable;Type error:(/x/) is not iterable;
+-- End (no-eol) --
+
+
+Method.
+
+-- Testcase --
+let o={n:10,f(a,b){gc();return this.n+a+b;}};print(o.f(...[1,2]));
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+13
+-- End (no-eol) --
+
+
+Mixed.
+
+-- Testcase --
+function f(...a){print(a);}f(0,...[1,2],3,...[],...[4,null],5);f(...[]);f(...[1],...[2]);
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ 0, 1, 2, 3, 4, null, 5 ][ ][ 1, 2 ]
+-- End (no-eol) --
+
+
+Mutual tail method.
+
+-- Testcase --
+let o={n:3,a(i,...v){if(i)return this.b(...[i-1],...v);return [this.n,v];},b(i,...v){return this.a(...[i],...v);}};print(o.a(...[2000,1,2]));
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ 3, [ 1, 2 ] ]
+-- End (no-eol) --
+
+
+Optional.
+
+-- Testcase --
+let n=0,f=null,o={};f?.(...[++n]);o.f?.(...[++n]);print(n);
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+0
+-- End (no-eol) --
+
+
+Return callback.
+
+-- Testcase --
+let f=(...a)=>map(a,x=>{gc();return x+1;});print(f(...[1,2,3]));
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ 2, 3, 4 ]
+-- End (no-eol) --
+
+
+Sparse large.
+
+-- Testcase --
+let a=[1];a[20]=7;function f(...v){gc();print(length(v),v[1],v[20]);}f(...a);
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+217
+-- End (no-eol) --
+
+
+Tail.
+
+-- Testcase --
+function f(n,...a){if(n)return f(...[n-1],...a);gc();return a;}print(f(...[10000,1,2,3]));
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ 1, 2, 3 ]
+-- End (no-eol) --
+
+
+Bundles and export cells.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+import * as ns from './values.uc';
+            print(...values(ns));let f=require("f");print(f(...[1,2]));include(...["part.uc",{a:[3,4]}]);
+-- End (no-eol) --
+
+-- File values.uc --
+export let a=1,b=2;
+-- End (no-eol) --
+
+-- File f.uc --
+return (...a)=>a;
+-- End (no-eol) --
+
+-- File part.uc --
+print(...a);
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+12[ 1, 2 ]34
+-- End (no-eol) --

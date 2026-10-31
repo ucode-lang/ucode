@@ -1,0 +1,32 @@
+Reading, assigning and updating a global variable searches the scope of
+the call and then its prototypes: an assignment changes the variable in
+the scope that has it, and a new variable goes to the last scope.
+
+-- Testcase --
+{%
+	counter = 10;
+	shadow = "global";
+
+	function f() {
+		counter++;
+		counter += 5;
+		shadow = shadow + "-scope";
+		created = "made";
+
+		return [ a, k11, counter, shadow ];
+	}
+
+	let scope = { a: 1, shadow: "own" };
+
+	for (let i = 0; i < 12; i++)
+		scope["k" + i] = i;
+
+	print(call(f, null, scope), "\n");
+	print(counter, " ", shadow, " ", created, "\n");
+%}
+-- End --
+
+-- Expect stdout --
+[ 1, 11, 16, "own-scope" ]
+16 global made
+-- End --

@@ -92,7 +92,7 @@ def_chunks(zstrm_t * const zstrm)
 
 	/* run deflate() on input until output buffer not full */
 	do {
-		if (printbuf_memset(zstrm->outbuf, -1, 0, CHUNK))
+		if (uc_stringbuf_memset(zstrm->outbuf, -1, 0, CHUNK))
 			return Z_MEM_ERROR;
 
 		zstrm->outbuf->bpos -= CHUNK;
@@ -274,14 +274,14 @@ uc_zlib_deflate(uc_vm_t * const vm, const size_t nargs)
 	default:
 		uc_vm_raise_exception(vm, EXCEPTION_TYPE,
 				      "Passed value is neither a string nor an object");
-		printbuf_free(zstrm.outbuf);
+		uc_stringbuf_free(zstrm.outbuf);
 		goto out;
 	}
 
 	if (!success) {
 		if (vm->exception.type == EXCEPTION_NONE)	// do not clobber previous exception
 			uc_vm_raise_exception(vm, EXCEPTION_RUNTIME, "Zlib error: %s", zstrm.strm.msg);
-		printbuf_free(zstrm.outbuf);
+		uc_stringbuf_free(zstrm.outbuf);
 		goto out;
 	}
 
@@ -299,7 +299,7 @@ inf_chunks(zstrm_t * const zstrm)
 
 	/* run inflate() on input until output buffer not full */
 	do {
-		if (printbuf_memset(zstrm->outbuf, -1, 0, CHUNK))
+		if (uc_stringbuf_memset(zstrm->outbuf, -1, 0, CHUNK))
 			return Z_MEM_ERROR;
 
 		zstrm->outbuf->bpos -= CHUNK;
@@ -475,14 +475,14 @@ uc_zlib_inflate(uc_vm_t * const vm, const size_t nargs)
 	default:
 		uc_vm_raise_exception(vm, EXCEPTION_TYPE,
 				      "Passed value is neither a string nor an object");
-		printbuf_free(zstrm.outbuf);
+		uc_stringbuf_free(zstrm.outbuf);
 		goto out;
 	}
 
 	if (!success) {
 		if (vm->exception.type == EXCEPTION_NONE)	// do not clobber previous exception
 			uc_vm_raise_exception(vm, EXCEPTION_RUNTIME, "Zlib error: %s", zstrm.strm.msg);
-		printbuf_free(zstrm.outbuf);
+		uc_stringbuf_free(zstrm.outbuf);
 		goto out;
 	}
 
@@ -925,7 +925,7 @@ static void destroy_zstrmd(void *z)
 
 	if (zstrm) {
 		(void)deflateEnd(&zstrm->strm);
-		printbuf_free(zstrm->outbuf);
+		uc_stringbuf_free(zstrm->outbuf);
 		free(zstrm);
 	}
 }
@@ -936,7 +936,7 @@ static void destroy_zstrmi(void *z)
 
 	if (zstrm) {
 		(void)inflateEnd(&zstrm->strm);
-		printbuf_free(zstrm->outbuf);
+		uc_stringbuf_free(zstrm->outbuf);
 		free(zstrm);
 	}
 }

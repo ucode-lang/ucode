@@ -1,0 +1,239 @@
+Bundled locations.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+function show(e){print(map(e.stacktrace,x=>[x.filename&&replace(x.filename,TESTFILES_PATH,""),x.line,x.byte,x.tco]));}
+try{require("worker")();}catch(e){show(e);}
+try{include("part.uc");}catch(e){show(e);}
+-- End (no-eol) --
+
+-- File worker.uc --
+return function worker(){
+ die("worker");
+};
+-- End (no-eol) --
+
+-- File part.uc --
+let x=1;
+null.property;
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+[ [ "files/worker.uc", 2, 14, null ], [ "files/main.uc", 2, 23, null ] ][ [ "/part.uc", 2, 6, null ], [ null, null, null, null ], [ "files/main.uc", 3, 22, null ] ]
+-- End (no-eol) --
+
+
+Callback.
+
+-- Testcase --
+function show(e){print(map(e.stacktrace,x=>[x.filename,x.line,x.byte,x.tco]));}
+try{map([1],function(){
+  gc();die("callback");
+});}catch(e){show(e);}
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ [ "[stdin]", 3, 22, null ], [ null, null, null, null ], [ "[stdin]", 4, 2, null ] ]
+-- End (no-eol) --
+
+
+Local catch includes callers.
+
+-- Testcase --
+function show(e){print(map(e.stacktrace,x=>[x.filename,x.line,x.byte,x.tco]));}
+function inner(){try{null.x;}catch(e){show(e);}}
+function outer(){inner();}
+outer();
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ [ "[stdin]", 2, 27, null ], [ "[stdin]", 3, 24, 1 ] ]
+-- End (no-eol) --
+
+
+Long lines and unicode.
+
+-- Testcase --
+function show(e){print(map(e.stacktrace,x=>[x.filename,x.line,x.byte,x.tco]));}
+//xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+let x="☀";
+try{
+                                                                                                                                                        null.x;
+}catch(e){show(e);}
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ [ "[stdin]", 6, 158, null ] ]
+-- End (no-eol) --
+
+
+Nested calls.
+
+-- Testcase --
+function show(e){print(map(e.stacktrace,x=>[x.filename,x.line,x.byte,x.tco]));}
+function inner(){
+  die("oops");
+}
+function outer(){
+  inner();
+}
+try{outer();}catch(e){show(e);}
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ [ "[stdin]", 3, 13, null ], [ "[stdin]", 6, 9, null ], [ "[stdin]", 8, 11, null ] ]
+-- End (no-eol) --
+
+
+Rethrow.
+
+-- Testcase --
+function show(e){print(map(e.stacktrace,x=>[x.filename,x.line,x.byte,x.tco]));}
+function inner(){try{die("one");}catch(e){gc();die(e);}}
+try{inner();}catch(e){show(e);}
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ [ "[stdin]", 2, 31, null ], [ "[stdin]", 3, 11, null ] ]
+-- End (no-eol) --
+
+
+Sourcepath.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+global.rel=p=>p&&replace(p,TESTFILES_PATH,"");
+function f(){print(rel(sourcepath())," ",rel(sourcepath(1,true))," ",rel(sourcepath(99)));}
+            f();include("part.uc");
+-- End (no-eol) --
+
+-- File part.uc --
+print(" ",rel(sourcepath())," ",rel(sourcepath(1)));
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+/main.uc   /part.uc /main.uc
+-- End (no-eol) --
+
+
+Spread tail calls.
+
+-- Testcase --
+function show(e){print(map(e.stacktrace,x=>[x.filename,x.line,x.byte,x.tco]));}
+function inner(n){if(n)return inner(...[n-1]);return die(...["oops"]);}
+try{inner(...[20]);}catch(e){show(e);}
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ [ "[stdin]", 2, 69, 20 ], [ "[stdin]", 3, 18, null ] ]
+-- End (no-eol) --
+
+
+Tail calls.
+
+-- Testcase --
+function show(e){print(map(e.stacktrace,x=>[x.filename,x.line,x.byte,x.tco]));}
+function inner(n){if(n)return inner(n-1);return die("oops");}
+try{inner(50);}catch(e){show(e);}
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ [ "[stdin]", 2, 59, 50 ], [ "[stdin]", 3, 13, null ] ]
+-- End (no-eol) --
+
+
+Uncaught trace.
+
+-- Testcase --
+function fail(){
+null.x;
+}
+fail();
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+-- End --
+
+-- Expect stderr --
+Reference error: left-hand side expression is null
+In line 2, byte 6:
+  (1 tail call frames omitted)
+
+ `null.x;`
+  ~~~~~^~
+
+
+-- End --
+
+-- Expect exitcode --
+254
+-- End --
+
+
+Formatted context.
+
+-- Testcase --
+try{null.x;}catch(e){print(e.stacktrace[0].context);}
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+In line 1, byte 10:
+
+ `try{null.x;}catch(e){print(e.stacktrace[0].context);}`
+      ~~~~~^~
+-- End --

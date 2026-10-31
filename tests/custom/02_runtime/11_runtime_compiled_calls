@@ -1,0 +1,71 @@
+Code that is compiled at runtime calls the functions of the program and is
+called by them, with arguments, `this`, closures and exceptions in both
+directions. A native program runs such code in the interpreter.
+
+-- Testcase --
+{%
+	let counter = 0;
+
+	function bump(n) {
+		counter += n;
+
+		return counter;
+	}
+
+	let plugin = loadstring(`
+		return {
+			name: "plugin",
+			map: function(list, fn) {
+				let out = [];
+
+				for (let v in list)
+					push(out, fn(v));
+
+				return out;
+			},
+			who: function() {
+				return this.name;
+			},
+			adder: function(base) {
+				return (x) => base + x;
+			},
+			fail: function(msg) {
+				die("plugin: " + msg);
+			},
+			guard: function(fn) {
+				try {
+					fn();
+				}
+				catch (e) {
+					return "caught " + e.message;
+				}
+			}
+		};
+	`, { raw_mode: true })();
+
+	print(plugin.map([ 1, 2, 3 ], (v) => v * 10), "\n");
+	print(plugin.map([ 1, 2 ], bump), " ", counter, "\n");
+	print(plugin.who(), "\n");
+	print(plugin.adder(40)(2), "\n");
+
+	try {
+		plugin.fail("boom");
+	}
+	catch (e) {
+		print("caught ", e.message, "\n");
+	}
+
+	print(plugin.guard(() => die("program: bang")), "\n");
+	print(sort([ 3, 1, 2 ], loadstring("return (a, b) => a - b;", { raw_mode: true })()), "\n");
+%}
+-- End --
+
+-- Expect stdout --
+[ 10, 20, 30 ]
+[ 1, 3 ] 3
+plugin
+42
+caught plugin: boom
+caught program: bang
+[ 1, 2, 3 ]
+-- End --

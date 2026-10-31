@@ -151,7 +151,7 @@ static UC_NOINLINE CPChar cp_get_bs(CPState *cp)
 /* Save character in buffer. */
 static UC_AINLINE void cp_save(CPState *cp, CPChar c)
 {
-	sprintbuf(&cp->pb, "%c", c);
+	uc_stringbuf_printf(&cp->pb, "%c", c);
 }
 
 /* Skip line break. Handles "\n", "\r", "\r\n" or "\n\r". */
@@ -489,7 +489,7 @@ static CPToken cp_string(CPState *cp)
 	}
 	else
 	{
-		if (printbuf_length(&cp->pb) != 1)
+		if (uc_stringbuf_length(&cp->pb) != 1)
 			cp_err_token(cp, '\'');
 		cp->val.i32 = (int32_t)(char)*cp->pb.buf;
 		cp->val.id = CTID_INT32;
@@ -530,7 +530,7 @@ static CPToken cp_next_(CPState *cp)
 {
 	//lj_buf_reset(&cp->sb);
 	if (cp->pb.buf)
-		printbuf_reset(&cp->pb);
+		uc_stringbuf_reset(&cp->pb);
 
 	for (;;)
 	{
