@@ -3900,23 +3900,24 @@ uc_vm_execute(uc_vm_t *vm, uc_program_t *program, uc_value_t **retval)
 uc_exception_type_t
 uc_vm_call(uc_vm_t *vm, bool mcall, size_t nargs)
 {
+	size_t depth = vm->callframes.count;
 	size_t argc = nargs & 0xffff;
 	uc_value_t *ctx, *fno;
-	bool native;
 
 	if (uc_vm_exit_pending(vm))
 		goto drop;
 
 	ctx = mcall ? ucv_get(uc_vm_stack_peek(vm, nargs + 1)) : NULL;
 	fno = ucv_get(uc_vm_stack_peek(vm, nargs));
-	native = (ucv_type(fno) == UC_CFUNCTION);
 
 	uc_vm_clear_exception(vm);
 
 	if (!uc_vm_call_function(vm, ctx, fno, mcall, argc, false))
 		goto drop;
 
-	if (!native)
+	/* only a closure leaves a new frame behind, a C function that __call__
+	 * resolves to already ran */
+	if (vm->callframes.count > depth)
 		uc_vm_execute_chunk(vm);
 
 	return vm->exception.type;

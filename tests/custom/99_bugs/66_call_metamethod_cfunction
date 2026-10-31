@@ -1,0 +1,20 @@
+When C code such as the signal dispatch called an object whose __call__
+metamethod is a C function, the VM ran the interpreter after the call as
+if a closure had been called, which continued the bytecode frame on top
+of the stack from the wrong position and corrupted the memory.
+
+The handler prints the signal number. SIGTERM is 15 on every platform;
+the number of SIGUSR1 depends on the architecture.
+
+-- Testcase --
+{%
+	signal("SIGTERM", proto({}, { __call__: print }));
+	system("kill -TERM $PPID");
+	print("\nafter\n");
+%}
+-- End --
+
+-- Expect stdout --
+15
+after
+-- End --
