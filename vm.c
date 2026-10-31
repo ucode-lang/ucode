@@ -815,18 +815,68 @@ uc_vm_callee_expr(uc_vm_t *vm)
 	                             uc_program_function_srcpos(function, insn));
 }
 
+/* The arguments stay on the stack below their expansion, where the GC sees
+ * them when a tostring method runs. `idx` counts from the last argument. */
+static uc_value_t *
+uc_vm_spread_arg(uc_vm_t *vm, size_t base, size_t nargs, size_t idx)
+{
+	return vm->stack.entries[base + nargs - 1 - idx];
+}
+
+static bool
+uc_vm_spread_push(uc_vm_t *vm, size_t base, size_t nargs, size_t from, size_t spread)
+{
+	uc_value_t *arg;
+	size_t j;
+	char *s;
+
+	for (j = from; j > spread + 1UL; j--)
+		uc_vm_stack_push(vm, ucv_get(uc_vm_spread_arg(vm, base, nargs, j - 1)));
+
+	arg = uc_vm_spread_arg(vm, base, nargs, spread);
+
+	if (ucv_type(arg) != UC_ARRAY) {
+		s = ucv_to_string(vm, arg);
+		uc_vm_raise_exception(vm, EXCEPTION_TYPE, "(%s) is not iterable", s);
+		free(s);
+
+		return false;
+	}
+
+	for (j = 0; j < ucv_array_length(arg); j++)
+		uc_vm_stack_push(vm, ucv_get(ucv_array_get(arg, j)));
+
+	return true;
+}
+
+static void
+uc_vm_spread_finish(uc_vm_t *vm, size_t base, size_t nargs, size_t from)
+{
+	size_t i, count;
+
+	for (i = from; i > 0; i--)
+		uc_vm_stack_push(vm, ucv_get(uc_vm_spread_arg(vm, base, nargs, i - 1)));
+
+	for (i = 0; i < nargs; i++)
+		ucv_put(vm->stack.entries[base + i]);
+
+	count = vm->stack.count - base - nargs;
+	memmove(&vm->stack.entries[base], &vm->stack.entries[base + nargs],
+	        count * sizeof(vm->stack.entries[0]));
+	vm->stack.count = base + count;
+}
+
 static bool
 uc_vm_call_function(uc_vm_t *vm, uc_value_t *ctx, uc_value_t *fno, bool mcall,
                    size_t argspec, bool tail)
 {
-	size_t i, j, stackoff, nargs = argspec & 0xffff;
+	size_t i, stackoff, nargs = argspec & 0xffff;
 	size_t nspreads = (argspec >> 16) & 0x7fff;
 	uc_callframe_t *frame = NULL;
-	uc_value_t *ellip, *arg;
 	uc_function_t *function;
 	uc_closure_t *closure;
+	uc_value_t *ellip;
 	uint16_t slot, tmp;
-	char *s;
 
 	/* a tail invocation reuses the current frame, so it never grows the stack */
 	if (!tail && vm->callframes.count >= 1000) {
@@ -843,52 +893,31 @@ uc_vm_call_function(uc_vm_t *vm, uc_value_t *ctx, uc_value_t *fno, bool mcall,
 	if (nspreads > 0) {
 		frame = uc_vm_current_frame(vm);
 
-		/* create temporary array */
-		ellip = ucv_array_new_length(vm, nargs);
-
-		/* pop original stack values and push to temp array in reverse order */
-		for (i = 0; i < nargs; i++)
-			ucv_array_push(ellip, uc_vm_stack_pop(vm));
-
 		/* for each spread value index ... */
 		for (i = 0, slot = nargs; i < nspreads; i++) {
 			/* decode stack depth value */
 			tmp = frame->ip[0] * 0x100 + frame->ip[1];
 			frame->ip += 2;
 
-			/* push each preceeding non-spread value to the stack */
-			for (j = slot; j > tmp + 1UL; j--)
-				uc_vm_stack_push(vm, ucv_get(ucv_array_get(ellip, j - 1)));
-
-			/* read spread value at index... */
-			slot = tmp;
-			arg = ucv_get(ucv_array_get(ellip, slot));
-
-			/* ... ensure that it is an array type ... */
-			if (ucv_type(arg) != UC_ARRAY) {
-				s = ucv_to_string(vm, arg);
-				uc_vm_raise_exception(vm, EXCEPTION_TYPE, "(%s) is not iterable", s);
-				free(s);
+			if (tmp >= slot) {
+				uc_vm_raise_exception(vm, EXCEPTION_RUNTIME, "spread index out of range");
 				ucv_put(ctx);
 				ucv_put(fno);
-				ucv_put(ellip);
 
 				return false;
 			}
 
-			/* ... and push each spread array value as argument to the stack */
-			for (j = 0; j < ucv_array_length(arg); j++)
-				uc_vm_stack_push(vm, ucv_get(ucv_array_get(arg, j)));
+			if (!uc_vm_spread_push(vm, stackoff + 1, nargs, slot, tmp)) {
+				ucv_put(ctx);
+				ucv_put(fno);
 
-			ucv_put(arg);
+				return false;
+			}
+
+			slot = tmp;
 		}
 
-		/* push remaining non-spread arguments to the stack */
-		for (i = slot; i > 0; i--)
-			uc_vm_stack_push(vm, ucv_get(ucv_array_get(ellip, i - 1)));
-
-		/* free temp array */
-		ucv_put(ellip);
+		uc_vm_spread_finish(vm, stackoff + 1, nargs, slot);
 
 		/* update arg count */
 		nargs = vm->stack.count - stackoff - 1;
