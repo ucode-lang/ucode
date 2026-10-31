@@ -1677,17 +1677,18 @@ static struct_t st_timeval_old = {
 	}
 };
 
-# ifdef SO_TIMESTAMP_NEW
+/* the kernel's SO_TIMESTAMP_NEW and SO_TIMESTAMPNS_NEW layouts, 64-bit
+ * fields everywhere; also what a libc with only one SO_TIMESTAMP (musl)
+ * gets where its time_t is wider than long */
 struct timeval_new_local { int64_t tv_sec; int64_t tv_usec; };
 static struct_t st_timeval_new = {
-	.size = sizeof(struct timeval_old_local),
+	.size = sizeof(struct timeval_new_local),
 	.members = (member_t []){
 		STRUCT_MEMBER(timeval_new_local, tv, sec, DT_SIGNED),
 		STRUCT_MEMBER(timeval_new_local, tv, usec, DT_SIGNED),
 		{ 0 }
 	}
 };
-# endif
 
 struct timespec_old_local { long tv_sec; long tv_nsec; };
 static struct_t st_timespec_old = {
@@ -1699,7 +1700,6 @@ static struct_t st_timespec_old = {
 	}
 };
 
-# ifdef SO_TIMESTAMPNS_NEW
 struct timespec_new_local { long long tv_sec; long long tv_nsec; };
 static struct_t st_timespec_new = {
 	.size = sizeof(struct timespec_new_local),
@@ -1709,7 +1709,6 @@ static struct_t st_timespec_new = {
 		{ 0 }
 	}
 };
-# endif
 #endif
 
 #define SV_VOID		(struct_t *)0
@@ -1906,13 +1905,18 @@ static cmsgtype_t cmsgtypes[] = {
 #if defined(__linux__)
 	{ SOL_PACKET, PACKET_AUXDATA, &st_tpacket_auxdata },
 
+# if defined(SO_TIMESTAMP_NEW) && defined(SO_TIMESTAMPNS_NEW)
 	{ SOL_SOCKET, SO_TIMESTAMP_OLD, &st_timeval_old },
-# ifdef SO_TIMESTAMP_NEW
 	{ SOL_SOCKET, SO_TIMESTAMP_NEW, &st_timeval_new },
-# endif
 	{ SOL_SOCKET, SO_TIMESTAMPNS_OLD, &st_timespec_old },
-# ifdef SO_TIMESTAMPNS_NEW
 	{ SOL_SOCKET, SO_TIMESTAMPNS_NEW, &st_timespec_new },
+# else
+	/* a libc without the _OLD and _NEW names (musl) has one SO_TIMESTAMP,
+	 * the kernel's _NEW where its time_t is wider than long */
+	{ SOL_SOCKET, SO_TIMESTAMP,
+	  sizeof(time_t) > sizeof(long) ? &st_timeval_new : &st_timeval_old },
+	{ SOL_SOCKET, SO_TIMESTAMPNS,
+	  sizeof(time_t) > sizeof(long) ? &st_timespec_new : &st_timespec_old },
 # endif
 
 	{ SOL_SOCKET, SCM_CREDENTIALS, &st_ucred },
