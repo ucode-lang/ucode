@@ -2618,6 +2618,7 @@ uc_vm_insn_mobj(uc_vm_t *vm, uc_vm_insn_t insn)
 		s = ucv_to_string(vm, src);
 		uc_vm_raise_exception(vm, EXCEPTION_TYPE, "Value (%s) is not iterable", s);
 		free(s);
+		ucv_put(src);
 
 		break;
 	}

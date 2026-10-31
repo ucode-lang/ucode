@@ -1,0 +1,55 @@
+When an object literal spread a value that is neither an object nor an
+array, the error path leaked a reference to that value.
+
+-- Testcase --
+{%
+	let s = "a string that the VM keeps on the heap: " + time();
+
+	try {
+		print({ ...s }, "\n");
+	}
+	catch (e) {
+		print(replace(e.message, /[0-9]+/, "N"), "\n");
+	}
+%}
+-- End --
+
+-- Expect stdout --
+Value (a string that the VM keeps on the heap: N) is not iterable
+-- End --
+
+
+The leaked reference kept a value alive that nothing refers to: the number
+of live values grew with each rejected spread.
+
+-- Testcase --
+{%
+	function reject(v) {
+		try {
+			return { ...v };
+		}
+		catch (e) {
+			return e.message;
+		}
+	}
+
+	function run(n) {
+		for (let i = 0; i < n; i++) {
+			let f = function() {};
+
+			reject(f);
+		}
+	}
+
+	run(1);
+
+	let before = gc("count");
+
+	run(10);
+	print(gc("count") - before, "\n");
+%}
+-- End --
+
+-- Expect stdout --
+0
+-- End --
