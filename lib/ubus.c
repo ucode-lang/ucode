@@ -552,6 +552,8 @@ typedef struct {
 	int timeout;
 	bool fd_handle;
 	bool disconnected;
+	struct uloop_timeout reconnect;
+	char *path;
 
 	uc_vm_t *vm;
 	uc_value_t *res;
@@ -955,6 +957,37 @@ uc_ubus_conn_alloc(uc_vm_t *vm, uc_value_t *timeout, const char *type)
 	return c;
 }
 
+/*
+ * When ubusd drops a connection (ubusd restarting, or a message over its
+ * size limit), libubus' default connection_lost does nothing: it only ends
+ * the uloop while the socket is registered, and uloop has unregistered it
+ * on the hangup. The connection would stay dead, and everything published
+ * on it gone. Reconnect instead, retrying every second as libubus' auto
+ * connection does; ubus_reconnect() registers the connection's objects
+ * again.
+ */
+static void
+uc_ubus_conn_reconnect_cb(struct uloop_timeout *timeout)
+{
+	uc_ubus_connection_t *c = container_of(timeout, uc_ubus_connection_t, reconnect);
+
+	if (ubus_reconnect(&c->ctx, c->path)) {
+		uloop_timeout_set(timeout, 1000);
+		return;
+	}
+
+	ubus_add_uloop(&c->ctx);
+}
+
+static void
+uc_ubus_conn_lost_cb(struct ubus_context *ctx)
+{
+	uc_ubus_connection_t *c = container_of(ctx, uc_ubus_connection_t, ctx);
+
+	c->reconnect.cb = uc_ubus_conn_reconnect_cb;
+	uloop_timeout_set(&c->reconnect, 1000);
+}
+
 /**
  * Establish a connection to the ubus bus.
  *
@@ -1006,6 +1039,11 @@ uc_ubus_connect(uc_vm_t *vm, size_t nargs)
 	 * dropped its reference but derived resources keep it alive). */
 	ucv_resource_persistent_set(c->res, true);
 
+	if (socket)
+		c->path = strdup(ucv_string_get(socket));
+
+	c->ctx.connection_lost = uc_ubus_conn_lost_cb;
+
 	ok_return(ucv_get(c->res));
 }
 
@@ -1055,6 +1093,7 @@ _conn_get(uc_vm_t *vm, uc_ubus_connection_t **conn)
 		}
 
 		ubus_add_uloop(&c->ctx);
+		c->ctx.connection_lost = uc_ubus_conn_lost_cb;
 
 		ucv_resource_persistent_set(c->res, true);
 		uc_vm_registry_set(vm, "ubus.connection", ucv_get(c->res));
@@ -3572,6 +3611,7 @@ uc_ubus_conn_teardown(uc_ubus_connection_t *c)
 		return;
 
 	c->disconnected = true;
+	uloop_timeout_cancel(&c->reconnect);
 
 	if (c->fd_handle && c->ctx.sock.fd >= 0) {
 		uloop_fd_delete(&c->ctx.sock);
@@ -4039,6 +4079,7 @@ static const uc_function_list_t subscriber_fns[] = {
 static void free_connection(void *ud) {
 	uc_ubus_connection_t *conn = ud;
 
+	free(conn->path);
 	blob_buf_free(&conn->buf);
 
 	/* Close the transport if it is still open (e.g. the script dropped its
