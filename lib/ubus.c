@@ -552,6 +552,9 @@ typedef struct {
 	int timeout;
 	bool fd_handle;
 	bool disconnected;
+	struct uloop_timeout reconnect;
+	char *path;
+	struct list_head listeners;
 
 	uc_vm_t *vm;
 	uc_value_t *res;
@@ -598,6 +601,8 @@ typedef struct {
 typedef struct {
 	struct ubus_event_handler ev;
 	struct ubus_context *ctx;
+	struct list_head list;
+	char *pattern;
 	uc_vm_t *vm;
 	uc_value_t *res;
 } uc_ubus_listener_t;
@@ -948,11 +953,57 @@ uc_ubus_conn_alloc(uc_vm_t *vm, uc_value_t *timeout, const char *type)
 
 	c->vm = vm;
 	c->res = res;
+	INIT_LIST_HEAD(&c->listeners);
 	c->timeout = timeout ? ucv_int64_get(timeout) : 30;
 	if (c->timeout < 0)
 		c->timeout = 30;
 
 	return c;
+}
+
+/*
+ * ubus_reconnect() adds a listener's object again, but not its event
+ * pattern registration with ubusd: register each listener again.
+ */
+static void
+uc_ubus_conn_relisten(uc_ubus_connection_t *c)
+{
+	uc_ubus_listener_t *uul;
+
+	list_for_each_entry(uul, &c->listeners, list)
+		ubus_register_event_handler(&c->ctx, &uul->ev, uul->pattern);
+}
+
+/*
+ * When ubusd drops a connection (ubusd restarting, or a message over its
+ * size limit), libubus' default connection_lost does nothing: it only ends
+ * the uloop while the socket is registered, and uloop has unregistered it
+ * on the hangup. The connection would stay dead, and everything published
+ * on it gone. Reconnect instead, retrying every second as libubus' auto
+ * connection does; ubus_reconnect() registers the connection's objects
+ * again.
+ */
+static void
+uc_ubus_conn_reconnect_cb(struct uloop_timeout *timeout)
+{
+	uc_ubus_connection_t *c = container_of(timeout, uc_ubus_connection_t, reconnect);
+
+	if (ubus_reconnect(&c->ctx, c->path)) {
+		uloop_timeout_set(timeout, 1000);
+		return;
+	}
+
+	ubus_add_uloop(&c->ctx);
+	uc_ubus_conn_relisten(c);
+}
+
+static void
+uc_ubus_conn_lost_cb(struct ubus_context *ctx)
+{
+	uc_ubus_connection_t *c = container_of(ctx, uc_ubus_connection_t, ctx);
+
+	c->reconnect.cb = uc_ubus_conn_reconnect_cb;
+	uloop_timeout_set(&c->reconnect, 1000);
 }
 
 /**
@@ -1006,6 +1057,11 @@ uc_ubus_connect(uc_vm_t *vm, size_t nargs)
 	 * dropped its reference but derived resources keep it alive). */
 	ucv_resource_persistent_set(c->res, true);
 
+	if (socket)
+		c->path = strdup(ucv_string_get(socket));
+
+	c->ctx.connection_lost = uc_ubus_conn_lost_cb;
+
 	ok_return(ucv_get(c->res));
 }
 
@@ -1055,6 +1111,7 @@ _conn_get(uc_vm_t *vm, uc_ubus_connection_t **conn)
 		}
 
 		ubus_add_uloop(&c->ctx);
+		c->ctx.connection_lost = uc_ubus_conn_lost_cb;
 
 		ucv_resource_persistent_set(c->res, true);
 		uc_vm_registry_set(vm, "ubus.connection", ucv_get(c->res));
@@ -2969,8 +3026,12 @@ uc_ubus_listener_remove_common(uc_ubus_listener_t *uul)
 {
 	int rv = ubus_unregister_event_handler(uul->ctx, &uul->ev);
 
-	if (rv == UBUS_STATUS_OK)
+	if (rv == UBUS_STATUS_OK) {
+		list_del_init(&uul->list);
+		free(uul->pattern);
+		uul->pattern = NULL;
 		uc_ubus_put_res(&uul->res);
+	}
 
 	return rv;
 }
@@ -3084,6 +3145,7 @@ uc_ubus_listener(uc_vm_t *vm, size_t nargs)
 	uul->ctx = &c->ctx;
 	uul->res = res;
 	uul->ev.cb = uc_ubus_listener_cb;
+	INIT_LIST_HEAD(&uul->list);
 
 	rv = ubus_register_event_handler(&c->ctx, &uul->ev,
 	                                 ucv_string_get(pattern));
@@ -3096,6 +3158,9 @@ uc_ubus_listener(uc_vm_t *vm, size_t nargs)
 	ucv_resource_persistent_set(res, true);
 	ucv_resource_value_set(res, LISTEN_RES_CONN, ucv_get(c->res));
 	ucv_resource_value_set(res, LISTEN_RES_CB, ucv_get(cb));
+
+	uul->pattern = strdup(ucv_string_get(pattern));
+	list_add_tail(&uul->list, &c->listeners);
 
 	ok_return(ucv_get(res));
 }
@@ -3572,6 +3637,7 @@ uc_ubus_conn_teardown(uc_ubus_connection_t *c)
 		return;
 
 	c->disconnected = true;
+	uloop_timeout_cancel(&c->reconnect);
 
 	if (c->fd_handle && c->ctx.sock.fd >= 0) {
 		uloop_fd_delete(&c->ctx.sock);
@@ -4038,12 +4104,24 @@ static const uc_function_list_t subscriber_fns[] = {
 
 static void free_connection(void *ud) {
 	uc_ubus_connection_t *conn = ud;
+	uc_ubus_listener_t *uul, *tmp;
 
+	list_for_each_entry_safe(uul, tmp, &conn->listeners, list)
+		list_del_init(&uul->list);
+	free(conn->path);
 	blob_buf_free(&conn->buf);
 
 	/* Close the transport if it is still open (e.g. the script dropped its
 	 * reference without calling disconnect()). Guarded and idempotent. */
 	uc_ubus_conn_teardown(conn);
+}
+
+static void free_listener(void *ud) {
+	uc_ubus_listener_t *uul = ud;
+
+	/* a listener freed before its connection leaves the connection's list */
+	list_del_init(&uul->list);
+	free(uul->pattern);
 }
 
 static void free_deferred(void *ud) {
@@ -4135,6 +4213,6 @@ void uc_module_init(uc_vm_t *vm, uc_value_t *scope)
 	uc_type_declare(vm, "ubus.object", object_fns, free_object);
 	uc_type_declare(vm, "ubus.notify", notify_fns, NULL);
 	uc_type_declare(vm, "ubus.request", request_fns, free_request);
-	uc_type_declare(vm, "ubus.listener", listener_fns, NULL);
+	uc_type_declare(vm, "ubus.listener", listener_fns, free_listener);
 	uc_type_declare(vm, "ubus.subscriber", subscriber_fns, NULL);
 }
