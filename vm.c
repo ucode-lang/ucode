@@ -2912,8 +2912,8 @@ uc_vm_insn_jmpz(uc_vm_t *vm, uc_vm_insn_t insn)
 {
 	uc_callframe_t *frame = uc_vm_current_frame(vm);
 	uc_chunk_t *chunk = uc_vm_frame_chunk(frame);
-	uc_value_t *v = uc_vm_stack_pop(vm);
 	int32_t addr = vm->arg.s32;
+	uc_value_t *v;
 
 	/* ip already has been incremented */
 	addr -= 5;
@@ -2923,6 +2923,8 @@ uc_vm_insn_jmpz(uc_vm_t *vm, uc_vm_insn_t insn)
 		uc_vm_raise_exception(vm, EXCEPTION_RUNTIME, "jump target out of range");
 		return;
 	}
+
+	v = uc_vm_stack_pop(vm);
 
 	if (!ucv_is_truish(v))
 		frame->ip += addr;
