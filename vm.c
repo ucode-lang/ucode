@@ -1652,18 +1652,23 @@ uc_vm_insn_load_var(uc_vm_t *vm, uc_vm_insn_t insn)
 	uc_vm_stack_push(vm, ucv_get(val));
 }
 
+/* A metamethod or a tostring method of a key may collect garbage, so the
+ * operands of a property operation stay on the stack while it runs. */
 static void
 uc_vm_insn_load_val(uc_vm_t *vm, uc_vm_insn_t insn)
 {
-	uc_value_t *k = uc_vm_stack_pop(vm);
-	uc_value_t *v = uc_vm_stack_pop(vm);
+	uc_value_t *k = uc_vm_stack_peek(vm, 0);
+	uc_value_t *v = uc_vm_stack_peek(vm, 1);
+	uc_value_t *res = NULL;
+	bool ok = false;
 
 	switch (ucv_type(v)) {
 	case UC_RESOURCE:
 	case UC_OBJECT:
 	case UC_ARRAY:
 		/* aware read: dispatches __get__ on a missing key */
-		uc_vm_stack_push(vm, ucv_key_get(vm, v, k));
+		res = ucv_key_get(vm, v, k);
+		ok = true;
 		break;
 
 	default:
@@ -1674,8 +1679,10 @@ uc_vm_insn_load_val(uc_vm_t *vm, uc_vm_insn_t insn)
 		break;
 	}
 
-	ucv_put(k);
-	ucv_put(v);
+	uc_vm_stack_drop(vm, 2);
+
+	if (ok)
+		uc_vm_stack_push(vm, res);
 }
 
 static void
@@ -1877,7 +1884,6 @@ static bool
 assert_mutable_value(uc_vm_t *vm, uc_value_t *val)
 {
 	if (ucv_is_constant(val)) {
-		uc_vm_stack_push(vm, NULL);
 		uc_vm_raise_exception(vm, EXCEPTION_TYPE,
 		                      "%s value is immutable",
 		                      ucv_typename(val));
@@ -1891,22 +1897,27 @@ assert_mutable_value(uc_vm_t *vm, uc_value_t *val)
 static void
 uc_vm_insn_store_val(uc_vm_t *vm, uc_vm_insn_t insn)
 {
-	uc_value_t *v = uc_vm_stack_pop(vm);
-	uc_value_t *k = uc_vm_stack_pop(vm);
-	uc_value_t *o = uc_vm_stack_pop(vm);
+	uc_value_t *v = uc_vm_stack_peek(vm, 0);
+	uc_value_t *k = uc_vm_stack_peek(vm, 1);
+	uc_value_t *o = uc_vm_stack_peek(vm, 2);
+	uc_value_t *res = NULL;
+	bool ok = false;
 
 	switch (ucv_type(o)) {
 	case UC_OBJECT:
 	case UC_ARRAY:
 	case UC_RESOURCE:
-		if (assert_mutable_value(vm, o)) {
-			/* ucv_key_set() retains the stored value on its own and returns a
-			 * reference to it, which becomes the value of the assignment; for
-			 * resources it dispatches a __set__ metamethod when present. In
-			 * strict mode it raises a type error when a non-index property
-			 * store on an array would otherwise be silently dropped. */
-			uc_vm_stack_push(vm, ucv_key_set(vm, o, k, v));
-		}
+		ok = true;
+
+		if (!assert_mutable_value(vm, o))
+			break;
+
+		/* ucv_key_set() retains the stored value on its own and returns a
+		 * reference to it, which becomes the value of the assignment; for
+		 * resources it dispatches a __set__ metamethod when present. In
+		 * strict mode it raises a type error when a non-index property
+		 * store on an array would otherwise be silently dropped. */
+		res = ucv_key_set(vm, o, k, v);
 
 		break;
 
@@ -1916,9 +1927,10 @@ uc_vm_insn_store_val(uc_vm_t *vm, uc_vm_insn_t insn)
 		                      ucv_typename(o));
 	}
 
-	ucv_put(v);
-	ucv_put(o);
-	ucv_put(k);
+	uc_vm_stack_drop(vm, 3);
+
+	if (ok)
+		uc_vm_stack_push(vm, res);
 }
 
 static void
@@ -2389,43 +2401,40 @@ uc_vm_insn_update_var(uc_vm_t *vm, uc_vm_insn_t insn)
 static void
 uc_vm_insn_update_val(uc_vm_t *vm, uc_vm_insn_t insn)
 {
-	uc_value_t *inc = uc_vm_stack_pop(vm);
-	uc_value_t *k = uc_vm_stack_pop(vm);
-	uc_value_t *v = uc_vm_stack_pop(vm);
-	uc_value_t *val = NULL;
+	uc_value_t *inc = uc_vm_stack_peek(vm, 0);
+	uc_value_t *k = uc_vm_stack_peek(vm, 1);
+	uc_value_t *v = uc_vm_stack_peek(vm, 2);
+	uc_value_t *val, *nv, *res = NULL;
 	uc_vm_insn_t op;
+	bool ok = false;
 
 	switch (ucv_type(v)) {
 	case UC_OBJECT:
 	case UC_ARRAY:
 	case UC_RESOURCE:
-		if (assert_mutable_value(vm, v)) {
-			uc_value_t *nv, *rv;
+		ok = true;
 
-			/* reading the property may dispatch a __get__ metamethod which runs
-			 * on the current stack, clobbers vm->arg and may collect garbage, so
-			 * remember the operation and keep the operands reachable */
-			op = vm->arg.u8;
-			uc_vm_stack_push(vm, ucv_get(inc));
+		if (!assert_mutable_value(vm, v))
+			break;
 
-			val = ucv_key_get(vm, v, k);
-			uc_vm_stack_push(vm, ucv_get(val));
+		/* a metamethod of the property or a tostring method of an operand
+		 * runs on the current stack, clobbers vm->arg and may collect
+		 * garbage, so remember the operation and keep the old value
+		 * reachable until the new one is stored */
+		op = vm->arg.u8;
+		val = ucv_key_get(vm, v, k);
+		uc_vm_stack_push(vm, val);
 
-			nv = uc_vm_value_arith(vm, op, val, inc);
+		nv = uc_vm_value_arith(vm, op, val, inc);
 
-			ucv_put(uc_vm_stack_pop(vm));
-			ucv_put(uc_vm_stack_pop(vm));
+		/* an aborted read leaves nothing to store; the exception it raised is
+		 * left to propagate instead of overwriting the property */
+		res = vm->exception.type != EXCEPTION_NONE ? NULL : ucv_key_set(vm, v, k, nv);
 
-			/* an aborted read leaves nothing to store; the exception it raised is
-			 * left to propagate instead of overwriting the property */
-			rv = vm->exception.type != EXCEPTION_NONE ? NULL : ucv_key_set(vm, v, k, nv);
-
-			/* the store keeps a reference of its own; rv is the value of the
-			 * update expression, null if storing failed */
-			ucv_put(nv);
-
-			uc_vm_stack_push(vm, rv);
-		}
+		/* the store keeps a reference of its own; the result is the value of
+		 * the update expression, null if storing failed */
+		ucv_put(nv);
+		ucv_put(uc_vm_stack_pop(vm));
 
 		break;
 
@@ -2437,10 +2446,10 @@ uc_vm_insn_update_val(uc_vm_t *vm, uc_vm_insn_t insn)
 		break;
 	}
 
-	ucv_put(val);
-	ucv_put(inc);
-	ucv_put(v);
-	ucv_put(k);
+	uc_vm_stack_drop(vm, 3);
+
+	if (ok)
+		uc_vm_stack_push(vm, res);
 }
 
 static void
@@ -3158,23 +3167,26 @@ uc_vm_insn_print(uc_vm_t *vm, uc_vm_insn_t insn)
 static void
 uc_vm_insn_delete(uc_vm_t *vm, uc_vm_insn_t insn)
 {
-	uc_value_t *k = uc_vm_stack_pop(vm);
-	uc_value_t *v = uc_vm_stack_pop(vm);
-	bool rv;
+	uc_value_t *k = uc_vm_stack_peek(vm, 0);
+	uc_value_t *v = uc_vm_stack_peek(vm, 1);
+	uc_value_t *res = NULL;
+	bool ok = false;
 
 	switch (ucv_type(v)) {
 	case UC_OBJECT:
 	case UC_ARRAY:
 	case UC_RESOURCE:
-		if (assert_mutable_value(vm, v)) {
-			/* ucv_key_delete() removes own object keys directly and consults the
-			 * __delete__ metamethod for keys the value has no own storage for.
-			 * Arrays and resources have no own-key storage at all, so there the
-			 * metamethod is the only way to handle a key; without one it raises
-			 * the same reference error the default case below reports */
-			rv = ucv_key_delete(vm, v, k);
-			uc_vm_stack_push(vm, ucv_boolean_new(rv));
-		}
+		ok = true;
+
+		if (!assert_mutable_value(vm, v))
+			break;
+
+		/* ucv_key_delete() removes own object keys directly and consults the
+		 * __delete__ metamethod for keys the value has no own storage for.
+		 * Arrays and resources have no own-key storage at all, so there the
+		 * metamethod is the only way to handle a key; without one it raises
+		 * the same reference error the default case below reports */
+		res = ucv_boolean_new(ucv_key_delete(vm, v, k));
 
 		break;
 
@@ -3186,8 +3198,10 @@ uc_vm_insn_delete(uc_vm_t *vm, uc_vm_insn_t insn)
 		break;
 	}
 
-	ucv_put(k);
-	ucv_put(v);
+	uc_vm_stack_drop(vm, 2);
+
+	if (ok)
+		uc_vm_stack_push(vm, res);
 }
 
 /* a closure that runs again holds the binding of its previous run */
