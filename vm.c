@@ -2389,9 +2389,14 @@ uc_vm_insn_update_var(uc_vm_t *vm, uc_vm_insn_t insn)
 		scope = next;
 	}
 
+	/* a tostring method of an operand can take the scope out of the chain
+	 * of the globals and collect garbage */
+	uc_vm_stack_push(vm, ucv_get(scope));
+
 	val = uc_vm_value_arith(vm, vm->arg.u32 >> 24, val, inc);
 
 	ucv_object_add(scope, ucv_string_get(name), ucv_get(val));
+	ucv_put(uc_vm_stack_pop(vm));
 	uc_vm_stack_push(vm, val);
 
 	ucv_put(name);
