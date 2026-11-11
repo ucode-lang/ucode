@@ -21,6 +21,7 @@
  *
  * @module digest
  */
+#include <sys/random.h>
 
 #include <md5.h>
 #include <sha1.h>
@@ -33,6 +34,8 @@
 
 #include "ucode/module.h"
 
+#define UC_DIGEST_MD5_CRYPT_SALT_LEN		8
+#define UC_DIGEST_MD5_CRYPT_HEX_LEN		4
 
 static uc_value_t *
 uc_digest_calc_data(uc_value_t *str, char *(*fn)(const uint8_t *,size_t,char *))
@@ -139,6 +142,158 @@ static uc_value_t *
 uc_digest_md5(uc_vm_t *vm, size_t nargs)
 {
 	return uc_digest_calc_data(uc_fn_arg(0), MD5Data);
+}
+
+static const char Crypt_Base64[] =
+    "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+static void uc_digest_md5_crypt_to64(char buf[UC_DIGEST_MD5_CRYPT_HEX_LEN + 1],
+				     unsigned long data, int len)
+{
+	for (int i = 0; i < len; i++) {
+		buf[i] = Crypt_Base64[data & 0x3f];
+		data >>= 6;
+	}
+
+	buf[len] = '\0';
+}
+
+static int
+uc_digest_md5_crypt_gen_salt(char buf[UC_DIGEST_MD5_CRYPT_SALT_LEN + 1])
+{
+	int ret;
+	int i;
+
+	ret = getentropy(buf, UC_DIGEST_MD5_CRYPT_SALT_LEN);
+	if (ret)
+		return ret;
+
+	for (i = 0; i < UC_DIGEST_MD5_CRYPT_SALT_LEN + 1; i++)
+		buf[i] = Crypt_Base64[buf[i] & 0x3F];
+
+	buf[UC_DIGEST_MD5_CRYPT_SALT_LEN] = '\0';
+
+	return 0;
+}
+
+/**
+ * Generate a random salt, calculates the MD5 Crypt hash
+ * of string and returns the full shadow entry.
+ *
+ * Returns `null` if an error occurred.
+ *
+ * @function module:digest#md5_crypt
+ *
+ * @param {string} str
+ * The string to generate shadow entry for.
+ *
+ * @returns {?string}
+ *
+ * @example
+ * md5_crypt("test");  // Returns "$1$2NhbKqI8$qxTnya0K2/Fy9CNx0BlM4/"
+ */
+static uc_value_t *
+uc_digest_md5_crypt(uc_vm_t *vm, size_t nargs)
+{
+	unsigned char buf[MD5_DIGEST_STRING_LENGTH];
+	char salt_buf[UC_DIGEST_MD5_CRYPT_SALT_LEN + 1];
+	char hex_buf[UC_DIGEST_MD5_CRYPT_HEX_LEN + 1];
+	unsigned int data_len, salt_len;
+	const uint8_t *data, *salt;
+	const char *ident = "$1$";
+	MD5_CTX ctx, alt_ctx;
+	uc_stringbuf_t *res;
+	uc_value_t *str;
+	int ret;
+	int i;
+
+	str = uc_fn_arg(0);
+	ret = uc_digest_md5_crypt_gen_salt(salt_buf);
+	if (ret)
+		return NULL;
+
+	data = (const uint8_t *)ucv_string_get(str);
+	data_len = ucv_string_length(str);
+
+	salt = (const uint8_t *)salt_buf;
+	salt_len = 8;
+
+	MD5Init(&ctx);
+
+	/* string + $1$ + salt */
+	MD5Update(&ctx, data, data_len);
+	MD5Update(&ctx, (const uint8_t *)ident, strlen(ident));
+	MD5Update(&ctx, salt, salt_len);
+
+	/* string + salt + string */
+	MD5Init(&alt_ctx);
+	MD5Update(&alt_ctx, data, data_len);
+	MD5Update(&alt_ctx, salt, salt_len);
+	MD5Update(&alt_ctx, data, data_len);
+	MD5Final(buf, &alt_ctx);
+
+	for (i = data_len; i > MD5_DIGEST_LENGTH; i -= MD5_DIGEST_LENGTH)
+		MD5Update(&ctx, buf, MD5_DIGEST_LENGTH);
+	MD5Update(&ctx, buf, i);
+
+	for (i = data_len; i > 0; i >>= 1)
+		if (i & 1)
+			MD5Update(&ctx, (const uint8_t *)"\0", 1);
+		else
+			MD5Update(&ctx, data, 1);
+
+	MD5Final(buf, &ctx);
+
+	for (i = 0; i < 1000; i++) {
+		MD5Init(&ctx);
+
+		if (i & 1)
+			MD5Update(&ctx, data, data_len);
+		else
+			MD5Update(&ctx, buf, MD5_DIGEST_LENGTH);
+
+		if (i % 3)
+			MD5Update(&ctx, salt, salt_len);
+
+		if (i % 7)
+			MD5Update(&ctx, data, data_len);
+
+		if (i & 1)
+			MD5Update(&ctx, buf, MD5_DIGEST_LENGTH);
+		else
+			MD5Update(&ctx, data, data_len);
+
+		MD5Final(buf, &ctx);
+	}
+
+	res = ucv_stringbuf_new();
+	ucv_stringbuf_addstr(res, ident, strlen(ident));
+	ucv_stringbuf_addstr(res, (const char *)salt, salt_len);
+	ucv_stringbuf_append(res, "$");
+
+	/* Apply strange byte ordering */
+	for (i = 0; i <= MD5_DIGEST_LENGTH; i+=4) {
+		unsigned int hex_data;
+
+		hex_data = buf[(i/4)] << 16;
+		hex_data |= buf[6+(i/4)] << 8;
+		hex_data |= 12+(i/4) < MD5_DIGEST_LENGTH ? buf[12+(i/4)] : buf[5];
+
+		uc_digest_md5_crypt_to64(hex_buf, hex_data,
+					 UC_DIGEST_MD5_CRYPT_HEX_LEN);
+		ucv_stringbuf_addstr(res, hex_buf, strlen(hex_buf));
+	}
+	uc_digest_md5_crypt_to64(hex_buf, buf[11],
+				 UC_DIGEST_MD5_CRYPT_HEX_LEN - 2);
+	ucv_stringbuf_addstr(res, hex_buf, strlen(hex_buf));
+
+	memset(&ctx, '\0', sizeof(ctx));
+	memset(&alt_ctx, '\0', sizeof(alt_ctx));
+	memset(salt_buf, '\0', sizeof(salt_buf));
+	memset(buf, '\0', sizeof(buf));
+	memset(hex_buf, '\0', sizeof(hex_buf));
+
+	return ucv_stringbuf_finish(res);
 }
 
 /**
@@ -452,6 +607,7 @@ static const uc_function_list_t global_fns[] = {
 	{ "sha256",      uc_digest_sha256      },
 	{ "fnv1a64",     uc_digest_fnv1a64     },
 	{ "md5_file",    uc_digest_md5_file    },
+	{ "md5_crypt",   uc_digest_md5_crypt   },
 	{ "sha1_file",   uc_digest_sha1_file   },
 	{ "sha256_file", uc_digest_sha256_file },
 	{ "fnv1a64_file",uc_digest_fnv1a64_file},
