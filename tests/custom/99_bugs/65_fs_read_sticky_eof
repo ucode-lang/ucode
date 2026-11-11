@@ -1,0 +1,37 @@
+A read that reached the end of a file left the stream's end-of-file
+indicator set, and stdio keeps it set until it is cleared. Every later
+read("line"), read("all") or read(<delimiter>) on that handle then returned
+nothing, even after more data had been written to the file.
+
+-- Testcase --
+{%
+	let fs = require('fs');
+
+	fs.mkdir("files");
+
+	for (let mode in [ "line", "all", ",", 64 ]) {
+		fs.writefile("files/grow.txt", "first\n");
+
+		let r = fs.open("files/grow.txt", "r");
+		let w = fs.open("files/grow.txt", "a");
+
+		r.read(mode);
+		r.read(mode);
+
+		w.write("second\n");
+		w.flush();
+
+		printf("%s: %J\n", mode, r.read(mode));
+
+		r.close();
+		w.close();
+	}
+%}
+-- End --
+
+-- Expect stdout --
+line: "second\n"
+all: "second\n"
+,: "second\n"
+64: "second\n"
+-- End --
