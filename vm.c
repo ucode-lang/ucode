@@ -1229,6 +1229,29 @@ static uint8_t uc_breakpoint_uncaught_exception_storage;
 uint8_t *const UC_BREAKPOINT_UNCAUGHT_EXCEPTION =
 	&uc_breakpoint_uncaught_exception_storage;
 
+/* An instruction that raised lies before the instruction pointer. A signal
+ * handler raises `between` two instructions, in the range of the second. */
+static uc_ehrange_t *
+uc_vm_frame_ehrange(uc_callframe_t *frame, bool between)
+{
+	uc_chunk_t *chunk = uc_vm_frame_chunk(frame);
+	size_t off = frame->ip - chunk->entries;
+	size_t i;
+
+	if (!between && off == 0)
+		return NULL;
+
+	if (!between)
+		off--;
+
+	for (i = 0; i < chunk->ehranges.count; i++)
+		if (off >= chunk->ehranges.entries[i].from &&
+		    off < chunk->ehranges.entries[i].to)
+			return &chunk->ehranges.entries[i];
+
+	return NULL;
+}
+
 /* Non-destructively predict whether uc_vm_handle_exception()'s real unwind
  * loop (below) would find a handler for the currently raised exception
  * anywhere between the current callframe and `caller` (the frame depth this
@@ -1240,34 +1263,29 @@ uint8_t *const UC_BREAKPOINT_UNCAUGHT_EXCEPTION =
  * frame - locals, exact position - is still fully intact, since once
  * uc_vm_handle_exception() starts really popping frames that's gone. */
 static bool
-uc_vm_exception_would_be_caught(uc_vm_t *vm, size_t caller)
+uc_vm_exception_would_be_caught(uc_vm_t *vm, size_t caller, bool between)
 {
-	for (size_t i = vm->callframes.count; i > caller; i--) {
+	for (size_t i = vm->callframes.count; i > caller; i--, between = false) {
 		uc_callframe_t *frame = &vm->callframes.entries[i - 1];
 
 		if (!frame->closure)
 			return false;
 
-		uc_chunk_t *chunk = &frame->closure->function->chunk;
-		size_t pos = frame->ip - chunk->entries;
-
-		for (size_t j = 0; j < chunk->ehranges.count; j++) {
-			if (pos >= chunk->ehranges.entries[j].from &&
-			    pos < chunk->ehranges.entries[j].to)
-				return true;
-		}
+		if (uc_vm_frame_ehrange(frame, between))
+			return true;
 	}
 
 	return false;
 }
 
 static bool
-uc_vm_handle_exception(uc_vm_t *vm)
+uc_vm_handle_exception(uc_vm_t *vm, bool between)
 {
 	uc_callframe_t *frame = NULL;
 	uc_chunk_t *chunk = NULL;
+	uc_ehrange_t *range;
 	uc_value_t *exo;
-	size_t i, pos;
+	size_t slot;
 
 	if (vm->callframes.count)
 		frame = uc_vm_current_frame(vm);
@@ -1276,48 +1294,33 @@ uc_vm_handle_exception(uc_vm_t *vm)
 		return false;
 
 	chunk = uc_vm_frame_chunk(frame);
-	pos = frame->ip - chunk->entries;
+	range = uc_vm_frame_ehrange(frame, between);
 
-	/* iterate the known exception ranges, see if the current ip falls into any of them */
-	for (i = 0; i < chunk->ehranges.count; i++) {
-		/* skip nonmatching ranges */
-		if (pos < chunk->ehranges.entries[i].from ||
-		    pos >= chunk->ehranges.entries[i].to)
-			continue;
+	if (!range)
+		return false;
 
-		/* we found a matching range... first unwind stack */
-		while (vm->stack.count > frame->stackframe + chunk->ehranges.entries[i].slot)
-			ucv_put(uc_vm_stack_pop(vm));
+	slot = frame->stackframe + range->slot;
 
-		/* prepare exception object and expose it to user handler code */
-		exo = uc_vm_exception_object(vm);
+	while (vm->stack.count > slot)
+		ucv_put(uc_vm_stack_pop(vm));
 
-		uc_vm_stack_push(vm, exo);
+	/* prepare exception object and expose it to user handler code */
+	exo = uc_vm_exception_object(vm);
 
-		/* reset exception information */
-		uc_vm_clear_exception(vm);
+	uc_vm_stack_push(vm, exo);
 
-		/* jump to exception handler */
-		if (chunk->ehranges.entries[i].target >= chunk->count) {
-			uc_vm_raise_exception(vm, EXCEPTION_RUNTIME, "jump target out of range");
-			return false;
-		}
+	/* reset exception information */
+	uc_vm_clear_exception(vm);
 
-#if 0
-		if (vm->trace && chunk->entries + chunk->ehranges.entries[i].target > frame->ip) {
-			while (frame->ip < chunk->entries + chunk->ehranges.entries[i].target) {
-				fprintf(stderr, "(eh:skip) [%p:%zu] ", chunk, frame->ip - chunk->entries);
-				uc_dump_insn(vm, frame->ip, uc_vm_decode_insn(vm, frame, chunk));
-			}
-		}
-#endif
-
-		frame->ip = chunk->entries + chunk->ehranges.entries[i].target;
-
-		return true;
+	/* jump to exception handler */
+	if (range->target >= chunk->count) {
+		uc_vm_raise_exception(vm, EXCEPTION_RUNTIME, "jump target out of range");
+		return false;
 	}
 
-	return false;
+	frame->ip = chunk->entries + range->target;
+
+	return true;
 }
 
 /* Adds the line and byte column of the source position `off` to `object`, under
@@ -3523,6 +3526,7 @@ uc_vm_execute_chunk(uc_vm_t *vm)
 	uc_callframe_t *frame = NULL;
 	uc_chunk_t *chunk = NULL;
 	size_t caller = vm->callframes.count - 1;
+	bool between = false;
 	uc_value_t *retval;
 	uc_vm_insn_t insn;
 	uint8_t *ip;
@@ -3792,7 +3796,7 @@ exception:
 			 * stack *before* uc_vm_handle_exception()'s loop below starts
 			 * popping frames - once that happens, the original throwing
 			 * frame's locals and exact position are gone for good. */
-			if (!uc_vm_exception_would_be_caught(vm, caller)) {
+			if (!uc_vm_exception_would_be_caught(vm, caller, between)) {
 				for (size_t i = 0; i < vm->breakpoints.count; i++) {
 					uc_breakpoint_t *bk = vm->breakpoints.entries[i];
 
@@ -3813,7 +3817,7 @@ exception:
 			}
 
 			/* walk up callframes until something handles the exception or the original caller is reached */
-			while (!uc_vm_handle_exception(vm)) {
+			while (!uc_vm_handle_exception(vm, between)) {
 				/* no further callframe, report unhandled exception and terminate */
 				if (vm->callframes.count == 0)
 					return ERROR_RUNTIME;
@@ -3828,7 +3832,11 @@ exception:
 				/* do not bubble past original call depth */
 				if (vm->callframes.count <= caller)
 					return ERROR_RUNTIME;
+
+				between = false;
 			}
+
+			between = false;
 		}
 
 		/* the compiler emits the exports of a module as one block, do not run
@@ -3838,8 +3846,11 @@ exception:
 			continue;
 
 		/* run handler for signal(s) delivered during previous instruction */
-		if (uc_vm_signal_dispatch(vm) != EXCEPTION_NONE)
+		if (uc_vm_signal_dispatch(vm) != EXCEPTION_NONE) {
+			between = true;
+
 			goto exception;
+		}
 
 		/* check for break request */
 		if (vm->break_requested) {
