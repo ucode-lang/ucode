@@ -1838,6 +1838,20 @@ uc_vm_insn_load_closure(uc_vm_t *vm, uc_vm_insn_t insn)
 	}
 }
 
+static bool
+assert_mutable_value(uc_vm_t *vm, uc_value_t *val)
+{
+	if (ucv_is_constant(val)) {
+		uc_vm_raise_exception(vm, EXCEPTION_TYPE,
+		                      "%s value is immutable",
+		                      ucv_typename(val));
+
+		return false;
+	}
+
+	return true;
+}
+
 static void
 uc_vm_insn_store_var(uc_vm_t *vm, uc_vm_insn_t insn)
 {
@@ -1873,25 +1887,19 @@ uc_vm_insn_store_var(uc_vm_t *vm, uc_vm_insn_t insn)
 		scope = next;
 	}
 
-	if (scope && ucv_type(name) == UC_STRING)
+	if (scope && ucv_type(name) == UC_STRING) {
+		if (!assert_mutable_value(vm, scope)) {
+			ucv_put(name);
+			ucv_put(v);
+
+			return;
+		}
+
 		ucv_object_add(scope, ucv_string_get(name), ucv_get(v));
+	}
 
 	ucv_put(name);
 	uc_vm_stack_push(vm, v);
-}
-
-static bool
-assert_mutable_value(uc_vm_t *vm, uc_value_t *val)
-{
-	if (ucv_is_constant(val)) {
-		uc_vm_raise_exception(vm, EXCEPTION_TYPE,
-		                      "%s value is immutable",
-		                      ucv_typename(val));
-
-		return false;
-	}
-
-	return true;
 }
 
 static void
@@ -2423,6 +2431,13 @@ uc_vm_insn_update_var(uc_vm_t *vm, uc_vm_insn_t insn)
 		}
 
 		scope = next;
+	}
+
+	if (!assert_mutable_value(vm, scope)) {
+		ucv_put(name);
+		ucv_put(inc);
+
+		return;
 	}
 
 	/* a tostring method of an operand can take the scope out of the chain

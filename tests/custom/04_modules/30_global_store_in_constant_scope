@@ -1,0 +1,94 @@
+A function that runs with a scope whose prototype is a module namespace
+finds its global variables in the namespace, which is a constant object.
+A store to such a variable raises the type error of a property store on a
+constant object, for an assignment, a compound assignment, an increment
+and for a name that no object of the scope holds. The variable of the
+module keeps its value.
+
+-- Testcase --
+import * as mod from "./files/counter.uc";
+
+function assign() { counter = 7; return counter; }
+function update() { counter += 1.5; return counter; }
+function increment() { return counter++; }
+function create() { other = 1; return other; }
+function assign_strict() { "use strict"; counter = 7; return counter; }
+function update_strict() { "use strict"; counter += 1.5; return counter; }
+function read() { return counter; }
+
+for (let fn in [ assign, update, increment, create, assign_strict, update_strict, read ]) {
+	try {
+		print(call(fn, null, proto({}, mod)), "\n");
+	}
+	catch (e) {
+		print(e.type, ": ", e.message, "\n");
+	}
+}
+
+print(mod.read(), "\n");
+
+let scope = proto({ counter: 1 }, mod);
+
+print(call(update, null, scope), " ", scope.counter, " ", mod.read(), "\n");
+-- End --
+
+-- File counter.uc --
+export let counter = 5;
+
+export function read() { return counter; };
+-- End --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+Type error: object value is immutable
+Type error: object value is immutable
+Type error: object value is immutable
+Type error: object value is immutable
+Type error: object value is immutable
+Type error: object value is immutable
+5
+5
+2.5 2.5 5
+-- End --
+
+The global object is constant while sort() orders its keys and while a
+conversion to a string formats it. A store to a global variable from the
+comparator or from a tostring method raises the same type error then.
+
+-- Testcase --
+let n = 0;
+
+try {
+	sort(global, (k1, v1, k2, v2) => { counter = ++n; return 0; });
+	print("sorted\n");
+}
+catch (e) {
+	print(e.type, ": ", e.message, "\n");
+}
+
+x = 1;
+holder = proto({}, { tostring: function() { x = 2; return "y"; } });
+
+try {
+	sprintf("%s", global);
+	print("formatted\n");
+}
+catch (e) {
+	print(e.type, ": ", e.message, "\n");
+}
+
+print([ counter, x ], "\n");
+-- End --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+Type error: object value is immutable
+Type error: object value is immutable
+[ null, 1 ]
+-- End --
