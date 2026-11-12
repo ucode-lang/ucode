@@ -6250,7 +6250,7 @@ uc_signal(uc_vm_t *vm, size_t nargs)
 	if (ucv_type(sighandler) == UC_STRING) {
 		sigstr = ucv_string_get(sighandler);
 
-		sa.sa_flags = SA_ONSTACK | SA_RESTART;
+		sa.sa_flags = SA_RESTART;
 		sigemptyset(&sa.sa_mask);
 
 		if (!strcmp(sigstr, "ignore"))

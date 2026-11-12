@@ -195,7 +195,7 @@ uc_vm_signal_handlers_ensure(uc_vm_t *vm)
 	vm->signal.handler = ucv_array_new_length(vm, UC_SYSTEM_SIGNAL_COUNT);
 
 	vm->signal.sa.sa_handler = uc_vm_signal_handler;
-	vm->signal.sa.sa_flags = SA_RESTART | SA_ONSTACK;
+	vm->signal.sa.sa_flags = SA_RESTART;
 	sigemptyset(&vm->signal.sa.sa_mask);
 
 	tctx->signal_handler_vm = vm;
