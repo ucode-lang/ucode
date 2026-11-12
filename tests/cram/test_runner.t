@@ -40,3 +40,25 @@ check that the test runner refuses a TMPDIR that does not exist:
   $ (export TMPDIR="$PWD/missing"; run_tests "$custom/run_tests.uc" "$custom/04_modules/07_import_default")
   Unable to use the temporary directory '*/missing': No such file or directory (glob)
   [1]
+
+check that the test runner counts a file with two failed cases as one failure:
+
+  $ mkdir -p suite/00_fail && cp "$custom/run_tests.uc" suite/
+  $ cat > suite/00_fail/01_two_failures <<EOF
+  > -- Expect stdout --
+  > a
+  > -- End --
+  > -- Testcase --
+  > b
+  > -- End --
+  > -- Expect stdout --
+  > c
+  > -- End --
+  > -- Testcase --
+  > d
+  > -- End --
+  > EOF
+  $ run_tests suite/run_tests.uc > out.txt
+  [1]
+  $ tail -n 1 out.txt
+  Ran 1 tests, 0 okay, 1 failures

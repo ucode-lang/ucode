@@ -311,7 +311,9 @@ for (let catdir in fs.glob(`${testdir}/[0-9][0-9]_*`)) {
 		if (!use_test(testfile)) continue;
 
 		n_tests++;
-		n_fails += run_test(testfile);
+
+		if (run_test(testfile))
+			n_fails++;
 	}
 }
 
