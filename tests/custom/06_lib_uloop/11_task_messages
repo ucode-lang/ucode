@@ -3,20 +3,29 @@ The event loop keeps running while a task works between two messages.
 -- Testcase --
 {%
 	import * as uloop from 'uloop';
+	import * as fs from 'fs';
 
 	uloop.init();
 
+	const ticked = './ticked';
 	let ticks = 0, seen = [];
 
 	uloop.timer(20, function() {
 		ticks++;
 		this.set(20);
+
+		if (length(seen) == 1 && ticks - seen[0][1] == 10)
+			fs.writefile(ticked, '');
 	});
 
 	uloop.task(
 		(pipe) => {
 			pipe.send('first');
-			sleep(500);
+
+			// A host under load needs an unknown time for ten ticks. A loop
+			// that does not run never creates the file: give up after 10 s.
+			for (let i = 0; i < 1000 && !fs.access(ticked); i++)
+				sleep(10);
 
 			return 'last';
 		},
@@ -28,12 +37,13 @@ The event loop keeps running while a task works between two messages.
 		}
 	);
 
-	uloop.timer(2000, () => uloop.end());
+	uloop.timer(60000, () => uloop.end());
 	uloop.run();
 
 	printf("%J, ticks between: %s\n", map(seen, (m) => m[0]),
 		seen[1][1] - seen[0][1] >= 10);
 
+	fs.unlink(ticked);
 	uloop.done();
 %}
 -- End --
@@ -70,7 +80,7 @@ delivered complete and in order.
 		}
 	);
 
-	uloop.timer(5000, () => uloop.end());
+	uloop.timer(60000, () => uloop.end());
 	uloop.run();
 
 	printf("%J\n", seen);
@@ -114,7 +124,7 @@ Input requests are answered in order with the output messages around them.
 		() => `in ${n++}`
 	);
 
-	uloop.timer(2000, () => uloop.end());
+	uloop.timer(60000, () => uloop.end());
 	uloop.run();
 
 	printf("%J\n", seen);
