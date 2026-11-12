@@ -4123,6 +4123,22 @@ encode_cmsg(uc_vm_t *vm, uc_value_t *uv, struct cmsghdr *cmsg)
 	return true;
 }
 
+uc_declare_vector(strval_array_t, uc_value_t *);
+
+static uc_value_t *
+uv_to_strval(uc_vm_t *vm, uc_value_t *uv)
+{
+	uc_stringbuf_t *buf;
+
+	if (!uv || ucv_type(uv) == UC_STRING)
+		return ucv_get(uv);
+
+	buf = ucv_stringbuf_new();
+	ucv_to_stringbuf(vm, buf, uv, false);
+
+	return ucv_stringbuf_finish(buf);
+}
+
 /**
  * Sends a message through the socket.
  *
@@ -4178,7 +4194,7 @@ uc_socket_inst_sendmsg(uc_vm_t *vm, size_t nargs)
 {
 	uc_value_t *data, *ancdata, *addr, *flags;
 	struct sockaddr_storage ss = { 0 };
-	strbuf_array_t sbarr = { 0 };
+	strval_array_t strs = { 0 };
 	struct msghdr msg = { 0 };
 	struct iovec vec = { 0 };
 	bool ctl_allocated = false;
@@ -4246,42 +4262,24 @@ uc_socket_inst_sendmsg(uc_vm_t *vm, size_t nargs)
 		err_return(EINVAL, "Ancillary data must be string or array value");
 	}
 
-	/* prepare iov array */
+	/* The conversion of an item can run code that changes the array, so the
+	 * iov array refers to own references that are all taken first. */
 	if (ucv_type(data) == UC_ARRAY) {
-		msg.msg_iovlen = ucv_array_length(data);
-		msg.msg_iov = (msg.msg_iovlen > 1)
-			? xalloc(sizeof(vec) * msg.msg_iovlen) : &vec;
+		size_t len = ucv_array_length(data);
 
-		for (size_t i = 0; i < (size_t)msg.msg_iovlen; i++) {
-			uc_value_t *item = ucv_array_get(data, i);
-
-			if (ucv_type(item) == UC_STRING) {
-				msg.msg_iov[i].iov_base = _ucv_string_get(&((uc_array_t *)data)->entries[i]);
-				msg.msg_iov[i].iov_len = ucv_string_length(item);
-			}
-			else if (item) {
-				struct printbuf *pb = xprintbuf_new();
-				uc_vector_push(&sbarr, pb);
-				ucv_to_stringbuf(vm, pb, item, false);
-				msg.msg_iov[i].iov_base = pb->buf;
-				msg.msg_iov[i].iov_len = pb->bpos;
-			}
-		}
-	}
-	else if (ucv_type(data) == UC_STRING) {
-		msg.msg_iovlen = 1;
-		msg.msg_iov = &vec;
-		vec.iov_base = ucv_string_get(data);
-		vec.iov_len = ucv_string_length(data);
+		for (size_t i = 0; i < len; i++)
+			uc_vector_push(&strs, uv_to_strval(vm, ucv_array_get(data, i)));
 	}
 	else if (data) {
-		struct printbuf *pb = xprintbuf_new();
-		uc_vector_push(&sbarr, pb);
-		ucv_to_stringbuf(vm, pb, data, false);
-		msg.msg_iovlen = 1;
-		msg.msg_iov = &vec;
-		vec.iov_base = pb->buf;
-		vec.iov_len = pb->bpos;
+		uc_vector_push(&strs, uv_to_strval(vm, data));
+	}
+
+	msg.msg_iovlen = strs.count;
+	msg.msg_iov = (strs.count > 1) ? xalloc(sizeof(vec) * strs.count) : &vec;
+
+	for (size_t i = 0; i < strs.count; i++) {
+		msg.msg_iov[i].iov_base = _ucv_string_get(&strs.entries[i]);
+		msg.msg_iov[i].iov_len = ucv_string_length(strs.entries[i]);
 	}
 
 	/* prepare address */
@@ -4295,10 +4293,10 @@ uc_socket_inst_sendmsg(uc_vm_t *vm, size_t nargs)
 		ret = sendmsg(sockfd, &msg, flagval);
 	} while (ret == -1 && errno == EINTR);
 
-	while (sbarr.count > 0)
-		printbuf_free(sbarr.entries[--sbarr.count]);
+	while (strs.count > 0)
+		ucv_put(strs.entries[--strs.count]);
 
-	uc_vector_clear(&sbarr);
+	uc_vector_clear(&strs);
 
 	if (msg.msg_iov != &vec)
 		free(msg.msg_iov);
