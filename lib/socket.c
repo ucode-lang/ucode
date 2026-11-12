@@ -1050,7 +1050,7 @@ typedef struct {
 	} u1;
 	union {
 		size_t size;
-		uc_value_t *(*to_uv)(void *);
+		uc_value_t *(*to_uv)(uc_vm_t *, void *);
 	} u2;
 } member_t;
 
@@ -1246,7 +1246,7 @@ static struct_t st_in6_flowlabel_req = {
 
 #if defined(__linux__)
 static uc_value_t *
-in6_ifindex_to_uv(void *st)
+in6_ifindex_to_uv(uc_vm_t *vm, void *st)
 {
 	char ifname[IF_NAMESIZE] = { 0 };
 	struct ipv6_mreq *mr = st;
@@ -1319,10 +1319,10 @@ struct ipv6_recv_error_local {
 };
 
 static uc_value_t *
-offender_to_uv(void *st)
+offender_to_uv(uc_vm_t *vm, void *st)
 {
 	struct ipv6_recv_error_local *e = st;
-	uc_value_t *addr = ucv_object_new(NULL);
+	uc_value_t *addr = ucv_object_new(vm);
 
 	if (sockaddr_to_uv((struct sockaddr_storage *)&e->offender, addr))
 		return addr;
@@ -1349,10 +1349,10 @@ static struct_t st_ip_recv_error = {
 };
 
 static uc_value_t *
-ip6m_addr_to_uv(void *st)
+ip6m_addr_to_uv(uc_vm_t *vm, void *st)
 {
 	struct ip6_mtuinfo *mi = st;
-	uc_value_t *addr = ucv_object_new(NULL);
+	uc_value_t *addr = ucv_object_new(vm);
 
 	if (sockaddr_to_uv((struct sockaddr_storage *)&mi->ip6m_addr, addr))
 		return addr;
@@ -1384,13 +1384,13 @@ static struct_t st_ip_msfilter = {
 };
 
 static uc_value_t *
-snd_wscale_to_uv(void *st)
+snd_wscale_to_uv(uc_vm_t *vm, void *st)
 {
 	return ucv_uint64_new(((struct tcp_info *)st)->tcpi_snd_wscale);
 }
 
 static uc_value_t *
-rcv_wscale_to_uv(void *st)
+rcv_wscale_to_uv(uc_vm_t *vm, void *st)
 {
 	return ucv_uint64_new(((struct tcp_info *)st)->tcpi_rcv_wscale);
 }
@@ -1462,9 +1462,9 @@ static struct_t st_tcp_info = {
 #endif
 
 static uc_value_t *
-ai_addr_to_uv(void *st)
+ai_addr_to_uv(uc_vm_t *vm, void *st)
 {
-	uc_value_t *rv = ucv_object_new(NULL);
+	uc_value_t *rv = ucv_object_new(vm);
 	struct sockaddr_storage ss = { 0 };
 	struct addrinfo *ai = st;
 
@@ -1479,7 +1479,7 @@ ai_addr_to_uv(void *st)
 }
 
 static uc_value_t *
-ai_canonname_to_uv(void *st)
+ai_canonname_to_uv(uc_vm_t *vm, void *st)
 {
 	struct addrinfo *ai = st;
 	return ai->ai_canonname ? ucv_string_new(ai->ai_canonname) : NULL;
@@ -1513,7 +1513,7 @@ static struct_t st_addrinfo = {
 
 #if defined(__linux__)
 static uc_value_t *
-mr_ifindex_to_uv(void *st)
+mr_ifindex_to_uv(uc_vm_t *vm, void *st)
 {
 	char ifname[IF_NAMESIZE] = { 0 };
 	struct packet_mreq *mr = st;
@@ -1547,7 +1547,7 @@ mr_ifindex_to_c(void *st, uc_value_t *uv)
 }
 
 static uc_value_t *
-mr_address_to_uv(void *st)
+mr_address_to_uv(uc_vm_t *vm, void *st)
 {
 	struct packet_mreq *mr = st;
 
@@ -2074,13 +2074,13 @@ uv_to_struct(uc_vm_t *vm, uc_value_t *uv, struct_t *spec)
 }
 
 static uc_value_t *
-struct_to_uv(char *st, struct_t *spec)
+struct_to_uv(uc_vm_t *vm, char *st, struct_t *spec)
 {
 	char s[sizeof("ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255")];
 	uc_value_t *uv, *fv;
 	member_t *m;
 
-	uv = ucv_object_new(NULL);
+	uv = ucv_object_new(vm);
 
 	for (size_t i = 0; spec->members[i].name; i++) {
 		m = &spec->members[i];
@@ -2142,7 +2142,7 @@ struct_to_uv(char *st, struct_t *spec)
 			break;
 
 		case DT_CALLBACK:
-			fv = m->u2.to_uv ? m->u2.to_uv(st) : NULL;
+			fv = m->u2.to_uv ? m->u2.to_uv(vm, st) : NULL;
 			break;
 		}
 
@@ -2403,7 +2403,7 @@ uc_socket_inst_getopt(uc_vm_t *vm, size_t nargs)
 			break;
 
 		default:
-			value = struct_to_uv(st, sockopts[i].ctype);
+			value = struct_to_uv(vm, st, sockopts[i].ctype);
 			break;
 		}
 	}
@@ -2793,7 +2793,7 @@ uc_socket_addrinfo(uc_vm_t *vm, size_t nargs)
 	rv = ucv_array_new(vm);
 
 	for (struct addrinfo *ai = ai_res; ai; ai = ai->ai_next) {
-		uc_value_t *item = struct_to_uv((char *)ai, &st_addrinfo);
+		uc_value_t *item = struct_to_uv(vm, (char *)ai, &st_addrinfo);
 
 		if (item)
 			ucv_array_push(rv, item);
@@ -3953,7 +3953,7 @@ decode_cmsg(uc_vm_t *vm, struct cmsghdr *cmsg)
 
 		default:
 			if (sz >= cmsgtypes[i].ctype->size)
-				return struct_to_uv(s, cmsgtypes[i].ctype);
+				return struct_to_uv(vm, s, cmsgtypes[i].ctype);
 		}
 
 		break;
