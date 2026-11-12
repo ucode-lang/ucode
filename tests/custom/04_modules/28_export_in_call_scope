@@ -1,0 +1,50 @@
+call() copies the entries of a scope object without a prototype into the
+global scope of the called function. The entries of a module namespace
+are references to the exported variables. A compound assignment, an
+increment and a decrement of such a global variable read the value of
+the exported variable. Like a plain assignment they store the result in
+the scope of the function, and the variable of the module keeps its value.
+
+-- Testcase --
+import * as mod from "./files/counter.uc";
+
+function assign() { counter = counter + 2; return counter; }
+function add() { counter += 2; return counter; }
+function append() { label += "b"; return label; }
+function shift() { counter <<= 3; return counter; }
+function increment() { return [ counter++, ++counter, counter ]; }
+function decrement() { return [ counter--, --counter, counter ]; }
+function copy() { let scope = { ...mod }; scope.counter += 2; scope.counter++; return scope.counter; }
+
+for (let fn in [ assign, add, append, shift, increment, decrement, copy ])
+	print(call(fn, null, mod), " ", mod.read(), "\n");
+
+mod.step();
+
+for (let fn in [ add, increment ])
+	print(call(fn, null, mod), " ", mod.read(), "\n");
+-- End --
+
+-- File counter.uc --
+export let counter = 5;
+export let label = "a";
+
+export function read() { return [ counter, label ]; };
+export function step() { counter++; };
+-- End --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+7 [ 5, "a" ]
+7 [ 5, "a" ]
+ab [ 5, "a" ]
+40 [ 5, "a" ]
+[ 5, 7, 7 ] [ 5, "a" ]
+[ 5, 3, 3 ] [ 5, "a" ]
+8 [ 5, "a" ]
+8 [ 6, "a" ]
+[ 6, 8, 8 ] [ 6, "a" ]
+-- End --

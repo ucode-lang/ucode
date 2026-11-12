@@ -2429,9 +2429,14 @@ uc_vm_insn_update_var(uc_vm_t *vm, uc_vm_insn_t insn)
 	 * of the globals and collect garbage */
 	uc_vm_stack_push(vm, ucv_get(scope));
 
-	val = uc_vm_value_arith(vm, vm->arg.u32 >> 24, val, inc);
+	/* the push resolves an upvalue reference that the scope holds for the
+	 * export of a module */
+	uc_vm_stack_push(vm, ucv_get(val));
+
+	val = uc_vm_value_arith(vm, vm->arg.u32 >> 24, uc_vm_stack_peek(vm, 0), inc);
 
 	ucv_object_add(scope, ucv_string_get(name), ucv_get(val));
+	ucv_put(uc_vm_stack_pop(vm));
 	ucv_put(uc_vm_stack_pop(vm));
 	uc_vm_stack_push(vm, val);
 
