@@ -3480,14 +3480,72 @@ uc_vm_output_exception(uc_vm_t *vm, uc_exception_t *ex)
 	fprintf(stderr, "\n");
 }
 
+static uc_exception_type_t
+uc_vm_signal_handler_call(uc_vm_t *vm, size_t sig)
+{
+	uc_value_t *handler = ucv_array_get(vm->signal.handler, sig);
+	uc_exception_type_t ex;
+
+	if (!ucv_is_callable(handler))
+		return EXCEPTION_NONE;
+
+	uc_vm_stack_push(vm, ucv_get(handler));
+	uc_vm_stack_push(vm, ucv_int64_new(sig));
+
+	ex = uc_vm_call(vm, false, 1);
+
+	if (ex == EXCEPTION_NONE)
+		ucv_put(uc_vm_stack_pop(vm));
+
+	return ex;
+}
+
+/* uc_vm_signal_raise() runs in a signal handler. While all signals are
+ * blocked it cannot run between the read of the pipe and the read of a word,
+ * or between the read and the store of a word. */
+static void
+uc_vm_signal_pending_take(uc_vm_t *vm, uint64_t *pending)
+{
+	sigset_t all, prev;
+	int buf, rv;
+	size_t i;
+
+	sigfillset(&all);
+	sigprocmask(SIG_BLOCK, &all, &prev);
+
+	do {
+		rv = read(vm->signal.sigpipe[0], &buf, sizeof(buf));
+	} while (rv > 0 || (rv == -1 && errno == EINTR));
+
+	for (i = 0; i < ARRAY_SIZE(vm->signal.raised); i++) {
+		pending[i] = vm->signal.raised[i];
+		vm->signal.raised[i] = 0;
+	}
+
+	sigprocmask(SIG_SETMASK, &prev, NULL);
+}
+
+static void
+uc_vm_signal_pending_restore(uc_vm_t *vm, const uint64_t *pending)
+{
+	sigset_t all, prev;
+	size_t i;
+
+	sigfillset(&all);
+	sigprocmask(SIG_BLOCK, &all, &prev);
+
+	for (i = 0; i < ARRAY_SIZE(vm->signal.raised); i++)
+		vm->signal.raised[i] |= pending[i];
+
+	sigprocmask(SIG_SETMASK, &prev, NULL);
+}
+
 uc_exception_type_t
 uc_vm_signal_dispatch(uc_vm_t *vm)
 {
-	uc_exception_type_t ex;
-	uc_value_t *handler;
-	uint64_t mask;
-	size_t i, j;
-	int sig, rv;
+	uint64_t pending[ARRAY_SIZE(vm->signal.raised)], any = 0, mask;
+	uc_exception_type_t ex = EXCEPTION_NONE;
+	size_t i, sig;
 
 	/* Check whether the signal self-pipe was actually set up, rather than
 	 * re-checking config->setup_signal_handlers directly: the pipe may
@@ -3497,39 +3555,32 @@ uc_vm_signal_dispatch(uc_vm_t *vm)
 	if (vm->signal.sigpipe[0] < 0)
 		return EXCEPTION_NONE;
 
-	for (i = 0; i < ARRAY_SIZE(vm->signal.raised); i++) {
-		if (!vm->signal.raised[i])
+	for (i = 0; i < ARRAY_SIZE(pending); i++)
+		any |= vm->signal.raised[i];
+
+	if (!any)
+		return EXCEPTION_NONE;
+
+	/* The handlers run in the order of the signal numbers. The dispatch
+	 * inside a handler must find only the signals that came in after it. */
+	uc_vm_signal_pending_take(vm, pending);
+
+	for (sig = 0; sig < ARRAY_SIZE(pending) * 64 && ex == EXCEPTION_NONE; sig++) {
+		mask = 1ull << (sig % 64);
+
+		if (!(pending[sig / 64] & mask))
 			continue;
 
-		do {
-			rv = read(vm->signal.sigpipe[0], &sig, sizeof(sig));
-		} while (rv > 0 || (rv == -1 && errno == EINTR));
-
-		for (j = 0; j < 64; j++) {
-			mask = 1ull << j;
-
-			if (vm->signal.raised[i] & mask) {
-				vm->signal.raised[i] &= ~mask;
-
-				sig = i * 64 + j;
-				handler = ucv_array_get(vm->signal.handler, sig);
-
-				if (ucv_is_callable(handler)) {
-					uc_vm_stack_push(vm, ucv_get(handler));
-					uc_vm_stack_push(vm, ucv_int64_new(sig));
-
-					ex = uc_vm_call(vm, false, 1);
-
-					if (ex != EXCEPTION_NONE)
-						return ex;
-
-					ucv_put(uc_vm_stack_pop(vm));
-				}
-			}
-		}
+		pending[sig / 64] &= ~mask;
+		ex = uc_vm_signal_handler_call(vm, sig);
 	}
 
-	return EXCEPTION_NONE;
+	/* a further handler call would drop the exception, so a later
+	 * dispatch runs the handlers of the remaining signals */
+	if (ex != EXCEPTION_NONE)
+		uc_vm_signal_pending_restore(vm, pending);
+
+	return ex;
 }
 
 static uc_vm_status_t
