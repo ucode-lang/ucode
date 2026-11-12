@@ -2321,56 +2321,56 @@ uc_socket_inst_getopt(uc_vm_t *vm, size_t nargs)
 	solvl = ucv_int64_get(level);
 	soopt = ucv_int64_get(option);
 
-	for (i = 0; i < ARRAY_SIZE(sockopts); i++) {
-		if (sockopts[i].level != solvl || sockopts[i].option != soopt)
-			continue;
-
-		switch ((uintptr_t)sockopts[i].ctype) {
-		case (uintptr_t)SV_VOID:
-			err_return(EOPNOTSUPP, "Socket option is write only");
-
-		case (uintptr_t)SV_INT:
-		case (uintptr_t)SV_INT_RO:
-		case (uintptr_t)SV_BOOL:
-		case (uintptr_t)SV_IFNAME:
-			valptr = ival;
-			vallen = sizeof(ival);
+	for (i = 0; i < ARRAY_SIZE(sockopts); i++)
+		if (sockopts[i].level == solvl && sockopts[i].option == soopt)
 			break;
-
-		case (uintptr_t)SV_STRING:
-			sb = strbuf_alloc(64);
-			valptr = strbuf_data(sb);
-			vallen = strbuf_size(sb);
-			break;
-
-		default:
-			st = xalloc(sockopts[i].ctype->size);
-			valptr = st;
-			vallen = sockopts[i].ctype->size;
-			break;
-		}
-
-		break;
-	}
 
 	if (i == ARRAY_SIZE(sockopts))
 		err_return(EINVAL, "Unknown socket level or option");
 
+	switch ((uintptr_t)sockopts[i].ctype) {
+	case (uintptr_t)SV_VOID:
+		err_return(EOPNOTSUPP, "Socket option is write only");
+
+	case (uintptr_t)SV_INT:
+	case (uintptr_t)SV_INT_RO:
+	case (uintptr_t)SV_BOOL:
+	case (uintptr_t)SV_IFNAME:
+		valptr = ival;
+		vallen = sizeof(ival);
+		break;
+
+	case (uintptr_t)SV_STRING:
+		sb = strbuf_alloc(64);
+
+		if (!sb)
+			return NULL;
+
+		valptr = strbuf_data(sb);
+		vallen = strbuf_size(sb);
+		break;
+
+	default:
+		st = xalloc(sockopts[i].ctype->size);
+		valptr = st;
+		vallen = sockopts[i].ctype->size;
+		break;
+	}
+
 	while (true) {
 		ret = getsockopt(sockfd, solvl, soopt, valptr, &vallen);
 
-		if (sockopts[i].ctype == SV_STRING &&
-		    (ret == 0 || (ret == -1 && errno == ERANGE)) &&
-		    vallen > strbuf_size(sb)) {
+		if (sockopts[i].ctype != SV_STRING || vallen <= strbuf_size(sb) ||
+		    (ret == -1 && errno != ERANGE))
+			break;
 
-			if (!strbuf_grow(sb, vallen))
-				return NULL;
+		if (!strbuf_grow(sb, vallen)) {
+			strbuf_free(sb);
 
-			valptr = strbuf_data(sb);
-			continue;
+			return NULL;
 		}
 
-		break;
+		valptr = strbuf_data(sb);
 	}
 
 	if (ret == 0) {
@@ -4370,6 +4370,44 @@ uc_socket_inst_sendmsg(uc_vm_t *vm, size_t nargs)
  * *ancillarySize* was passed to `recvmsg()`.
  */
 
+static void
+recvmsg_buffers_free(strbuf_array_t *sbarr, struct msghdr *msg, struct iovec *vec)
+{
+	while (sbarr->count > 0)
+		strbuf_free(sbarr->entries[--sbarr->count]);
+
+	uc_vector_clear(sbarr);
+
+	if (msg->msg_iov != vec)
+		free(msg->msg_iov);
+
+	free(msg->msg_control);
+}
+
+static bool
+recvmsg_buffers_alloc(strbuf_array_t *sbarr, struct msghdr *msg, uc_value_t *length)
+{
+	for (size_t i = 0; i < (size_t)msg->msg_iovlen; i++) {
+		uc_value_t *size = (ucv_type(length) == UC_ARRAY) ? ucv_array_get(length, i) : length;
+		size_t sz = ucv_to_unsigned(size);
+		uc_stringbuf_t *sb;
+
+		if (errno != 0)
+			err_return(errno, "Invalid length value");
+
+		sb = strbuf_alloc(sz);
+
+		if (!sb)
+			return false;
+
+		uc_vector_push(sbarr, sb);
+		msg->msg_iov[i].iov_base = strbuf_data(sb);
+		msg->msg_iov[i].iov_len = sz;
+	}
+
+	return true;
+}
+
 /**
  * Receives a message from the socket.
  *
@@ -4459,43 +4497,16 @@ uc_socket_inst_recvmsg(uc_vm_t *vm, size_t nargs)
 		msg.msg_iovlen = ucv_array_length(length);
 		msg.msg_iov = (msg.msg_iovlen > 1)
 			? xalloc(sizeof(vec) * msg.msg_iovlen) : &vec;
-
-		for (size_t i = 0; i < (size_t)msg.msg_iovlen; i++) {
-			size_t sz = ucv_to_unsigned(ucv_array_get(length, i));
-
-			if (errno != 0) {
-				while (sbarr.count > 0)
-					strbuf_free(sbarr.entries[--sbarr.count]);
-
-				uc_vector_clear(&sbarr);
-
-				if (msg.msg_iov != &vec)
-					free(msg.msg_iov);
-
-				free(msg.msg_control);
-
-				err_return(errno, "Invalid length value");
-			}
-
-			uc_vector_push(&sbarr, strbuf_alloc(sz));
-			msg.msg_iov[i].iov_base = strbuf_data(sbarr.entries[i]);
-			msg.msg_iov[i].iov_len = sz;
-		}
 	}
 	else {
-		size_t sz = ucv_to_unsigned(length);
-
-		if (errno != 0) {
-			free(msg.msg_control);
-			err_return(errno, "Invalid length value");
-		}
-
-		uc_vector_push(&sbarr, strbuf_alloc(sz));
-
 		msg.msg_iovlen = 1;
 		msg.msg_iov = &vec;
-		vec.iov_base = strbuf_data(sbarr.entries[0]);
-		vec.iov_len = sz;
+	}
+
+	if (!recvmsg_buffers_alloc(&sbarr, &msg, length)) {
+		recvmsg_buffers_free(&sbarr, &msg, &vec);
+
+		return NULL;
 	}
 
 	/* now receive actual data */
@@ -4507,16 +4518,7 @@ uc_socket_inst_recvmsg(uc_vm_t *vm, size_t nargs)
 	} while (ret == -1 && errno == EINTR);
 
 	if (ret == -1) {
-		while (sbarr.count > 0)
-			strbuf_free(sbarr.entries[--sbarr.count]);
-
-		uc_vector_clear(&sbarr);
-
-		if (msg.msg_iov != &vec)
-			free(msg.msg_iov);
-
-		free(msg.msg_control);
-
+		recvmsg_buffers_free(&sbarr, &msg, &vec);
 		err_return(errno, "recvmsg()");
 	}
 
