@@ -3364,6 +3364,18 @@ uc_vm_insn_dynload(uc_vm_t *vm, uc_vm_insn_t insn)
 	/* Attempt to load module. Will raise exception on error */
 	name = uc_vm_stack_pop(vm);
 	modscope = uc_require_library(vm, name, true);
+
+	/* the two cases for which uc_require_library() gives null and raises
+	 * nothing, as require() needs it */
+	if (!modscope && vm->exception.type == EXCEPTION_NONE) {
+		if (ucv_type(name) != UC_STRING)
+			uc_vm_raise_exception(vm, EXCEPTION_TYPE,
+			                      "Passed module name is not a string");
+		else
+			uc_vm_raise_exception(vm, EXCEPTION_RUNTIME,
+			                      "Module '%s' is null", ucv_string_get(name));
+	}
+
 	ucv_put(name);
 
 	if (!modscope || vm->exception.type != EXCEPTION_NONE) {

@@ -1,0 +1,86 @@
+import() raises an exception if its argument is not a string and if the
+module table holds null for the name. The values of the function that
+called import() stay in place.
+
+-- Testcase --
+function load(name) {
+	let before = "before", module, after = "after";
+
+	try {
+		module = import(name);
+	}
+	catch (e) {
+		module = `${e.type}: ${e.message}`;
+	}
+
+	return [ before, module, after ];
+}
+
+modules.absent = null;
+
+print(load(5), "\n");
+print(load(null), "\n");
+print(load([ "fs" ]), "\n");
+print(load("absent"), "\n");
+print([ 1, type(import("fs")), 3 ], "\n");
+-- End --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ "before", "Type error: Passed module name is not a string", "after" ]
+[ "before", "Type error: Passed module name is not a string", "after" ]
+[ "before", "Type error: Passed module name is not a string", "after" ]
+[ "before", "Runtime error: Module 'absent' is null", "after" ]
+[ 1, "object", 3 ]
+-- End --
+
+The static import of a native module loads it at run time as well. If the
+module table holds null for the name, the import raises the same
+exception, for a list of names and for a wildcard import.
+
+-- Testcase --
+modules.fs = null;
+
+import { readfile } from 'fs';
+
+print(type(readfile), "\n");
+-- End --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stderr --
+Runtime error: Module 'fs' is null
+In line 3, byte 26:
+
+ `import { readfile } from 'fs';`
+  ~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~
+
+
+-- End --
+
+-- Testcase --
+modules.fs = null;
+
+import * as fs from 'fs';
+
+print(type(fs), "\n");
+-- End --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stderr --
+Runtime error: Module 'fs' is null
+In line 3, byte 21:
+
+ `import * as fs from 'fs';`
+  ~~~~~~~~~~~~~~~~~~~~^~~~~
+
+
+-- End --
