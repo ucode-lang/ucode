@@ -18,6 +18,10 @@ if (tmproot == null) {
 	exit(1);
 }
 
+// A test program can end before it read its code from the pipe: the write must
+// fail, not end the runner. The test programs would inherit 'ignore'.
+signal('SIGPIPE', () => null);
+
 function mkdir_p(path) {
 	let parts = split(rtrim(path, '/') || '/', /\/+/);
 	let current = '';
