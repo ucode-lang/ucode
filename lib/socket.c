@@ -3714,6 +3714,12 @@ uc_socket_inst_send(uc_vm_t *vm, size_t nargs)
 	if (ucv_type(data) != UC_STRING)
 		buf = ucv_to_string(vm, data);
 
+	if (vm->exception.type != EXCEPTION_NONE) {
+		free(buf);
+
+		return NULL;
+	}
+
 	ret = sendto(sockfd,
 		buf ? buf : ucv_string_get(data),
 		buf ? strlen(buf) : ucv_string_length(data),
