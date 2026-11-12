@@ -13,7 +13,7 @@ child.
 
 	uloop.init();
 
-	const tmpdir = fs.mkdtemp('/tmp/ucode-uloop-process-XXXXXX');
+	const tmpdir = fs.mkdtemp('./ucode-uloop-process-XXXXXX');
 	const outfile = tmpdir + '/out';
 
 	function run(label, executable, args, env) {

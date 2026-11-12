@@ -9,6 +9,14 @@ let line = '........................................';
 let ucode_bin = getenv('UCODE_BIN') || `${topdir}/build/ucode`;
 let ucode_lib = getenv('UCODE_LIB') || `${topdir}/build`;
 let platform = trim(fs.popen('uname -s', 'r').read('all'));
+// The messages of a test program hold the canonical path of a source file.
+let tmpbase = getenv('TMPDIR') || '/tmp';
+let tmproot = fs.realpath(tmpbase);
+
+if (tmproot == null) {
+	warn(`Unable to use the temporary directory '${tmpbase}': ${fs.error()}\n`);
+	exit(1);
+}
 
 function mkdir_p(path) {
 	let parts = split(rtrim(path, '/') || '/', /\/+/);
@@ -128,7 +136,7 @@ function diff(tag, ...ab) {
 
 	for (let i, f in ab) {
 		if (type(f) != 'resource') {
-			push(tmpfiles, fs.mkstemp());
+			push(tmpfiles, fs.mkstemp(`${tmproot}/XXXXXX`));
 			tmpfiles[-1].write(f);
 			f = tmpfiles[-1];
 		}
@@ -138,6 +146,20 @@ function diff(tag, ...ab) {
 	}
 
 	system(cmd);
+}
+
+// A syntax error shortens a source path of more than 48 bytes to "..." and
+// its last 45 bytes, which can leave only the end of the work directory.
+function workdir_strip(text, dir) {
+	text = replace(text, dir, '.');
+
+	if (index(text, '...') < 0)
+		return text;
+
+	for (let n = min(length(dir) - 1, 43); n > 0; n--)
+		text = replace(text, `...${substr(dir, -n)}/`, './');
+
+	return text;
 }
 
 function run_testcase(num, dir, testcase) {
@@ -175,7 +197,7 @@ function run_testcase(num, dir, testcase) {
 
 	let ok = true;
 
-	if (replace(ferr.read('all'), dir, '.') != eerr) {
+	if (workdir_strip(ferr.read('all'), dir) != eerr) {
 		if (ok) print('!\n');
 		printf("Testcase #%d: Expected stderr did not match:\n", num);
 		diff('stderr', eerr, ferr);
@@ -183,7 +205,7 @@ function run_testcase(num, dir, testcase) {
 		ok = false;
 	}
 
-	if (replace(fout.read('all'), dir, '.') != eout) {
+	if (workdir_strip(fout.read('all'), dir) != eout) {
 		if (ok) print('!\n');
 		printf("Testcase #%d: Expected stdout did not match:\n", num);
 		diff('stdout', eout, fout);
@@ -206,7 +228,7 @@ function run_test(file) {
 	let name = fs.basename(file);
 	printf('%s %s ', name, substr(line, length(name)));
 
-	let tmpdir = sprintf('/tmp/test.%d', getpid());
+	let tmpdir = sprintf('%s/test.%d', tmproot, getpid());
 	let testcases = parse_testcases(file, tmpdir);
 	let failed = 0, skipped = 0;
 

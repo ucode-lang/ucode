@@ -11,7 +11,7 @@ that watches the new file.
 
 	uloop.init();
 
-	let dir = fs.mkdtemp();
+	let dir = fs.mkdtemp('./fifo-XXXXXX');
 	let path = dir + '/fifo';
 
 	system(['mkfifo', path]);
@@ -73,7 +73,7 @@ old file to it.
 
 	uloop.init();
 
-	let dir = fs.mkdtemp();
+	let dir = fs.mkdtemp('./fifo-XXXXXX');
 	let path = dir + '/fifo';
 
 	system(['mkfifo', path]);
