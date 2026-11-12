@@ -92,6 +92,20 @@ freed once it expires without being rearmed.
 
 	uloop.init();
 
+	// With an old libubox, uloop.run() with a timeout returns only when the
+	// loop ends: end the loop from a timer.
+	function run(msecs) {
+		uloop.timer(msecs, () => uloop.end());
+		uloop.run();
+	}
+
+	// A host under load needs an unknown time until its timers fired: run
+	// the loop until the state is there.
+	function loop_until(done) {
+		for (let limit = time() + 10; !done() && time() < limit; )
+			run(10);
+	}
+
 	let rearmed = 0, deferred = 0;
 	let base = gc('count');
 
@@ -104,8 +118,10 @@ freed once it expires without being rearmed.
 		deferred++;
 	}).set(2);
 
-	uloop.timer(20, () => uloop.end());
-	uloop.run();
+	loop_until(() => rearmed == 3 && deferred == 1);
+
+	// a timer that is still armed fires in a further run
+	run(15);
 
 	printf("rearmed: %d, deferred: %d, alive: %d\n", rearmed, deferred,
 		gc('count') - base);
@@ -222,10 +238,17 @@ is rejected by set() and leaves a new interval unarmed.
 		uloop.run();
 	}
 
+	// A host under load needs an unknown time until an interval fired: run
+	// the loop until the state is there.
+	function loop_until(done) {
+		for (let limit = time() + 10; !done() && time() < limit; )
+			run(10);
+	}
+
 	let ticks = 0;
 	let interval = uloop.interval(5, () => ticks++);
 
-	run(30);
+	loop_until(() => ticks > 0);
 	printf("armed: %s\n", ticks > 0);
 
 	printf("set(): %s, remaining: %d\n", interval.set(), interval.remaining());
@@ -237,7 +260,7 @@ is rejected by set() and leaves a new interval unarmed.
 	printf("set(0): %s, %s\n", interval.set(0), uloop.error());
 
 	interval.set(5);
-	run(30);
+	loop_until(() => ticks > 0);
 	printf("rearmed: %s\n", ticks > 0);
 
 	printf("set(null): %s, remaining: %d\n", interval.set(null),
