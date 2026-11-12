@@ -3995,10 +3995,26 @@ estimate_cmsg_size(uc_value_t *uv)
 	}
 }
 
+uc_declare_vector(fd_array_t, int);
+
+static void
+uv_to_fds(uc_vm_t *vm, uc_value_t *list, fd_array_t *fds)
+{
+	for (size_t i = 0; i < ucv_array_length(list); i++) {
+		int fd;
+
+		/* the next fileno call would clear the exception of this one */
+		if (uv_to_fileno(vm, ucv_array_get(list, i), &fd))
+			uc_vector_push(fds, fd);
+		else if (vm->exception.type != EXCEPTION_NONE)
+			break;
+	}
+}
+
 static bool
 encode_cmsg(uc_vm_t *vm, uc_value_t *uv, struct cmsghdr *cmsg, size_t maxlen)
 {
-	struct { int *entries; size_t count; } fds = { 0 };
+	fd_array_t fds = { 0 };
 	void *dataptr = NULL;
 	socklen_t datasz = 0;
 	char *st = NULL;
@@ -4054,14 +4070,8 @@ encode_cmsg(uc_vm_t *vm, uc_value_t *uv, struct cmsghdr *cmsg, size_t maxlen)
 			break;
 
 		case (uintptr_t)CV_FDS:
-			if (ucv_type(data) == UC_ARRAY) {
-				for (size_t i = 0; i < ucv_array_length(data); i++) {
-					int fd;
-
-					if (uv_to_fileno(vm, ucv_array_get(data, i), &fd))
-						uc_vector_push(&fds, fd);
-				}
-			}
+			if (ucv_type(data) == UC_ARRAY)
+				uv_to_fds(vm, data, &fds);
 
 			datasz = sizeof(fds.entries[0]) * fds.count;
 			dataptr = fds.entries;
@@ -4130,6 +4140,9 @@ encode_cmsg(uc_vm_t *vm, uc_value_t *uv, struct cmsghdr *cmsg, size_t maxlen)
 	ucv_put(uc_vm_stack_pop(vm));
 	uc_vector_clear(&fds);
 	free(st);
+
+	if (vm->exception.type != EXCEPTION_NONE)
+		return false;
 
 	if (!fits)
 		err_return(ENOBUFS, "Not enough CMSG buffer space");
