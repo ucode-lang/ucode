@@ -2003,6 +2003,12 @@ abs64(int64_t n)
 	return n;
 }
 
+/* C leaves a shift by a negative count or by the width of the type undefined */
+static unsigned int
+shift_count(uint64_t count)
+{
+	return count % (sizeof(uint64_t) * CHAR_BIT);
+}
 
 static uc_value_t *
 uc_vm_value_bitop(uc_vm_t *vm, uc_vm_insn_t operation, uc_value_t *value, uc_value_t *operand)
@@ -2020,11 +2026,11 @@ uc_vm_value_bitop(uc_vm_t *vm, uc_vm_insn_t operation, uc_value_t *value, uc_val
 	if (n1 < 0 || n2 < 0) {
 		switch (operation) {
 		case I_LSHIFT:
-			rv = ucv_int64_new(n1 << n2);
+			rv = ucv_int64_new((int64_t)((uint64_t)n1 << shift_count(n2)));
 			break;
 
 		case I_RSHIFT:
-			rv = ucv_int64_new(n1 >> n2);
+			rv = ucv_int64_new(n1 >> shift_count(n2));
 			break;
 
 		case I_BAND:
@@ -2049,11 +2055,11 @@ uc_vm_value_bitop(uc_vm_t *vm, uc_vm_insn_t operation, uc_value_t *value, uc_val
 
 		switch (operation) {
 		case I_LSHIFT:
-			rv = ucv_uint64_new(u1 << (u2 % (sizeof(uint64_t) * CHAR_BIT)));
+			rv = ucv_uint64_new(u1 << shift_count(u2));
 			break;
 
 		case I_RSHIFT:
-			rv = ucv_uint64_new(u1 >> (u2 % (sizeof(uint64_t) * CHAR_BIT)));
+			rv = ucv_uint64_new(u1 >> shift_count(u2));
 			break;
 
 		case I_BAND:
