@@ -1,0 +1,158 @@
+A signal handler that raises directly after the RETURN that ends a nested
+invocation, here the tostring method that a string conversion calls, must
+not unwind the frame of the function that made the conversion as if the
+handler ran between two of its instructions. The catch block got a wrong
+stack, and without a catch block the VM released the frame under the
+running C function.
+
+The RETURN of tostring() releases the pipe handle, which waits for the
+child, so the signal is pending when the method returns.
+
+-- Testcase --
+{%
+	import * as fs from 'fs';
+
+	signal("SIGUSR1", () => die("from handler"));
+
+	let o = proto({}, { tostring: function() {
+		let p = fs.popen("kill -USR1 $PPID; sleep 0.2", "r");
+
+		return "str";
+	} });
+
+	function caught() {
+		let l = [ 1, 2 ];
+
+		try {
+			let s = "" + o;
+
+			return "end " + s;
+		}
+		catch (e) {
+			return "caught " + e.message + " " + l;
+		}
+	}
+
+	function uncaught() {
+		let l = [ 1, 2 ];
+		let s = "" + o;
+
+		return "end " + s + l;
+	}
+
+	print(caught(), "\n");
+
+	try {
+		print(uncaught(), "\n");
+	}
+	catch (e) {
+		print("propagated ", e.message, "\n");
+	}
+
+	print("done\n");
+%}
+-- End --
+
+-- Expect stdout --
+caught from handler [ 1, 2 ]
+propagated from handler
+done
+-- End --
+
+
+A handler that does not raise leaves the result of the invocation in place.
+
+-- Testcase --
+{%
+	import * as fs from 'fs';
+
+	signal("SIGUSR1", () => print("handler\n"));
+
+	let o = proto({}, { tostring: function() {
+		let p = fs.popen("kill -USR1 $PPID; sleep 0.2", "r");
+
+		return "str";
+	} });
+
+	let s = "result " + o;
+
+	print(s, "\n");
+%}
+-- End --
+
+-- Expect stdout --
+handler
+result str
+-- End --
+
+
+An exit request of the handler ends the program.
+
+-- Testcase --
+{%
+	import * as fs from 'fs';
+
+	signal("SIGUSR1", () => exit(3));
+
+	let o = proto({}, { tostring: function() {
+		let p = fs.popen("kill -USR1 $PPID; sleep 0.2", "r");
+
+		return "str";
+	} });
+
+	try {
+		let s = "result " + o;
+
+		print(s, "\n");
+	}
+	catch (e) {
+		print("caught\n");
+	}
+
+	print("not reached\n");
+%}
+-- End --
+
+-- Expect stdout --
+-- End --
+
+-- Expect exitcode --
+3
+-- End --
+
+
+A signal that comes in during the last RETURN of the program runs its
+handler before the program ends. The RETURN releases the pipe handle of the
+program, which waits for the child. An exception of the handler is the
+result of the program.
+
+-- Testcase --
+{%
+	import * as fs from 'fs';
+
+	signal("SIGUSR1", () => print("handler\n"));
+
+	let p = fs.popen("kill -USR1 $PPID; sleep 0.2", "r");
+%}
+-- End --
+
+-- Expect stdout --
+handler
+-- End --
+
+-- Testcase --
+{%
+	import * as fs from 'fs';
+
+	signal("SIGUSR1", () => exit(4));
+
+	let p = fs.popen("kill -USR1 $PPID; sleep 0.2", "r");
+%}
+-- End --
+
+-- Expect stdout --
+-- End --
+
+-- Expect exitcode --
+4
+-- End --

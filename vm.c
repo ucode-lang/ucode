@@ -3847,6 +3847,11 @@ exception:
 		if (insn == I_EXPORT && frame->ip[0] == I_EXPORT)
 			continue;
 
+		/* a handler that raises needs a frame of this invocation to unwind;
+		 * after the last RETURN the caller dispatches the signal */
+		if (vm->callframes.count <= caller)
+			break;
+
 		/* run handler for signal(s) delivered during previous instruction */
 		if (uc_vm_signal_dispatch(vm) != EXCEPTION_NONE) {
 			between = true;
@@ -3862,6 +3867,25 @@ exception:
 	}
 
 	return STATUS_OK;
+}
+
+/* The handlers of signals run between two instructions of a frame. A call
+ * that returns to a C host leaves no frame behind, so the handlers of the
+ * signals of its last instructions run here, in place of its result. */
+static uc_exception_type_t
+uc_vm_signal_dispatch_host(uc_vm_t *vm)
+{
+	uc_exception_type_t ex;
+
+	if (vm->callframes.count > 0 || vm->exception.type != EXCEPTION_NONE)
+		return vm->exception.type;
+
+	ex = uc_vm_signal_dispatch(vm);
+
+	if (ex != EXCEPTION_NONE)
+		ucv_put(uc_vm_stack_pop(vm));
+
+	return ex;
 }
 
 uc_vm_status_t
@@ -3902,6 +3926,9 @@ uc_vm_execute(uc_vm_t *vm, uc_program_t *program, uc_value_t **retval)
 	uc_vm_stack_push(vm, NULL);
 
 	status = uc_vm_execute_chunk(vm);
+
+	if (status == STATUS_OK && uc_vm_signal_dispatch_host(vm) != EXCEPTION_NONE)
+		status = uc_vm_exception_type_to_status(vm);
 
 	switch (status) {
 	case STATUS_OK:
@@ -3963,7 +3990,7 @@ uc_vm_call(uc_vm_t *vm, bool mcall, size_t nargs)
 	if (vm->callframes.count > depth)
 		uc_vm_execute_chunk(vm);
 
-	return vm->exception.type;
+	return uc_vm_signal_dispatch_host(vm);
 
 drop:
 	/* the release of the call frame drops the callee, its arguments and the
