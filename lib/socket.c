@@ -3996,12 +3996,13 @@ estimate_cmsg_size(uc_value_t *uv)
 }
 
 static bool
-encode_cmsg(uc_vm_t *vm, uc_value_t *uv, struct cmsghdr *cmsg)
+encode_cmsg(uc_vm_t *vm, uc_value_t *uv, struct cmsghdr *cmsg, size_t maxlen)
 {
 	struct { int *entries; size_t count; } fds = { 0 };
 	void *dataptr = NULL;
 	socklen_t datasz = 0;
 	char *st = NULL;
+	bool fits;
 	size_t i;
 	union {
 		int i;
@@ -4014,6 +4015,10 @@ encode_cmsg(uc_vm_t *vm, uc_value_t *uv, struct cmsghdr *cmsg)
 	cmsg->cmsg_type = ucv_to_integer(ucv_object_get(uv, "type", NULL));
 
 	uc_value_t *data = ucv_object_get(uv, "data", NULL);
+
+	/* a fileno or tostring method that the conversion calls can remove the
+	 * data from the message object */
+	uc_vm_stack_push(vm, ucv_get(data));
 
 	for (i = 0; i < ARRAY_SIZE(cmsgtypes); i++) {
 		if (cmsgtypes[i].level != cmsg->cmsg_level)
@@ -4112,13 +4117,22 @@ encode_cmsg(uc_vm_t *vm, uc_value_t *uv, struct cmsghdr *cmsg)
 		}
 	}
 
-	cmsg->cmsg_len = CMSG_LEN(datasz);
+	/* the buffer has the size that the data had before the conversion */
+	fits = (datasz <= maxlen);
 
-	if (dataptr)
-		memcpy(CMSG_DATA(cmsg), dataptr, datasz);
+	if (fits) {
+		cmsg->cmsg_len = CMSG_LEN(datasz);
 
+		if (dataptr)
+			memcpy(CMSG_DATA(cmsg), dataptr, datasz);
+	}
+
+	ucv_put(uc_vm_stack_pop(vm));
 	uc_vector_clear(&fds);
 	free(st);
+
+	if (!fits)
+		err_return(ENOBUFS, "Not enough CMSG buffer space");
 
 	return true;
 }
@@ -4247,7 +4261,10 @@ uc_socket_inst_sendmsg(uc_vm_t *vm, size_t nargs)
 					err_return(ENOBUFS, "Not enough CMSG buffer space");
 				}
 
-				if (!encode_cmsg(vm, ucv_array_get(ancdata, i), cmsg)) {
+				size_t maxlen = (char *)msg.msg_control + msg.msg_controllen -
+					(char *)CMSG_DATA(cmsg);
+
+				if (!encode_cmsg(vm, ucv_array_get(ancdata, i), cmsg, maxlen)) {
 					free(msg.msg_control);
 					return NULL;
 				}
