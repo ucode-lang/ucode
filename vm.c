@@ -1299,7 +1299,9 @@ uc_vm_handle_exception(uc_vm_t *vm, bool between)
 	if (!range)
 		return false;
 
+	/* a closure may hold a variable of the block that the unwind drops */
 	slot = frame->stackframe + range->slot;
+	uc_vm_close_upvals(vm, slot);
 
 	while (vm->stack.count > slot)
 		ucv_put(uc_vm_stack_pop(vm));
