@@ -84,6 +84,14 @@ limitations under the License.
 
 #include "ucode/module.h"
 
+#ifndef AF_MPLS
+# define AF_MPLS 28
+#endif
+
+#ifndef SOL_NETLINK
+# define SOL_NETLINK 270
+#endif
+
 #define DIV_ROUND_UP(n, d)      (((n) + (d) - 1) / (d))
 
 #define err_return(code, ...) do { set_error(code, __VA_ARGS__); return NULL; } while(0)
