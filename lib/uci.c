@@ -688,6 +688,112 @@ uc_uci_get(uc_vm_t *vm, size_t nargs)
 	return uc_uci_get_any(vm, nargs, false);
 }
 
+static uc_value_t *
+str_to_bool(uc_vm_t *vm, uc_value_t *value)
+{
+	/* Values consistent with
+	 * https://openwrt.org/docs/guide-developer/config-scripting#reading_booleans
+	 * https://openwrt.github.io/luci/jsapi/LuCI.uci.html#get_bool
+	 */
+	static char *true_values[] = { "1", "enabled", "on", "true", "yes", };
+
+	size_t i;
+	char *str;
+	bool is_true = false;
+
+	if (ucv_type(value) != UC_STRING)
+		err_return(UCI_ERR_INVAL);
+
+	str = ucv_string_get(value);
+	for (i = 0; i < ARRAY_SIZE(true_values); i++) {
+		if (!strcasecmp(str, true_values[i])) {
+			is_true = true;
+			break;
+		}
+	}
+
+	ok_return(ucv_boolean_new(is_true));
+}
+
+/**
+ * Provide a special case for {@link module:uci.cursor#get|get()} that parses
+ * and interprets truishness of boolean settings represented as strings.
+ *
+ * When the configuration option contains any of `"1"`, `"enabled"`, `"on"`,
+ * `"true"` or `"yes"`, then a value of `true` is returned.  Any other value
+ * in the config option will be interpreted as `false`.  Character case is
+ * folded, so for example, `YES`, `Yes` and `yes` are all valid and interpreted
+ * as `true`.
+ *
+ * Returns `null` on error, e.g., if the requested configuration does not
+ * exist or if an invalid argument was passed.
+ *
+ * Note that there is no equivalent `set` function, so be careful to adhere to
+ * the conventions of this method and use only values from the above list to
+ * imply `true`; best practice is to simply call `set` using a boolean `true`.
+ *
+ * @function module:uci.cursor#get_bool
+ *
+ * @param {string} config
+ * The name of the configuration file to query.
+ *
+ * @param {string} section
+ * The name of the section to query within the configuration.
+ *
+ * @param {string} option
+ * The name of the option to query within the section.
+ *
+ * @returns {?boolean}
+ *
+ * @example
+ * const ctx = cursor(…);
+ *
+ * // Query if the ntp server is enabled
+ * ctx.get_bool('system', 'ntp', 'enable_server');
+ *
+ * // Query if the dhcp server is disabled on wan
+ * ctx.get_bool('dhcp', 'wan', 'ignore');
+ */
+static uc_value_t *
+uc_uci_get_bool(uc_vm_t *vm, size_t nargs)
+{
+	uc_value_t *value = uc_uci_get_any(vm, nargs, false);
+
+	if (!value)
+		return NULL;
+
+	return str_to_bool(vm, value);
+}
+
+/**
+ * Determine the truishness of a string value, returning a bool result.
+ *
+ * An input value of `"1"`, `"enabled"`, `"on"`, `"true"` or `"yes"`,
+ * returns `true`; any other value will be interpreted as `false`.
+ * Character case is folded, so for example, `YES`, `Yes` and `yes`
+ * are all valid and interpreted as `true`.
+ *
+ * @function module:uci#parse_bool
+ *
+ * @param {string} value
+ * The input string to be converted into a boolean value.
+ *
+ * @returns {?boolean}
+ *
+ * @example
+ * const ctx = cursor(…);
+ *
+ * ctx.parse_bool('yes');  // returns true
+ * ctx.parse_bool('no');   // returns false
+ * ctx.parse_bool('On');   // returns true
+ * ctx.parse_bool('Off');  // returns false
+ */
+static uc_value_t *
+uc_uci_parse_bool(uc_vm_t *vm, size_t nargs)
+{
+	return str_to_bool(vm, uc_fn_arg(0));
+}
+
 /**
  * Query a complete section or configuration.
  *
@@ -2047,6 +2153,7 @@ static const uc_function_list_t cursor_fns[] = {
 	{ "get",			uc_uci_get },
 	{ "get_all",		uc_uci_get_all },
 	{ "get_first",		uc_uci_get_first },
+	{ "get_bool",			uc_uci_get_bool },
 	{ "add",			uc_uci_add },
 	{ "set",			uc_uci_set },
 	{ "rename",			uc_uci_rename },
@@ -2061,10 +2168,12 @@ static const uc_function_list_t cursor_fns[] = {
 	{ "foreach",		uc_uci_foreach },
 	{ "configs",		uc_uci_configs },
 	{ "error",			uc_uci_error },
+	{ "parse_bool",		uc_uci_parse_bool },
 };
 
 static const uc_function_list_t global_fns[] = {
 	{ "error",		uc_uci_error },
+	{ "parse_bool",		uc_uci_parse_bool },
 	{ "cursor",		uc_uci_cursor },
 };
 
