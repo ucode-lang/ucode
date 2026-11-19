@@ -2010,20 +2010,53 @@ shift_count(uint64_t count)
 	return count % (sizeof(uint64_t) * CHAR_BIT);
 }
 
+/* The bit operators work on the 64 bit two's complement of a number: a
+ * double out of range wraps modulo 2^64 */
+static uint64_t
+bit_pattern(uc_value_t *nv, bool *negative)
+{
+	int64_t n = ucv_int64_get(nv);
+	double d;
+
+	*negative = false;
+
+	if (errno != ERANGE) {
+		*negative = (n < 0);
+
+		return (uint64_t)n;
+	}
+
+	if (ucv_type(nv) == UC_INTEGER)
+		return ucv_uint64_get(nv);
+
+	d = ucv_double_get(nv);
+
+	if (!isfinite(d))
+		return 0;
+
+	*negative = (d < 0);
+	d = fmod(d, ldexp(1.0, 64));
+
+	return (d < 0) ? -(uint64_t)-d : (uint64_t)d;
+}
+
 static uc_value_t *
 uc_vm_value_bitop(uc_vm_t *vm, uc_vm_insn_t operation, uc_value_t *value, uc_value_t *operand)
 {
 	uc_value_t *nv1, *nv2, *rv = NULL;
 	uint64_t u1, u2;
 	int64_t n1, n2;
+	bool neg1, neg2;
 
 	nv1 = ucv_to_number(value);
 	nv2 = ucv_to_number(operand);
 
-	n1 = int64(nv1, &u1);
-	n2 = int64(nv2, &u2);
+	u1 = bit_pattern(nv1, &neg1);
+	u2 = bit_pattern(nv2, &neg2);
+	n1 = (int64_t)u1;
+	n2 = (int64_t)u2;
 
-	if (n1 < 0 || n2 < 0) {
+	if (neg1 || neg2) {
 		switch (operation) {
 		case I_LSHIFT:
 			rv = ucv_int64_new((int64_t)((uint64_t)n1 << shift_count(n2)));
@@ -2050,9 +2083,6 @@ uc_vm_value_bitop(uc_vm_t *vm, uc_vm_insn_t operation, uc_value_t *value, uc_val
 		}
 	}
 	else {
-		if (!u1) u1 = (uint64_t)n1;
-		if (!u2) u2 = (uint64_t)n2;
-
 		switch (operation) {
 		case I_LSHIFT:
 			rv = ucv_uint64_new(u1 << shift_count(u2));
