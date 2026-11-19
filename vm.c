@@ -2833,20 +2833,16 @@ uc_vm_insn_complement(uc_vm_t *vm, uc_vm_insn_t insn)
 {
 	uc_value_t *v = uc_vm_stack_pop(vm);
 	uc_value_t *nv;
+	bool negative;
 	uint64_t u;
-	int64_t n;
 
 	nv = ucv_to_number(v);
-	n = int64(nv, &u);
+	u = ~bit_pattern(nv, &negative);
 
-	if (n < 0) {
-		uc_vm_stack_push(vm, ucv_int64_new(~n));
-	}
-	else {
-		if (!u) u = (uint64_t)n;
-
-		uc_vm_stack_push(vm, ucv_uint64_new(~u));
-	}
+	if (negative)
+		uc_vm_stack_push(vm, ucv_int64_new((int64_t)u));
+	else
+		uc_vm_stack_push(vm, ucv_uint64_new(u));
 
 	ucv_put(nv);
 	ucv_put(v);
