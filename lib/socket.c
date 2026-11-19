@@ -4232,8 +4232,8 @@ uc_socket_inst_sendmsg(uc_vm_t *vm, size_t nargs)
 	struct iovec vec = { 0 };
 	bool ctl_allocated = false;
 	int flagval, sockfd;
+	ssize_t ret = -1;
 	socklen_t slen;
-	ssize_t ret;
 
 	args_get(vm, nargs, &sockfd,
 		"data", UC_NULL, true, &data,
@@ -4310,6 +4310,9 @@ uc_socket_inst_sendmsg(uc_vm_t *vm, size_t nargs)
 		uc_vector_push(&strs, uv_to_strval(vm, data));
 	}
 
+	if (vm->exception.type != EXCEPTION_NONE)
+		goto out;
+
 	msg.msg_iovlen = strs.count;
 	msg.msg_iov = (strs.count > 1) ? xalloc(sizeof(vec) * strs.count) : &vec;
 
@@ -4329,6 +4332,7 @@ uc_socket_inst_sendmsg(uc_vm_t *vm, size_t nargs)
 		ret = sendmsg(sockfd, &msg, flagval);
 	} while (ret == -1 && errno == EINTR);
 
+out:
 	while (strs.count > 0)
 		ucv_put(strs.entries[--strs.count]);
 
@@ -4339,6 +4343,9 @@ uc_socket_inst_sendmsg(uc_vm_t *vm, size_t nargs)
 
 	if (ctl_allocated)
 		free(msg.msg_control);
+
+	if (vm->exception.type != EXCEPTION_NONE)
+		return NULL;
 
 	if (ret == -1)
 		err_return(errno, "sendmsg()");
