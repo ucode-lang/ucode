@@ -2616,18 +2616,19 @@ uc_vm_insn_stcall(uc_vm_t *vm, uc_vm_insn_t insn)
 static void
 uc_vm_insn_sobj(uc_vm_t *vm, uc_vm_insn_t insn)
 {
-	uc_value_t *obj = uc_vm_stack_peek(vm, vm->arg.u32);
+	/* a tostring method of a key runs instructions, which replace vm->arg */
+	size_t count = vm->arg.u32;
+	uc_value_t *obj = uc_vm_stack_peek(vm, count);
 	size_t idx;
 
 	/* object literals create own keys, a __set__ metamethod of the object under
 	 * construction must not intercept the keys it is built from */
-	for (idx = 0; idx < vm->arg.u32; idx += 2)
+	for (idx = 0; idx < count; idx += 2)
 		ucv_put(ucv_key_rawset(vm, obj,
-			uc_vm_stack_peek(vm, vm->arg.u32 - idx - 1),
-			uc_vm_stack_peek(vm, vm->arg.u32 - idx - 2)));
+			uc_vm_stack_peek(vm, count - idx - 1),
+			uc_vm_stack_peek(vm, count - idx - 2)));
 
-	for (idx = 0; idx < vm->arg.u32; idx++)
-		ucv_put(uc_vm_stack_pop(vm));
+	uc_vm_stack_drop(vm, count);
 }
 
 static void
