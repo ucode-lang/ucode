@@ -2836,7 +2836,7 @@ static bool
 ucv_meta_call(uc_vm_t *vm, uc_value_t *scope, uc_value_t *meta,
               uc_value_t *key, uc_value_t *val, uc_value_t **rvp)
 {
-	size_t base = vm->stack.count, nargs = 1;
+	size_t nargs = 1;
 
 	if (rvp)
 		*rvp = NULL;
@@ -2850,16 +2850,8 @@ ucv_meta_call(uc_vm_t *vm, uc_value_t *scope, uc_value_t *meta,
 		nargs = 2;
 	}
 
-	if (uc_vm_call(vm, true, nargs) != EXCEPTION_NONE) {
-		/* An exception raised within the metamethod unwinds its frame - and
-		 * with it the operands pushed above - while one raised before that
-		 * frame got established, out of recursion for instance, leaves them
-		 * behind; either way, drop back to the slots pushed here. */
-		while (vm->stack.count > base)
-			ucv_put(uc_vm_stack_pop(vm));
-
+	if (uc_vm_call(vm, true, nargs) != EXCEPTION_NONE)
 		return false;
-	}
 
 	*rvp = uc_vm_stack_pop(vm);
 

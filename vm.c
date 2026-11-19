@@ -3913,16 +3913,19 @@ uc_vm_call(uc_vm_t *vm, bool mcall, size_t nargs)
 
 	uc_vm_clear_exception(vm);
 
-	if (uc_vm_call_function(vm, ctx, fno, mcall, argc, false) && !native)
+	if (!uc_vm_call_function(vm, ctx, fno, mcall, argc, false))
+		goto drop;
+
+	if (!native)
 		uc_vm_execute_chunk(vm);
 
 	return vm->exception.type;
 
 drop:
 	/* the release of the call frame drops the callee, its arguments and the
-	 * receiver of a method call after a call that failed; a call that a
-	 * pending exit prevents drops them here, so that each caller finds the
-	 * same stack */
+	 * receiver of a method call after a call that failed; a call that fails
+	 * without a frame drops them here, so that each caller finds the same
+	 * stack */
 	uc_vm_stack_drop(vm, argc + 1 + (mcall ? 1 : 0));
 
 	return vm->exception.type;
