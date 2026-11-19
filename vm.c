@@ -2493,12 +2493,12 @@ uc_vm_insn_update_upval(uc_vm_t *vm, uc_vm_insn_t insn)
 static void
 uc_vm_insn_update_local(uc_vm_t *vm, uc_vm_insn_t insn)
 {
-	uc_callframe_t *frame = uc_vm_current_frame(vm);
-	size_t slot = vm->arg.u32 & 0x00FFFFFF;
+	/* a tostring method of an operand can move the call frames */
+	size_t slot = uc_vm_current_frame(vm)->stackframe + (vm->arg.u32 & 0x00FFFFFF);
 	uc_value_t *inc;
 	uc_value_t *val;
 
-	if (frame->stackframe + slot >= vm->stack.count) {
+	if (slot >= vm->stack.count) {
 		uc_vm_raise_exception(vm, EXCEPTION_RUNTIME, "local slot out of range");
 
 		return;
@@ -2506,13 +2506,12 @@ uc_vm_insn_update_local(uc_vm_t *vm, uc_vm_insn_t insn)
 
 	inc = uc_vm_stack_pop(vm);
 
-	val = uc_vm_value_arith(vm, vm->arg.u32 >> 24,
-	                        vm->stack.entries[frame->stackframe + slot], inc);
+	val = uc_vm_value_arith(vm, vm->arg.u32 >> 24, vm->stack.entries[slot], inc);
 
 	uc_vm_stack_push(vm, val);
 
 	ucv_put(inc);
-	uc_vm_stack_set(vm, frame->stackframe + slot, ucv_get(uc_vm_stack_peek(vm, 0)));
+	uc_vm_stack_set(vm, slot, ucv_get(uc_vm_stack_peek(vm, 0)));
 }
 
 static void
