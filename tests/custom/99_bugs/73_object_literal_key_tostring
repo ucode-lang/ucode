@@ -1,0 +1,39 @@
+The instruction that sets the keys of an object literal read its operand
+count again after each key. A tostring method of a key runs instructions of
+its own, which replace that operand, so the VM then dropped a wrong number
+of values from the stack.
+
+-- Testcase --
+{%
+	function unused() { return "k"; }
+
+	let key = proto({}, { tostring: function() { return "u"; } });
+	let obj = { [key]: 1, other: 2 };
+	let next = 5;
+
+	print(type(obj), " ", obj, " ", next, "\n");
+%}
+-- End --
+
+-- Expect stdout --
+object { "u": 1, "other": 2 } 5
+-- End --
+
+
+exit() in the tostring method ends the program with the given code.
+
+-- Testcase --
+{%
+	let key = proto({}, { tostring: function() { exit(21); } });
+	let obj = { a: 1, b: 2, [key]: 3, c: 4 };
+
+	print("not reached\n");
+%}
+-- End --
+
+-- Expect stdout --
+-- End --
+
+-- Expect exitcode --
+21
+-- End --

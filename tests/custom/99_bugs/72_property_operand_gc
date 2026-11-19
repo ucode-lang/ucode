@@ -1,0 +1,79 @@
+The VM kept the operands of a property operation in C variables only. A
+metamethod of the property, or a tostring method of an operand or of a key,
+that ran the garbage collector freed them while the operation still used
+them.
+
+A __set__ method that collects garbage during a compound assignment freed
+the value that the __get__ method returned, and the operand.
+
+-- Testcase --
+{%
+	let o = proto({}, {
+		__get__: function(k) { return (k == "list") ? [ k, {} ] : "text"; },
+		__set__: function(k, v) { gc(); }
+	});
+
+	function update() {
+		o.list += 1;
+		o.text += [ { a: 1 } ];
+	}
+
+	update();
+	print("ok\n");
+%}
+-- End --
+
+-- Expect stdout --
+ok
+-- End --
+
+
+A tostring method of the old value that collects garbage freed the object
+and the key of the compound assignment.
+
+-- Testcase --
+{%
+	let t = proto({}, { tostring: function() { gc(); return "t"; } });
+	let o = { "[ 1, 2 ]": t };
+
+	function update() {
+		o[[ 1, 2 ]] += "b";
+
+		return ({ x: t, y: [ 1, 2, 3 ] }).x += "a";
+	}
+
+	print(update(), " ", o, "\n");
+%}
+-- End --
+
+-- Expect stdout --
+ta { "[ 1, 2 ]": "tb" }
+-- End --
+
+
+A tostring method of a key that collects garbage freed the object of a
+property read, store or delete.
+
+-- Testcase --
+{%
+	let k = proto({}, { tostring: function() { gc(); return "key"; } });
+
+	function read() {
+		return ({ key: [ 1, 2 ], other: { a: 1 } })[k];
+	}
+
+	function store() {
+		return (({ key: [ 1, 2 ], other: { a: 1 } })[k] = [ 5 ]);
+	}
+
+	function remove() {
+		return delete ({ key: [ 1, 2 ], other: { a: 1 } })[k];
+	}
+
+	print(read(), " ", store(), " ", remove(), "\n");
+%}
+-- End --
+
+-- Expect stdout --
+[ 1, 2 ] [ 5 ] true
+-- End --

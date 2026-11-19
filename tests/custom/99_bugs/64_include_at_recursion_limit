@@ -1,0 +1,47 @@
+When the call of an included file failed before its call frame existed, as
+at the recursion limit, the stack still held the called function and its
+arguments. include() then took the wrong slots off the stack and freed the
+loaded function while a slot still referred to it.
+
+-- Testcase --
+{%
+	function nest(n) {
+		if (n == 0)
+			return include("files/part.uc", { a: 1 });
+
+		let rv = nest(n - 1);
+
+		return rv;
+	}
+
+	for (let n = 990; n <= 1000; n++) {
+		try {
+			nest(n);
+		}
+		catch (e) {
+			print(n, ": ", e.message, "\n");
+		}
+	}
+
+	print("done\n");
+%}
+-- End --
+
+-- File part.uc --
+{% print("included ", a, "\n") %}
+-- End --
+
+-- Expect stdout --
+included 1
+included 1
+included 1
+included 1
+included 1
+included 1
+included 1
+997: Too much recursion
+998: Too much recursion
+999: Too much recursion
+1000: Too much recursion
+done
+-- End --

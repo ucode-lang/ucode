@@ -1,0 +1,245 @@
+The VM selected the catch block by the position after the instruction that
+raised. An exception of the instruction directly before a try block ran
+the catch block of that try, with a stack that the block did not expect.
+
+-- Testcase --
+{%
+	function fail(x) { die("fail " + x); }
+	function count(...args) { return length(args); }
+
+	function before_try() {
+		let v = fail(1);
+
+		try {
+			print("in try\n");
+		}
+		catch (e) {
+			return [ "wrong catch", type(e), type(v) ];
+		}
+	}
+
+	function spread_before_try() {
+		let v = count(...[ 1 ], ...null);
+
+		try {
+			print("in try\n");
+		}
+		catch (e) {
+			return [ "wrong catch", type(e), type(v) ];
+		}
+	}
+
+	for (let fn in [ before_try, spread_before_try ]) {
+		try {
+			print(fn(), "\n");
+		}
+		catch (e) {
+			print("propagated: ", e.message, "\n");
+		}
+	}
+%}
+-- End --
+
+-- Expect stdout --
+propagated: fail 1
+propagated: (null) is not iterable
+-- End --
+
+
+An exception of the last instruction of a try block was not caught by the
+catch block of that try.
+
+-- Testcase --
+{%
+	let o = proto({}, { tostring: function() { die("no string"); } });
+
+	function last_insn() {
+		try { %}{{ o }}{% }
+		catch (e) {
+			return "caught: " + e.message;
+		}
+
+		return "end";
+	}
+
+	try {
+		print(last_insn(), "\n");
+	}
+	catch (e) {
+		print("propagated: ", e.message, "\n");
+	}
+%}
+-- End --
+
+-- Expect stdout --
+caught: no string
+-- End --
+
+
+A signal handler runs between two instructions. Its exception belongs to
+the instruction that follows: after a call, that is the instruction after
+the call.
+
+-- Testcase --
+{%
+	signal("SIGUSR1", function() { die("sig"); });
+
+	const kill = "kill -USR1 $PPID";
+
+	function raise() { return system(kill); }
+
+	function call_before_try() {
+		let v = system(kill);
+
+		try {
+			print("in try\n");
+		}
+		catch (e) {
+			return "try caught " + e.message;
+		}
+
+		return "end";
+	}
+
+	function return_in_try() {
+		try {
+			return system(kill);
+		}
+		catch (e) {
+			return "try caught " + e.message;
+		}
+	}
+
+	function store_in_try() {
+		let v;
+
+		try {
+			v = system(kill);
+		}
+		catch (e) {
+			return "try caught " + e.message;
+		}
+
+		return "end";
+	}
+
+	function call_after_try() {
+		try {
+			print("in try\n");
+		}
+		catch (e) {
+			return "try caught " + e.message;
+		}
+
+		system(kill);
+
+		return "end";
+	}
+
+	function call_after_inner_try() {
+		try {
+			try {
+				print("in try\n");
+			}
+			catch (e) {
+				return "inner caught " + e.message;
+			}
+
+			system(kill);
+		}
+		catch (e) {
+			return "outer caught " + e.message;
+		}
+
+		return "end";
+	}
+
+	function call_before_inner_try() {
+		try {
+			let v = system(kill);
+
+			try {
+				print("in try\n");
+			}
+			catch (e) {
+				return "inner caught " + e.message;
+			}
+		}
+		catch (e) {
+			return "outer caught " + e.message;
+		}
+
+		return "end";
+	}
+
+	function statement_before_try() {
+		for (let i = 0; i < 2; i++) {
+			if (i == 0)
+				system(kill);
+
+			try {
+				print("in try\n");
+			}
+			catch (e) {
+				return "try caught " + e.message;
+			}
+		}
+
+		return "end";
+	}
+
+	function method_statement_before_try() {
+		let o = { system };
+
+		o.system(kill);
+
+		try {
+			print("in try\n");
+		}
+		catch (e) {
+			return "try caught " + e.message;
+		}
+
+		return "end";
+	}
+
+	// the handler runs in the function that made the tail call
+	function failed_call_before_try() {
+		let v = raise();
+
+		try {
+			print("in try\n");
+		}
+		catch (e) {
+			return "try caught " + e.message;
+		}
+
+		return "end";
+	}
+
+	for (let fn in [ call_before_try, return_in_try, store_in_try, call_after_try,
+	                 call_after_inner_try, call_before_inner_try, statement_before_try,
+	                 method_statement_before_try, failed_call_before_try ]) {
+		try {
+			print(fn(), "\n");
+		}
+		catch (e) {
+			print("propagated: ", e.message, "\n");
+		}
+	}
+%}
+-- End --
+
+-- Expect stdout --
+try caught sig
+try caught sig
+try caught sig
+in try
+propagated: sig
+in try
+outer caught sig
+inner caught sig
+propagated: sig
+propagated: sig
+propagated: sig
+-- End --

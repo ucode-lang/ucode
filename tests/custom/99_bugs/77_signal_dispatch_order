@@ -1,0 +1,84 @@
+The handlers of signals that are pending at the same time run in the order
+of the signal numbers, one after the other. The interpreter started the
+handler of the lowest number, and the dispatch after its first instruction
+ran the handlers of the other signals inside of it, so they finished in
+the reverse order.
+
+SIGHUP is 1, SIGINT is 2 and SIGTERM is 15 on every platform.
+
+-- Testcase --
+{%
+	let order = [];
+
+	function handler(name) {
+		return () => {
+			push(order, name + " begin");
+			push(order, name + " end");
+		};
+	}
+
+	signal("SIGHUP", handler("hup"));
+	signal("SIGINT", handler("int"));
+	signal("SIGTERM", handler("term"));
+
+	system("kill -TERM $PPID; kill -INT $PPID; kill -HUP $PPID");
+	print(join(", ", order), "\n");
+%}
+-- End --
+
+-- Expect stdout --
+hup begin, hup end, int begin, int end, term begin, term end
+-- End --
+
+
+A signal that comes in while a handler runs interrupts that handler.
+
+-- Testcase --
+{%
+	let order = [];
+
+	signal("SIGHUP", () => {
+		push(order, "hup begin");
+		system("kill -INT $PPID");
+		push(order, "hup end");
+	});
+
+	signal("SIGINT", () => push(order, "int"));
+
+	system("kill -HUP $PPID");
+	print(join(", ", order), "\n");
+%}
+-- End --
+
+-- Expect stdout --
+hup begin, int, hup end
+-- End --
+
+
+After an exception of a handler, the handlers of the other pending signals
+still run. They run at the next dispatch. The place of that dispatch in the
+catch block is not fixed, so the test sorts the entries.
+
+-- Testcase --
+{%
+	let order = [];
+
+	signal("SIGHUP", () => die("from hup"));
+	signal("SIGINT", () => push(order, "int"));
+	signal("SIGTERM", () => push(order, "term"));
+
+	try {
+		system("kill -TERM $PPID; kill -INT $PPID; kill -HUP $PPID");
+		push(order, "not reached");
+	}
+	catch (e) {
+		push(order, "caught " + e.message);
+	}
+
+	print(join(", ", sort(order)), "\n");
+%}
+-- End --
+
+-- Expect stdout --
+caught from hup, int, term
+-- End --

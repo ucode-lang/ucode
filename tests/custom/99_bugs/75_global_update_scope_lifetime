@@ -1,0 +1,31 @@
+The update of a global variable kept the scope object that holds the
+variable without a reference. A tostring method of an operand that removes
+that scope from the prototype chain of the globals freed it, and the VM
+then stored the result in the released object.
+
+-- Testcase --
+{%
+	function setup() {
+		proto(global, { x: "a value that the VM keeps on the heap" });
+	}
+
+	setup();
+
+	let o = proto({}, {
+		tostring: function() {
+			proto(global, {});
+			gc();
+
+			return " and more";
+		}
+	});
+
+	print(x += o, "\n");
+	print(x == null, "\n");
+%}
+-- End --
+
+-- Expect stdout --
+a value that the VM keeps on the heap and more
+true
+-- End --

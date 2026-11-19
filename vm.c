@@ -128,9 +128,9 @@ static void
 uc_vm_close_upvals(uc_vm_t *vm, size_t slot);
 
 static void
-uc_vm_reset_callframes(uc_vm_t *vm)
+uc_vm_reset_callframes(uc_vm_t *vm, size_t depth)
 {
-	while (vm->callframes.count > 0)
+	while (vm->callframes.count > depth)
 		ucv_put(uc_vm_callframe_pop(vm));
 }
 
@@ -195,7 +195,7 @@ uc_vm_signal_handlers_ensure(uc_vm_t *vm)
 	vm->signal.handler = ucv_array_new_length(vm, UC_SYSTEM_SIGNAL_COUNT);
 
 	vm->signal.sa.sa_handler = uc_vm_signal_handler;
-	vm->signal.sa.sa_flags = SA_RESTART | SA_ONSTACK;
+	vm->signal.sa.sa_flags = SA_RESTART;
 	sigemptyset(&vm->signal.sa.sa_mask);
 
 	tctx->signal_handler_vm = vm;
@@ -318,7 +318,7 @@ void uc_vm_free(uc_vm_t *vm)
 	for (i = 0; i < vm->restypes.count; i++)
 		ucv_put(vm->restypes.entries[i]->proto);
 
-	uc_vm_reset_callframes(vm);
+	uc_vm_reset_callframes(vm, 0);
 	uc_vm_reset_stack(vm);
 	uc_vector_clear(&vm->stack);
 	uc_vector_clear(&vm->callframes);
@@ -589,6 +589,13 @@ uc_vm_stack_peek(uc_vm_t *vm, size_t offset)
 }
 
 static void
+uc_vm_stack_drop(uc_vm_t *vm, size_t count)
+{
+	while (count-- > 0)
+		ucv_put(uc_vm_stack_pop(vm));
+}
+
+static void
 uc_vm_stack_set(uc_vm_t *vm, size_t offset, uc_value_t *value)
 {
 	if (vm->trace) {
@@ -621,10 +628,7 @@ uc_vm_call_native(uc_vm_t *vm, uc_value_t *ctx, uc_cfunction_t *fptr, bool mcall
 
 	res = fptr->cfn(vm, nargs);
 
-	/* Reset stack, check for callframe depth since an uncatched exception in managed
-	 * code executed by fptr->cfn() could've reset the callframe stack already. */
-	if (vm->callframes.count > 0)
-		ucv_put(uc_vm_callframe_pop(vm));
+	ucv_put(uc_vm_callframe_pop(vm));
 
 	/* push return value */
 	if (!vm->exception.type)
@@ -811,18 +815,68 @@ uc_vm_callee_expr(uc_vm_t *vm)
 	                             uc_program_function_srcpos(function, insn));
 }
 
+/* The arguments stay on the stack below their expansion, where the GC sees
+ * them when a tostring method runs. `idx` counts from the last argument. */
+static uc_value_t *
+uc_vm_spread_arg(uc_vm_t *vm, size_t base, size_t nargs, size_t idx)
+{
+	return vm->stack.entries[base + nargs - 1 - idx];
+}
+
+static bool
+uc_vm_spread_push(uc_vm_t *vm, size_t base, size_t nargs, size_t from, size_t spread)
+{
+	uc_value_t *arg;
+	size_t j;
+	char *s;
+
+	for (j = from; j > spread + 1UL; j--)
+		uc_vm_stack_push(vm, ucv_get(uc_vm_spread_arg(vm, base, nargs, j - 1)));
+
+	arg = uc_vm_spread_arg(vm, base, nargs, spread);
+
+	if (ucv_type(arg) != UC_ARRAY) {
+		s = ucv_to_string(vm, arg);
+		uc_vm_raise_exception(vm, EXCEPTION_TYPE, "(%s) is not iterable", s);
+		free(s);
+
+		return false;
+	}
+
+	for (j = 0; j < ucv_array_length(arg); j++)
+		uc_vm_stack_push(vm, ucv_get(ucv_array_get(arg, j)));
+
+	return true;
+}
+
+static void
+uc_vm_spread_finish(uc_vm_t *vm, size_t base, size_t nargs, size_t from)
+{
+	size_t i, count;
+
+	for (i = from; i > 0; i--)
+		uc_vm_stack_push(vm, ucv_get(uc_vm_spread_arg(vm, base, nargs, i - 1)));
+
+	for (i = 0; i < nargs; i++)
+		ucv_put(vm->stack.entries[base + i]);
+
+	count = vm->stack.count - base - nargs;
+	memmove(&vm->stack.entries[base], &vm->stack.entries[base + nargs],
+	        count * sizeof(vm->stack.entries[0]));
+	vm->stack.count = base + count;
+}
+
 static bool
 uc_vm_call_function(uc_vm_t *vm, uc_value_t *ctx, uc_value_t *fno, bool mcall,
                    size_t argspec, bool tail)
 {
-	size_t i, j, stackoff, nargs = argspec & 0xffff;
+	size_t i, stackoff, nargs = argspec & 0xffff;
 	size_t nspreads = (argspec >> 16) & 0x7fff;
 	uc_callframe_t *frame = NULL;
-	uc_value_t *ellip, *arg;
 	uc_function_t *function;
 	uc_closure_t *closure;
+	uc_value_t *ellip;
 	uint16_t slot, tmp;
-	char *s;
 
 	/* a tail invocation reuses the current frame, so it never grows the stack */
 	if (!tail && vm->callframes.count >= 1000) {
@@ -839,52 +893,31 @@ uc_vm_call_function(uc_vm_t *vm, uc_value_t *ctx, uc_value_t *fno, bool mcall,
 	if (nspreads > 0) {
 		frame = uc_vm_current_frame(vm);
 
-		/* create temporary array */
-		ellip = ucv_array_new_length(vm, nargs);
-
-		/* pop original stack values and push to temp array in reverse order */
-		for (i = 0; i < nargs; i++)
-			ucv_array_push(ellip, uc_vm_stack_pop(vm));
-
 		/* for each spread value index ... */
 		for (i = 0, slot = nargs; i < nspreads; i++) {
 			/* decode stack depth value */
 			tmp = frame->ip[0] * 0x100 + frame->ip[1];
 			frame->ip += 2;
 
-			/* push each preceeding non-spread value to the stack */
-			for (j = slot; j > tmp + 1UL; j--)
-				uc_vm_stack_push(vm, ucv_get(ucv_array_get(ellip, j - 1)));
-
-			/* read spread value at index... */
-			slot = tmp;
-			arg = ucv_get(ucv_array_get(ellip, slot));
-
-			/* ... ensure that it is an array type ... */
-			if (ucv_type(arg) != UC_ARRAY) {
-				s = ucv_to_string(vm, arg);
-				uc_vm_raise_exception(vm, EXCEPTION_TYPE, "(%s) is not iterable", s);
-				free(s);
+			if (tmp >= slot) {
+				uc_vm_raise_exception(vm, EXCEPTION_RUNTIME, "spread index out of range");
 				ucv_put(ctx);
 				ucv_put(fno);
-				ucv_put(ellip);
 
 				return false;
 			}
 
-			/* ... and push each spread array value as argument to the stack */
-			for (j = 0; j < ucv_array_length(arg); j++)
-				uc_vm_stack_push(vm, ucv_get(ucv_array_get(arg, j)));
+			if (!uc_vm_spread_push(vm, stackoff + 1, nargs, slot, tmp)) {
+				ucv_put(ctx);
+				ucv_put(fno);
 
-			ucv_put(arg);
+				return false;
+			}
+
+			slot = tmp;
 		}
 
-		/* push remaining non-spread arguments to the stack */
-		for (i = slot; i > 0; i--)
-			uc_vm_stack_push(vm, ucv_get(ucv_array_get(ellip, i - 1)));
-
-		/* free temp array */
-		ucv_put(ellip);
+		uc_vm_spread_finish(vm, stackoff + 1, nargs, slot);
 
 		/* update arg count */
 		nargs = vm->stack.count - stackoff - 1;
@@ -1196,6 +1229,29 @@ static uint8_t uc_breakpoint_uncaught_exception_storage;
 uint8_t *const UC_BREAKPOINT_UNCAUGHT_EXCEPTION =
 	&uc_breakpoint_uncaught_exception_storage;
 
+/* An instruction that raised lies before the instruction pointer. A signal
+ * handler raises `between` two instructions, in the range of the second. */
+static uc_ehrange_t *
+uc_vm_frame_ehrange(uc_callframe_t *frame, bool between)
+{
+	uc_chunk_t *chunk = uc_vm_frame_chunk(frame);
+	size_t off = frame->ip - chunk->entries;
+	size_t i;
+
+	if (!between && off == 0)
+		return NULL;
+
+	if (!between)
+		off--;
+
+	for (i = 0; i < chunk->ehranges.count; i++)
+		if (off >= chunk->ehranges.entries[i].from &&
+		    off < chunk->ehranges.entries[i].to)
+			return &chunk->ehranges.entries[i];
+
+	return NULL;
+}
+
 /* Non-destructively predict whether uc_vm_handle_exception()'s real unwind
  * loop (below) would find a handler for the currently raised exception
  * anywhere between the current callframe and `caller` (the frame depth this
@@ -1207,34 +1263,29 @@ uint8_t *const UC_BREAKPOINT_UNCAUGHT_EXCEPTION =
  * frame - locals, exact position - is still fully intact, since once
  * uc_vm_handle_exception() starts really popping frames that's gone. */
 static bool
-uc_vm_exception_would_be_caught(uc_vm_t *vm, size_t caller)
+uc_vm_exception_would_be_caught(uc_vm_t *vm, size_t caller, bool between)
 {
-	for (size_t i = vm->callframes.count; i > caller; i--) {
+	for (size_t i = vm->callframes.count; i > caller; i--, between = false) {
 		uc_callframe_t *frame = &vm->callframes.entries[i - 1];
 
 		if (!frame->closure)
 			return false;
 
-		uc_chunk_t *chunk = &frame->closure->function->chunk;
-		size_t pos = frame->ip - chunk->entries;
-
-		for (size_t j = 0; j < chunk->ehranges.count; j++) {
-			if (pos >= chunk->ehranges.entries[j].from &&
-			    pos < chunk->ehranges.entries[j].to)
-				return true;
-		}
+		if (uc_vm_frame_ehrange(frame, between))
+			return true;
 	}
 
 	return false;
 }
 
 static bool
-uc_vm_handle_exception(uc_vm_t *vm)
+uc_vm_handle_exception(uc_vm_t *vm, bool between)
 {
 	uc_callframe_t *frame = NULL;
 	uc_chunk_t *chunk = NULL;
+	uc_ehrange_t *range;
 	uc_value_t *exo;
-	size_t i, pos;
+	size_t slot;
 
 	if (vm->callframes.count)
 		frame = uc_vm_current_frame(vm);
@@ -1243,48 +1294,35 @@ uc_vm_handle_exception(uc_vm_t *vm)
 		return false;
 
 	chunk = uc_vm_frame_chunk(frame);
-	pos = frame->ip - chunk->entries;
+	range = uc_vm_frame_ehrange(frame, between);
 
-	/* iterate the known exception ranges, see if the current ip falls into any of them */
-	for (i = 0; i < chunk->ehranges.count; i++) {
-		/* skip nonmatching ranges */
-		if (pos < chunk->ehranges.entries[i].from ||
-		    pos >= chunk->ehranges.entries[i].to)
-			continue;
+	if (!range)
+		return false;
 
-		/* we found a matching range... first unwind stack */
-		while (vm->stack.count > frame->stackframe + chunk->ehranges.entries[i].slot)
-			ucv_put(uc_vm_stack_pop(vm));
+	/* a closure may hold a variable of the block that the unwind drops */
+	slot = frame->stackframe + range->slot;
+	uc_vm_close_upvals(vm, slot);
 
-		/* prepare exception object and expose it to user handler code */
-		exo = uc_vm_exception_object(vm);
+	while (vm->stack.count > slot)
+		ucv_put(uc_vm_stack_pop(vm));
 
-		uc_vm_stack_push(vm, exo);
+	/* prepare exception object and expose it to user handler code */
+	exo = uc_vm_exception_object(vm);
 
-		/* reset exception information */
-		uc_vm_clear_exception(vm);
+	uc_vm_stack_push(vm, exo);
 
-		/* jump to exception handler */
-		if (chunk->ehranges.entries[i].target >= chunk->count) {
-			uc_vm_raise_exception(vm, EXCEPTION_RUNTIME, "jump target out of range");
-			return false;
-		}
+	/* reset exception information */
+	uc_vm_clear_exception(vm);
 
-#if 0
-		if (vm->trace && chunk->entries + chunk->ehranges.entries[i].target > frame->ip) {
-			while (frame->ip < chunk->entries + chunk->ehranges.entries[i].target) {
-				fprintf(stderr, "(eh:skip) [%p:%zu] ", chunk, frame->ip - chunk->entries);
-				uc_dump_insn(vm, frame->ip, uc_vm_decode_insn(vm, frame, chunk));
-			}
-		}
-#endif
-
-		frame->ip = chunk->entries + chunk->ehranges.entries[i].target;
-
-		return true;
+	/* jump to exception handler */
+	if (range->target >= chunk->count) {
+		uc_vm_raise_exception(vm, EXCEPTION_RUNTIME, "jump target out of range");
+		return false;
 	}
 
-	return false;
+	frame->ip = chunk->entries + range->target;
+
+	return true;
 }
 
 /* Adds the line and byte column of the source position `off` to `object`, under
@@ -1432,10 +1470,21 @@ uc_vm_get_error_context(uc_vm_t *vm)
 	return stacktrace;
 }
 
+/* An exit ends every active invocation: it stays pending until the C
+ * functions that go on after a failed uc_vm_call() returned. */
+static bool
+uc_vm_exit_pending(uc_vm_t *vm)
+{
+	return vm->exception.type == EXCEPTION_EXIT && vm->callframes.count > 0;
+}
+
 void __attribute__((format(printf, 3, 0)))
 uc_vm_raise_exception(uc_vm_t *vm, uc_exception_type_t type, const char *fmt, ...)
 {
 	va_list ap;
+
+	if (uc_vm_exit_pending(vm))
+		return;
 
 	vm->exception.type = type;
 
@@ -1447,6 +1496,23 @@ uc_vm_raise_exception(uc_vm_t *vm, uc_exception_type_t type, const char *fmt, ..
 
 	ucv_put(vm->exception.stacktrace);
 	vm->exception.stacktrace = uc_vm_get_error_context(vm);
+}
+
+void
+uc_vm_raise_exception_trace(uc_vm_t *vm, uc_exception_type_t type,
+                            const char *message, uc_value_t *stacktrace)
+{
+	if (uc_vm_exit_pending(vm))
+		return;
+
+	vm->exception.type = type;
+
+	free(vm->exception.message);
+	vm->exception.message = xstrdup(message);
+
+	ucv_get(stacktrace);
+	ucv_put(vm->exception.stacktrace);
+	vm->exception.stacktrace = stacktrace;
 }
 
 static bool
@@ -1586,18 +1652,23 @@ uc_vm_insn_load_var(uc_vm_t *vm, uc_vm_insn_t insn)
 	uc_vm_stack_push(vm, ucv_get(val));
 }
 
+/* A metamethod or a tostring method of a key may collect garbage, so the
+ * operands of a property operation stay on the stack while it runs. */
 static void
 uc_vm_insn_load_val(uc_vm_t *vm, uc_vm_insn_t insn)
 {
-	uc_value_t *k = uc_vm_stack_pop(vm);
-	uc_value_t *v = uc_vm_stack_pop(vm);
+	uc_value_t *k = uc_vm_stack_peek(vm, 0);
+	uc_value_t *v = uc_vm_stack_peek(vm, 1);
+	uc_value_t *res = NULL;
+	bool ok = false;
 
 	switch (ucv_type(v)) {
 	case UC_RESOURCE:
 	case UC_OBJECT:
 	case UC_ARRAY:
 		/* aware read: dispatches __get__ on a missing key */
-		uc_vm_stack_push(vm, ucv_key_get(vm, v, k));
+		res = ucv_key_get(vm, v, k);
+		ok = true;
 		break;
 
 	default:
@@ -1608,8 +1679,10 @@ uc_vm_insn_load_val(uc_vm_t *vm, uc_vm_insn_t insn)
 		break;
 	}
 
-	ucv_put(k);
-	ucv_put(v);
+	uc_vm_stack_drop(vm, 2);
+
+	if (ok)
+		uc_vm_stack_push(vm, res);
 }
 
 static void
@@ -1765,6 +1838,20 @@ uc_vm_insn_load_closure(uc_vm_t *vm, uc_vm_insn_t insn)
 	}
 }
 
+static bool
+assert_mutable_value(uc_vm_t *vm, uc_value_t *val)
+{
+	if (ucv_is_constant(val)) {
+		uc_vm_raise_exception(vm, EXCEPTION_TYPE,
+		                      "%s value is immutable",
+		                      ucv_typename(val));
+
+		return false;
+	}
+
+	return true;
+}
+
 static void
 uc_vm_insn_store_var(uc_vm_t *vm, uc_vm_insn_t insn)
 {
@@ -1800,47 +1887,45 @@ uc_vm_insn_store_var(uc_vm_t *vm, uc_vm_insn_t insn)
 		scope = next;
 	}
 
-	if (scope && ucv_type(name) == UC_STRING)
+	if (scope && ucv_type(name) == UC_STRING) {
+		if (!assert_mutable_value(vm, scope)) {
+			ucv_put(name);
+			ucv_put(v);
+
+			return;
+		}
+
 		ucv_object_add(scope, ucv_string_get(name), ucv_get(v));
+	}
 
 	ucv_put(name);
 	uc_vm_stack_push(vm, v);
 }
 
-static bool
-assert_mutable_value(uc_vm_t *vm, uc_value_t *val)
-{
-	if (ucv_is_constant(val)) {
-		uc_vm_stack_push(vm, NULL);
-		uc_vm_raise_exception(vm, EXCEPTION_TYPE,
-		                      "%s value is immutable",
-		                      ucv_typename(val));
-
-		return false;
-	}
-
-	return true;
-}
-
 static void
 uc_vm_insn_store_val(uc_vm_t *vm, uc_vm_insn_t insn)
 {
-	uc_value_t *v = uc_vm_stack_pop(vm);
-	uc_value_t *k = uc_vm_stack_pop(vm);
-	uc_value_t *o = uc_vm_stack_pop(vm);
+	uc_value_t *v = uc_vm_stack_peek(vm, 0);
+	uc_value_t *k = uc_vm_stack_peek(vm, 1);
+	uc_value_t *o = uc_vm_stack_peek(vm, 2);
+	uc_value_t *res = NULL;
+	bool ok = false;
 
 	switch (ucv_type(o)) {
 	case UC_OBJECT:
 	case UC_ARRAY:
 	case UC_RESOURCE:
-		if (assert_mutable_value(vm, o)) {
-			/* ucv_key_set() retains the stored value on its own and returns a
-			 * reference to it, which becomes the value of the assignment; for
-			 * resources it dispatches a __set__ metamethod when present. In
-			 * strict mode it raises a type error when a non-index property
-			 * store on an array would otherwise be silently dropped. */
-			uc_vm_stack_push(vm, ucv_key_set(vm, o, k, v));
-		}
+		ok = true;
+
+		if (!assert_mutable_value(vm, o))
+			break;
+
+		/* ucv_key_set() retains the stored value on its own and returns a
+		 * reference to it, which becomes the value of the assignment; for
+		 * resources it dispatches a __set__ metamethod when present. In
+		 * strict mode it raises a type error when a non-index property
+		 * store on an array would otherwise be silently dropped. */
+		res = ucv_key_set(vm, o, k, v);
 
 		break;
 
@@ -1850,9 +1935,10 @@ uc_vm_insn_store_val(uc_vm_t *vm, uc_vm_insn_t insn)
 		                      ucv_typename(o));
 	}
 
-	ucv_put(v);
-	ucv_put(o);
-	ucv_put(k);
+	uc_vm_stack_drop(vm, 3);
+
+	if (ok)
+		uc_vm_stack_push(vm, res);
 }
 
 static void
@@ -1925,6 +2011,42 @@ abs64(int64_t n)
 	return n;
 }
 
+/* C leaves a shift by a negative count or by the width of the type undefined */
+static unsigned int
+shift_count(uint64_t count)
+{
+	return count % (sizeof(uint64_t) * CHAR_BIT);
+}
+
+/* The bit operators work on the 64 bit two's complement of a number: a
+ * double out of range wraps modulo 2^64 */
+static uint64_t
+bit_pattern(uc_value_t *nv, bool *negative)
+{
+	int64_t n = ucv_int64_get(nv);
+	double d;
+
+	*negative = false;
+
+	if (errno != ERANGE) {
+		*negative = (n < 0);
+
+		return (uint64_t)n;
+	}
+
+	if (ucv_type(nv) == UC_INTEGER)
+		return ucv_uint64_get(nv);
+
+	d = ucv_double_get(nv);
+
+	if (!isfinite(d))
+		return 0;
+
+	*negative = (d < 0);
+	d = fmod(d, ldexp(1.0, 64));
+
+	return (d < 0) ? -(uint64_t)-d : (uint64_t)d;
+}
 
 static uc_value_t *
 uc_vm_value_bitop(uc_vm_t *vm, uc_vm_insn_t operation, uc_value_t *value, uc_value_t *operand)
@@ -1932,21 +2054,24 @@ uc_vm_value_bitop(uc_vm_t *vm, uc_vm_insn_t operation, uc_value_t *value, uc_val
 	uc_value_t *nv1, *nv2, *rv = NULL;
 	uint64_t u1, u2;
 	int64_t n1, n2;
+	bool neg1, neg2;
 
 	nv1 = ucv_to_number(value);
 	nv2 = ucv_to_number(operand);
 
-	n1 = int64(nv1, &u1);
-	n2 = int64(nv2, &u2);
+	u1 = bit_pattern(nv1, &neg1);
+	u2 = bit_pattern(nv2, &neg2);
+	n1 = (int64_t)u1;
+	n2 = (int64_t)u2;
 
-	if (n1 < 0 || n2 < 0) {
+	if (neg1 || neg2) {
 		switch (operation) {
 		case I_LSHIFT:
-			rv = ucv_int64_new(n1 << n2);
+			rv = ucv_int64_new((int64_t)((uint64_t)n1 << shift_count(n2)));
 			break;
 
 		case I_RSHIFT:
-			rv = ucv_int64_new(n1 >> n2);
+			rv = ucv_int64_new(n1 >> shift_count(n2));
 			break;
 
 		case I_BAND:
@@ -1966,16 +2091,13 @@ uc_vm_value_bitop(uc_vm_t *vm, uc_vm_insn_t operation, uc_value_t *value, uc_val
 		}
 	}
 	else {
-		if (!u1) u1 = (uint64_t)n1;
-		if (!u2) u2 = (uint64_t)n2;
-
 		switch (operation) {
 		case I_LSHIFT:
-			rv = ucv_uint64_new(u1 << (u2 % (sizeof(uint64_t) * CHAR_BIT)));
+			rv = ucv_uint64_new(u1 << shift_count(u2));
 			break;
 
 		case I_RSHIFT:
-			rv = ucv_uint64_new(u1 >> (u2 % (sizeof(uint64_t) * CHAR_BIT)));
+			rv = ucv_uint64_new(u1 >> shift_count(u2));
 			break;
 
 		case I_BAND:
@@ -2311,9 +2433,26 @@ uc_vm_insn_update_var(uc_vm_t *vm, uc_vm_insn_t insn)
 		scope = next;
 	}
 
-	val = uc_vm_value_arith(vm, vm->arg.u32 >> 24, val, inc);
+	if (!assert_mutable_value(vm, scope)) {
+		ucv_put(name);
+		ucv_put(inc);
+
+		return;
+	}
+
+	/* a tostring method of an operand can take the scope out of the chain
+	 * of the globals and collect garbage */
+	uc_vm_stack_push(vm, ucv_get(scope));
+
+	/* the push resolves an upvalue reference that the scope holds for the
+	 * export of a module */
+	uc_vm_stack_push(vm, ucv_get(val));
+
+	val = uc_vm_value_arith(vm, vm->arg.u32 >> 24, uc_vm_stack_peek(vm, 0), inc);
 
 	ucv_object_add(scope, ucv_string_get(name), ucv_get(val));
+	ucv_put(uc_vm_stack_pop(vm));
+	ucv_put(uc_vm_stack_pop(vm));
 	uc_vm_stack_push(vm, val);
 
 	ucv_put(name);
@@ -2323,43 +2462,40 @@ uc_vm_insn_update_var(uc_vm_t *vm, uc_vm_insn_t insn)
 static void
 uc_vm_insn_update_val(uc_vm_t *vm, uc_vm_insn_t insn)
 {
-	uc_value_t *inc = uc_vm_stack_pop(vm);
-	uc_value_t *k = uc_vm_stack_pop(vm);
-	uc_value_t *v = uc_vm_stack_pop(vm);
-	uc_value_t *val = NULL;
+	uc_value_t *inc = uc_vm_stack_peek(vm, 0);
+	uc_value_t *k = uc_vm_stack_peek(vm, 1);
+	uc_value_t *v = uc_vm_stack_peek(vm, 2);
+	uc_value_t *val, *nv, *res = NULL;
 	uc_vm_insn_t op;
+	bool ok = false;
 
 	switch (ucv_type(v)) {
 	case UC_OBJECT:
 	case UC_ARRAY:
 	case UC_RESOURCE:
-		if (assert_mutable_value(vm, v)) {
-			uc_value_t *nv, *rv;
+		ok = true;
 
-			/* reading the property may dispatch a __get__ metamethod which runs
-			 * on the current stack, clobbers vm->arg and may collect garbage, so
-			 * remember the operation and keep the operands reachable */
-			op = vm->arg.u8;
-			uc_vm_stack_push(vm, ucv_get(inc));
+		if (!assert_mutable_value(vm, v))
+			break;
 
-			val = ucv_key_get(vm, v, k);
-			uc_vm_stack_push(vm, ucv_get(val));
+		/* a metamethod of the property or a tostring method of an operand
+		 * runs on the current stack, clobbers vm->arg and may collect
+		 * garbage, so remember the operation and keep the old value
+		 * reachable until the new one is stored */
+		op = vm->arg.u8;
+		val = ucv_key_get(vm, v, k);
+		uc_vm_stack_push(vm, val);
 
-			nv = uc_vm_value_arith(vm, op, val, inc);
+		nv = uc_vm_value_arith(vm, op, val, inc);
 
-			ucv_put(uc_vm_stack_pop(vm));
-			ucv_put(uc_vm_stack_pop(vm));
+		/* an aborted read leaves nothing to store; the exception it raised is
+		 * left to propagate instead of overwriting the property */
+		res = vm->exception.type != EXCEPTION_NONE ? NULL : ucv_key_set(vm, v, k, nv);
 
-			/* an aborted read leaves nothing to store; the exception it raised is
-			 * left to propagate instead of overwriting the property */
-			rv = vm->exception.type != EXCEPTION_NONE ? NULL : ucv_key_set(vm, v, k, nv);
-
-			/* the store keeps a reference of its own; rv is the value of the
-			 * update expression, null if storing failed */
-			ucv_put(nv);
-
-			uc_vm_stack_push(vm, rv);
-		}
+		/* the store keeps a reference of its own; the result is the value of
+		 * the update expression, null if storing failed */
+		ucv_put(nv);
+		ucv_put(uc_vm_stack_pop(vm));
 
 		break;
 
@@ -2371,10 +2507,10 @@ uc_vm_insn_update_val(uc_vm_t *vm, uc_vm_insn_t insn)
 		break;
 	}
 
-	ucv_put(val);
-	ucv_put(inc);
-	ucv_put(v);
-	ucv_put(k);
+	uc_vm_stack_drop(vm, 3);
+
+	if (ok)
+		uc_vm_stack_push(vm, res);
 }
 
 static void
@@ -2418,12 +2554,12 @@ uc_vm_insn_update_upval(uc_vm_t *vm, uc_vm_insn_t insn)
 static void
 uc_vm_insn_update_local(uc_vm_t *vm, uc_vm_insn_t insn)
 {
-	uc_callframe_t *frame = uc_vm_current_frame(vm);
-	size_t slot = vm->arg.u32 & 0x00FFFFFF;
+	/* a tostring method of an operand can move the call frames */
+	size_t slot = uc_vm_current_frame(vm)->stackframe + (vm->arg.u32 & 0x00FFFFFF);
 	uc_value_t *inc;
 	uc_value_t *val;
 
-	if (frame->stackframe + slot >= vm->stack.count) {
+	if (slot >= vm->stack.count) {
 		uc_vm_raise_exception(vm, EXCEPTION_RUNTIME, "local slot out of range");
 
 		return;
@@ -2431,13 +2567,12 @@ uc_vm_insn_update_local(uc_vm_t *vm, uc_vm_insn_t insn)
 
 	inc = uc_vm_stack_pop(vm);
 
-	val = uc_vm_value_arith(vm, vm->arg.u32 >> 24,
-	                        vm->stack.entries[frame->stackframe + slot], inc);
+	val = uc_vm_value_arith(vm, vm->arg.u32 >> 24, vm->stack.entries[slot], inc);
 
 	uc_vm_stack_push(vm, val);
 
 	ucv_put(inc);
-	uc_vm_stack_set(vm, frame->stackframe + slot, ucv_get(uc_vm_stack_peek(vm, 0)));
+	uc_vm_stack_set(vm, slot, ucv_get(uc_vm_stack_peek(vm, 0)));
 }
 
 static void
@@ -2541,18 +2676,19 @@ uc_vm_insn_stcall(uc_vm_t *vm, uc_vm_insn_t insn)
 static void
 uc_vm_insn_sobj(uc_vm_t *vm, uc_vm_insn_t insn)
 {
-	uc_value_t *obj = uc_vm_stack_peek(vm, vm->arg.u32);
+	/* a tostring method of a key runs instructions, which replace vm->arg */
+	size_t count = vm->arg.u32;
+	uc_value_t *obj = uc_vm_stack_peek(vm, count);
 	size_t idx;
 
 	/* object literals create own keys, a __set__ metamethod of the object under
 	 * construction must not intercept the keys it is built from */
-	for (idx = 0; idx < vm->arg.u32; idx += 2)
+	for (idx = 0; idx < count; idx += 2)
 		ucv_put(ucv_key_rawset(vm, obj,
-			uc_vm_stack_peek(vm, vm->arg.u32 - idx - 1),
-			uc_vm_stack_peek(vm, vm->arg.u32 - idx - 2)));
+			uc_vm_stack_peek(vm, count - idx - 1),
+			uc_vm_stack_peek(vm, count - idx - 2)));
 
-	for (idx = 0; idx < vm->arg.u32; idx++)
-		ucv_put(uc_vm_stack_pop(vm));
+	uc_vm_stack_drop(vm, count);
 }
 
 static void
@@ -2586,6 +2722,7 @@ uc_vm_insn_mobj(uc_vm_t *vm, uc_vm_insn_t insn)
 		s = ucv_to_string(vm, src);
 		uc_vm_raise_exception(vm, EXCEPTION_TYPE, "Value (%s) is not iterable", s);
 		free(s);
+		ucv_put(src);
 
 		break;
 	}
@@ -2696,20 +2833,16 @@ uc_vm_insn_complement(uc_vm_t *vm, uc_vm_insn_t insn)
 {
 	uc_value_t *v = uc_vm_stack_pop(vm);
 	uc_value_t *nv;
+	bool negative;
 	uint64_t u;
-	int64_t n;
 
 	nv = ucv_to_number(v);
-	n = int64(nv, &u);
+	u = ~bit_pattern(nv, &negative);
 
-	if (n < 0) {
-		uc_vm_stack_push(vm, ucv_int64_new(~n));
-	}
-	else {
-		if (!u) u = (uint64_t)n;
-
-		uc_vm_stack_push(vm, ucv_uint64_new(~u));
-	}
+	if (negative)
+		uc_vm_stack_push(vm, ucv_int64_new((int64_t)u));
+	else
+		uc_vm_stack_push(vm, ucv_uint64_new(u));
 
 	ucv_put(nv);
 	ucv_put(v);
@@ -2836,8 +2969,8 @@ uc_vm_insn_jmpz(uc_vm_t *vm, uc_vm_insn_t insn)
 {
 	uc_callframe_t *frame = uc_vm_current_frame(vm);
 	uc_chunk_t *chunk = uc_vm_frame_chunk(frame);
-	uc_value_t *v = uc_vm_stack_pop(vm);
 	int32_t addr = vm->arg.s32;
+	uc_value_t *v;
 
 	/* ip already has been incremented */
 	addr -= 5;
@@ -2847,6 +2980,8 @@ uc_vm_insn_jmpz(uc_vm_t *vm, uc_vm_insn_t insn)
 		uc_vm_raise_exception(vm, EXCEPTION_RUNTIME, "jump target out of range");
 		return;
 	}
+
+	v = uc_vm_stack_pop(vm);
 
 	if (!ucv_is_truish(v))
 		frame->ip += addr;
@@ -3091,23 +3226,26 @@ uc_vm_insn_print(uc_vm_t *vm, uc_vm_insn_t insn)
 static void
 uc_vm_insn_delete(uc_vm_t *vm, uc_vm_insn_t insn)
 {
-	uc_value_t *k = uc_vm_stack_pop(vm);
-	uc_value_t *v = uc_vm_stack_pop(vm);
-	bool rv;
+	uc_value_t *k = uc_vm_stack_peek(vm, 0);
+	uc_value_t *v = uc_vm_stack_peek(vm, 1);
+	uc_value_t *res = NULL;
+	bool ok = false;
 
 	switch (ucv_type(v)) {
 	case UC_OBJECT:
 	case UC_ARRAY:
 	case UC_RESOURCE:
-		if (assert_mutable_value(vm, v)) {
-			/* ucv_key_delete() removes own object keys directly and consults the
-			 * __delete__ metamethod for keys the value has no own storage for.
-			 * Arrays and resources have no own-key storage at all, so there the
-			 * metamethod is the only way to handle a key; without one it raises
-			 * the same reference error the default case below reports */
-			rv = ucv_key_delete(vm, v, k);
-			uc_vm_stack_push(vm, ucv_boolean_new(rv));
-		}
+		ok = true;
+
+		if (!assert_mutable_value(vm, v))
+			break;
+
+		/* ucv_key_delete() removes own object keys directly and consults the
+		 * __delete__ metamethod for keys the value has no own storage for.
+		 * Arrays and resources have no own-key storage at all, so there the
+		 * metamethod is the only way to handle a key; without one it raises
+		 * the same reference error the default case below reports */
+		res = ucv_boolean_new(ucv_key_delete(vm, v, k));
 
 		break;
 
@@ -3119,8 +3257,10 @@ uc_vm_insn_delete(uc_vm_t *vm, uc_vm_insn_t insn)
 		break;
 	}
 
-	ucv_put(k);
-	ucv_put(v);
+	uc_vm_stack_drop(vm, 2);
+
+	if (ok)
+		uc_vm_stack_push(vm, res);
 }
 
 /* a closure that runs again holds the binding of its previous run */
@@ -3235,6 +3375,18 @@ uc_vm_insn_dynload(uc_vm_t *vm, uc_vm_insn_t insn)
 	/* Attempt to load module. Will raise exception on error */
 	name = uc_vm_stack_pop(vm);
 	modscope = uc_require_library(vm, name, true);
+
+	/* the two cases for which uc_require_library() gives null and raises
+	 * nothing, as require() needs it */
+	if (!modscope && vm->exception.type == EXCEPTION_NONE) {
+		if (ucv_type(name) != UC_STRING)
+			uc_vm_raise_exception(vm, EXCEPTION_TYPE,
+			                      "Passed module name is not a string");
+		else
+			uc_vm_raise_exception(vm, EXCEPTION_RUNTIME,
+			                      "Module '%s' is null", ucv_string_get(name));
+	}
+
 	ucv_put(name);
 
 	if (!modscope || vm->exception.type != EXCEPTION_NONE) {
@@ -3392,14 +3544,72 @@ uc_vm_output_exception(uc_vm_t *vm, uc_exception_t *ex)
 	fprintf(stderr, "\n");
 }
 
+static uc_exception_type_t
+uc_vm_signal_handler_call(uc_vm_t *vm, size_t sig)
+{
+	uc_value_t *handler = ucv_array_get(vm->signal.handler, sig);
+	uc_exception_type_t ex;
+
+	if (!ucv_is_callable(handler))
+		return EXCEPTION_NONE;
+
+	uc_vm_stack_push(vm, ucv_get(handler));
+	uc_vm_stack_push(vm, ucv_int64_new(sig));
+
+	ex = uc_vm_call(vm, false, 1);
+
+	if (ex == EXCEPTION_NONE)
+		ucv_put(uc_vm_stack_pop(vm));
+
+	return ex;
+}
+
+/* uc_vm_signal_raise() runs in a signal handler. While all signals are
+ * blocked it cannot run between the read of the pipe and the read of a word,
+ * or between the read and the store of a word. */
+static void
+uc_vm_signal_pending_take(uc_vm_t *vm, uint64_t *pending)
+{
+	sigset_t all, prev;
+	int buf, rv;
+	size_t i;
+
+	sigfillset(&all);
+	sigprocmask(SIG_BLOCK, &all, &prev);
+
+	do {
+		rv = read(vm->signal.sigpipe[0], &buf, sizeof(buf));
+	} while (rv > 0 || (rv == -1 && errno == EINTR));
+
+	for (i = 0; i < ARRAY_SIZE(vm->signal.raised); i++) {
+		pending[i] = vm->signal.raised[i];
+		vm->signal.raised[i] = 0;
+	}
+
+	sigprocmask(SIG_SETMASK, &prev, NULL);
+}
+
+static void
+uc_vm_signal_pending_restore(uc_vm_t *vm, const uint64_t *pending)
+{
+	sigset_t all, prev;
+	size_t i;
+
+	sigfillset(&all);
+	sigprocmask(SIG_BLOCK, &all, &prev);
+
+	for (i = 0; i < ARRAY_SIZE(vm->signal.raised); i++)
+		vm->signal.raised[i] |= pending[i];
+
+	sigprocmask(SIG_SETMASK, &prev, NULL);
+}
+
 uc_exception_type_t
 uc_vm_signal_dispatch(uc_vm_t *vm)
 {
-	uc_exception_type_t ex;
-	uc_value_t *handler;
-	uint64_t mask;
-	size_t i, j;
-	int sig, rv;
+	uint64_t pending[ARRAY_SIZE(vm->signal.raised)], any = 0, mask;
+	uc_exception_type_t ex = EXCEPTION_NONE;
+	size_t i, sig;
 
 	/* Check whether the signal self-pipe was actually set up, rather than
 	 * re-checking config->setup_signal_handlers directly: the pipe may
@@ -3409,39 +3619,32 @@ uc_vm_signal_dispatch(uc_vm_t *vm)
 	if (vm->signal.sigpipe[0] < 0)
 		return EXCEPTION_NONE;
 
-	for (i = 0; i < ARRAY_SIZE(vm->signal.raised); i++) {
-		if (!vm->signal.raised[i])
+	for (i = 0; i < ARRAY_SIZE(pending); i++)
+		any |= vm->signal.raised[i];
+
+	if (!any)
+		return EXCEPTION_NONE;
+
+	/* The handlers run in the order of the signal numbers. The dispatch
+	 * inside a handler must find only the signals that came in after it. */
+	uc_vm_signal_pending_take(vm, pending);
+
+	for (sig = 0; sig < ARRAY_SIZE(pending) * 64 && ex == EXCEPTION_NONE; sig++) {
+		mask = 1ull << (sig % 64);
+
+		if (!(pending[sig / 64] & mask))
 			continue;
 
-		do {
-			rv = read(vm->signal.sigpipe[0], &sig, sizeof(sig));
-		} while (rv > 0 || (rv == -1 && errno == EINTR));
-
-		for (j = 0; j < 64; j++) {
-			mask = 1ull << j;
-
-			if (vm->signal.raised[i] & mask) {
-				vm->signal.raised[i] &= ~mask;
-
-				sig = i * 64 + j;
-				handler = ucv_array_get(vm->signal.handler, sig);
-
-				if (ucv_is_callable(handler)) {
-					uc_vm_stack_push(vm, ucv_get(handler));
-					uc_vm_stack_push(vm, ucv_int64_new(sig));
-
-					ex = uc_vm_call(vm, false, 1);
-
-					if (ex != EXCEPTION_NONE)
-						return ex;
-
-					ucv_put(uc_vm_stack_pop(vm));
-				}
-			}
-		}
+		pending[sig / 64] &= ~mask;
+		ex = uc_vm_signal_handler_call(vm, sig);
 	}
 
-	return EXCEPTION_NONE;
+	/* a further handler call would drop the exception, so a later
+	 * dispatch runs the handlers of the remaining signals */
+	if (ex != EXCEPTION_NONE)
+		uc_vm_signal_pending_restore(vm, pending);
+
+	return ex;
 }
 
 static uc_vm_status_t
@@ -3461,6 +3664,7 @@ uc_vm_execute_chunk(uc_vm_t *vm)
 	uc_callframe_t *frame = NULL;
 	uc_chunk_t *chunk = NULL;
 	size_t caller = vm->callframes.count - 1;
+	bool between = false;
 	uc_value_t *retval;
 	uc_vm_insn_t insn;
 	uint8_t *ip;
@@ -3718,7 +3922,7 @@ exception:
 		if (vm->exception.type != EXCEPTION_NONE) {
 			/* VM termination was requested */
 			if (vm->exception.type == EXCEPTION_EXIT) {
-				uc_vm_reset_callframes(vm);
+				uc_vm_reset_callframes(vm, caller);
 
 				return STATUS_EXIT;
 			}
@@ -3730,7 +3934,7 @@ exception:
 			 * stack *before* uc_vm_handle_exception()'s loop below starts
 			 * popping frames - once that happens, the original throwing
 			 * frame's locals and exact position are gone for good. */
-			if (!uc_vm_exception_would_be_caught(vm, caller)) {
+			if (!uc_vm_exception_would_be_caught(vm, caller, between)) {
 				for (size_t i = 0; i < vm->breakpoints.count; i++) {
 					uc_breakpoint_t *bk = vm->breakpoints.entries[i];
 
@@ -3740,7 +3944,7 @@ exception:
 						/* "quit" was issued from within the breakpoint's
 						 * CLI session */
 						if (vm->exception.type == EXCEPTION_EXIT) {
-							uc_vm_reset_callframes(vm);
+							uc_vm_reset_callframes(vm, caller);
 
 							return STATUS_EXIT;
 						}
@@ -3751,7 +3955,7 @@ exception:
 			}
 
 			/* walk up callframes until something handles the exception or the original caller is reached */
-			while (!uc_vm_handle_exception(vm)) {
+			while (!uc_vm_handle_exception(vm, between)) {
 				/* no further callframe, report unhandled exception and terminate */
 				if (vm->callframes.count == 0)
 					return ERROR_RUNTIME;
@@ -3766,7 +3970,11 @@ exception:
 				/* do not bubble past original call depth */
 				if (vm->callframes.count <= caller)
 					return ERROR_RUNTIME;
+
+				between = false;
 			}
+
+			between = false;
 		}
 
 		/* the compiler emits the exports of a module as one block, do not run
@@ -3775,9 +3983,17 @@ exception:
 		if (insn == I_EXPORT && frame->ip[0] == I_EXPORT)
 			continue;
 
+		/* a handler that raises needs a frame of this invocation to unwind;
+		 * after the last RETURN the caller dispatches the signal */
+		if (vm->callframes.count <= caller)
+			break;
+
 		/* run handler for signal(s) delivered during previous instruction */
-		if (uc_vm_signal_dispatch(vm) != EXCEPTION_NONE)
+		if (uc_vm_signal_dispatch(vm) != EXCEPTION_NONE) {
+			between = true;
+
 			goto exception;
+		}
 
 		/* check for break request */
 		if (vm->break_requested) {
@@ -3787,6 +4003,25 @@ exception:
 	}
 
 	return STATUS_OK;
+}
+
+/* The handlers of signals run between two instructions of a frame. A call
+ * that returns to a C host leaves no frame behind, so the handlers of the
+ * signals of its last instructions run here, in place of its result. */
+static uc_exception_type_t
+uc_vm_signal_dispatch_host(uc_vm_t *vm)
+{
+	uc_exception_type_t ex;
+
+	if (vm->callframes.count > 0 || vm->exception.type != EXCEPTION_NONE)
+		return vm->exception.type;
+
+	ex = uc_vm_signal_dispatch(vm);
+
+	if (ex != EXCEPTION_NONE)
+		ucv_put(uc_vm_stack_pop(vm));
+
+	return ex;
 }
 
 uc_vm_status_t
@@ -3828,6 +4063,9 @@ uc_vm_execute(uc_vm_t *vm, uc_program_t *program, uc_value_t **retval)
 
 	status = uc_vm_execute_chunk(vm);
 
+	if (status == STATUS_OK && uc_vm_signal_dispatch_host(vm) != EXCEPTION_NONE)
+		status = uc_vm_exception_type_to_status(vm);
+
 	switch (status) {
 	case STATUS_OK:
 		val = uc_vm_stack_pop(vm);
@@ -3868,14 +4106,34 @@ uc_vm_execute(uc_vm_t *vm, uc_program_t *program, uc_value_t **retval)
 uc_exception_type_t
 uc_vm_call(uc_vm_t *vm, bool mcall, size_t nargs)
 {
-	uc_value_t *ctx = mcall ? ucv_get(uc_vm_stack_peek(vm, nargs + 1)) : NULL;
-	uc_value_t *fno = ucv_get(uc_vm_stack_peek(vm, nargs));
-	bool native = (ucv_type(fno) == UC_CFUNCTION);
+	size_t depth = vm->callframes.count;
+	size_t argc = nargs & 0xffff;
+	uc_value_t *ctx, *fno;
+
+	if (uc_vm_exit_pending(vm))
+		goto drop;
+
+	ctx = mcall ? ucv_get(uc_vm_stack_peek(vm, nargs + 1)) : NULL;
+	fno = ucv_get(uc_vm_stack_peek(vm, nargs));
 
 	uc_vm_clear_exception(vm);
 
-	if (uc_vm_call_function(vm, ctx, fno, mcall, nargs & 0xffff, false) && !native)
+	if (!uc_vm_call_function(vm, ctx, fno, mcall, argc, false))
+		goto drop;
+
+	/* only a closure leaves a new frame behind, a C function that __call__
+	 * resolves to already ran */
+	if (vm->callframes.count > depth)
 		uc_vm_execute_chunk(vm);
+
+	return uc_vm_signal_dispatch_host(vm);
+
+drop:
+	/* the release of the call frame drops the callee, its arguments and the
+	 * receiver of a method call after a call that failed; a call that fails
+	 * without a frame drops them here, so that each caller finds the same
+	 * stack */
+	uc_vm_stack_drop(vm, argc + 1 + (mcall ? 1 : 0));
 
 	return vm->exception.type;
 }
