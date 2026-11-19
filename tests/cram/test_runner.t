@@ -62,3 +62,13 @@ check that the test runner counts a file with two failed cases as one failure:
   [1]
   $ tail -n 1 out.txt
   Ran 1 tests, 0 okay, 1 failures
+
+check that the test runner fails if 256 files failed, with a test program
+that prints nothing:
+
+  $ mkdir -p many/00_fail && cp "$custom/run_tests.uc" many/
+  $ for i in $(seq 100 355); do cp suite/00_fail/01_two_failures many/00_fail/01_$i; done
+  $ (export UCODE_BIN=false; run_tests many/run_tests.uc) > out.txt
+  [1]
+  $ tail -n 1 out.txt
+  Ran 256 tests, 0 okay, 256 failures

@@ -318,4 +318,4 @@ for (let catdir in fs.glob(`${testdir}/[0-9][0-9]_*`)) {
 }
 
 printf('\nRan %d tests, %d okay, %d failures\n', n_tests, n_tests - n_fails, n_fails);
-exit(n_fails);
+exit(n_fails ? 1 : 0);
