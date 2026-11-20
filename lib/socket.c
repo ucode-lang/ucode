@@ -2891,6 +2891,15 @@ uc_socket_poll(uc_vm_t *vm, size_t nargs)
 
 		if (item)
 			ucv_array_set(rv, pfds.count++, item);
+
+		/* the next fileno call would clear the exception of this one */
+		if (vm->exception.type != EXCEPTION_NONE) {
+			ucv_put(uc_vm_stack_pop(vm));
+			ucv_put(rv);
+			uc_vector_clear(&pfds);
+
+			return NULL;
+		}
 	}
 
 	ret = poll(pfds.entries, pfds.count, timeout);
