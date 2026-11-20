@@ -1,0 +1,63 @@
+Test that the collector knows the objects that the socket module builds
+from a C structure: the entries and addresses of `addrinfo()`, a socket
+option with several fields and the data of a control message. A reference
+cycle through such an object is freed by a collection.
+
+-- Testcase --
+{%
+	import * as socket from 'socket';
+
+	// number of values that a collection frees after `make` built a cycle
+	function freed(make) {
+		make();
+
+		let count = gc("count");
+
+		gc();
+
+		return count - gc("count");
+	}
+
+	// the result array, one entry and its address
+	print(freed(() => {
+		let ai = socket.addrinfo("127.0.0.1", 80, { socktype: socket.SOCK_STREAM });
+
+		ai[0].addr.self = ai;
+	}), "\n");
+
+	// an address that holds itself
+	print(freed(() => {
+		let addr = socket.addrinfo("127.0.0.1", 80, { socktype: socket.SOCK_STREAM })[0].addr;
+
+		addr.self = addr;
+	}), "\n");
+
+	let sk = socket.pair(socket.SOCK_DGRAM);
+
+	print(freed(() => {
+		let timeout = sk[0].getopt(socket.SOL_SOCKET, socket.SO_RCVTIMEO);
+
+		timeout.self = timeout;
+	}), "\n");
+
+	sk[1].setopt(socket.SOL_SOCKET, socket.SO_PASSCRED, true);
+	sk[0].send("x");
+
+	// the message, the list of control messages, one control message and
+	// its credentials
+	print(freed(() => {
+		let msg = sk[1].recvmsg(16, 256);
+		let cmsg = msg.ancillary[0];
+
+		assert(cmsg.type == socket.SCM_CREDENTIALS && type(cmsg.data) == "object");
+		cmsg.data.self = msg;
+	}), "\n");
+%}
+-- End --
+
+-- Expect stdout --
+3
+1
+1
+4
+-- End --

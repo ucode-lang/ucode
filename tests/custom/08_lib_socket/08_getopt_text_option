@@ -1,0 +1,30 @@
+Test that `getopt()` returns the value of an option that holds a name
+without the NUL bytes that follow the name in the buffer of the kernel.
+
+-- Platform --
+Linux
+-- End --
+
+-- Testcase --
+{%
+	import * as socket from 'socket';
+
+	let tcp = socket.create(socket.AF_INET, socket.SOCK_STREAM);
+	let name = tcp.getopt(socket.IPPROTO_TCP, socket.TCP_CONGESTION);
+
+	printf("%s %s\n", type(name), length(name) > 0 && index(name, "\0") < 0);
+	printf("%J\n", tcp.setopt(socket.IPPROTO_TCP, socket.TCP_CONGESTION, name));
+	printf("%J\n", tcp.getopt(socket.IPPROTO_TCP, socket.TCP_CONGESTION) == name);
+
+	let udp = socket.create(socket.AF_INET, socket.SOCK_DGRAM);
+
+	printf("%J\n", udp.getopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE));
+%}
+-- End --
+
+-- Expect stdout --
+string true
+true
+true
+""
+-- End --

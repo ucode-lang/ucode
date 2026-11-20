@@ -1,0 +1,108 @@
+Test that `sendmsg()` encodes a control message whose data changes during
+the conversion. The `fileno` method of an entry of a descriptor list is
+script code: it can remove the list from the message, and it can add
+entries after the function reserved the space for the message. An
+exception of the method ends the call, and the message is not sent.
+
+-- Testcase --
+{%
+	import * as socket from 'socket';
+	import * as fs from 'fs';
+
+	let sk = socket.pair(socket.SOCK_DGRAM);
+	let file = fs.open("/dev/null");
+	let cmsg = { level: socket.SOL_SOCKET, type: socket.SCM_RIGHTS };
+
+	cmsg.data = [
+		{
+			fileno: function() {
+				cmsg.data = null;
+
+				// take the block that the list released
+				let lists = [];
+
+				for (let i = 0; i < 64; i++)
+					push(lists, [ i, i, i, i ]);
+
+				return file.fileno();
+			}
+		},
+		file, file, file
+	];
+
+	printf("%d\n", sk[0].sendmsg("x", [ cmsg ]));
+
+	let msg = sk[1].recvmsg(16, 256);
+
+	printf("%s %J\n", msg.data, map(msg.ancillary, c => length(c.data)));
+%}
+-- End --
+
+-- Expect stdout --
+1
+x [ 4 ]
+-- End --
+
+
+-- Testcase --
+{%
+	import * as socket from 'socket';
+	import * as fs from 'fs';
+
+	let sk = socket.pair(socket.SOCK_DGRAM);
+	let file = fs.open("/dev/null");
+	let fds = [];
+
+	push(fds, {
+		fileno: function() {
+			for (let i = 0; i < 64; i++)
+				push(fds, file);
+
+			return file.fileno();
+		}
+	});
+
+	printf("%J\n", sk[0].sendmsg("x", [
+		{ level: socket.SOL_SOCKET, type: socket.SCM_RIGHTS, data: fds }
+	]));
+
+	printf("%s\n", split(socket.error(), ":")[0]);
+%}
+-- End --
+
+-- Expect stdout --
+null
+Not enough CMSG buffer space
+-- End --
+
+
+-- Testcase --
+{%
+	import * as socket from 'socket';
+	import * as fs from 'fs';
+
+	let sk = socket.pair(socket.SOCK_DGRAM);
+	let file = fs.open("/dev/null");
+	let failing = { fileno: () => die("no descriptor") };
+
+	for (let fds in [ [ failing, file ], [ file, failing ] ]) {
+		try {
+			sk[0].sendmsg("x", [
+				{ level: socket.SOL_SOCKET, type: socket.SCM_RIGHTS, data: fds }
+			]);
+		}
+		catch (e) {
+			printf("%s\n", e.message);
+		}
+
+		printf("%J\n", sk[1].recvmsg(16, 256, socket.MSG_DONTWAIT));
+	}
+%}
+-- End --
+
+-- Expect stdout --
+no descriptor
+null
+no descriptor
+null
+-- End --
