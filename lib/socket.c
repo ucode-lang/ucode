@@ -1718,6 +1718,8 @@ static struct_t st_timespec_new = {
 #define SV_BOOL		(struct_t *)3
 #define SV_BINARY	(struct_t *)4
 #define SV_IFNAME	(struct_t *)5
+/* a string whose value ends at its first NUL byte */
+#define SV_STRING	(struct_t *)6
 
 #define CV_INT		(struct_t *)0
 #define CV_UINT		(struct_t *)1
@@ -1750,7 +1752,7 @@ static sockopt_t sockopts[] = {
     { SOL_SOCKET, SO_ATTACH_BPF, SV_INT },
     { SOL_SOCKET, SO_ATTACH_REUSEPORT_CBPF, SV_BINARY },
     { SOL_SOCKET, SO_ATTACH_REUSEPORT_EBPF, SV_INT },
-    { SOL_SOCKET, SO_BINDTODEVICE, SV_BINARY },
+    { SOL_SOCKET, SO_BINDTODEVICE, SV_STRING },
     { SOL_SOCKET, SO_DETACH_FILTER, SV_VOID },
     { SOL_SOCKET, SO_DETACH_BPF, SV_VOID },
     { SOL_SOCKET, SO_DOMAIN, SV_INT_RO },
@@ -1762,7 +1764,7 @@ static sockopt_t sockopts[] = {
     { SOL_SOCKET, SO_PASSSEC, SV_BOOL },
     { SOL_SOCKET, SO_PEEK_OFF, SV_INT },
     { SOL_SOCKET, SO_PEERCRED, &st_ucred },
-    { SOL_SOCKET, SO_PEERSEC, SV_BINARY },
+    { SOL_SOCKET, SO_PEERSEC, SV_STRING },
     { SOL_SOCKET, SO_PRIORITY, SV_INT },
     { SOL_SOCKET, SO_PROTOCOL, SV_INT },
     { SOL_SOCKET, SO_RCVBUFFORCE, SV_INT },
@@ -1857,7 +1859,7 @@ static sockopt_t sockopts[] = {
     { IPPROTO_TCP, TCP_NODELAY, SV_BOOL },
     { IPPROTO_TCP, TCP_FASTOPEN, SV_INT },
 #if defined(__linux__)
-    { IPPROTO_TCP, TCP_CONGESTION, SV_BINARY },
+    { IPPROTO_TCP, TCP_CONGESTION, SV_STRING },
     { IPPROTO_TCP, TCP_CORK, SV_BOOL },
     { IPPROTO_TCP, TCP_DEFER_ACCEPT, SV_INT },
 	{ IPPROTO_TCP, TCP_INFO, &st_tcp_info },
@@ -2232,6 +2234,7 @@ uc_socket_inst_setopt(uc_vm_t *vm, size_t nargs)
 			break;
 
 		case (uintptr_t)SV_BINARY:
+		case (uintptr_t)SV_STRING:
 			valptr = ucv_string_get(value);
 			vallen = ucv_string_length(value);
 			break;
@@ -2341,6 +2344,7 @@ uc_socket_inst_getopt(uc_vm_t *vm, size_t nargs)
 		break;
 
 	case (uintptr_t)SV_BINARY:
+	case (uintptr_t)SV_STRING:
 		sb = strbuf_alloc(64);
 
 		if (!sb)
@@ -2360,7 +2364,7 @@ uc_socket_inst_getopt(uc_vm_t *vm, size_t nargs)
 	while (true) {
 		ret = getsockopt(sockfd, solvl, soopt, valptr, &vallen);
 
-		if (sockopts[i].ctype != SV_BINARY || vallen <= strbuf_size(sb) ||
+		if (!sb || vallen <= strbuf_size(sb) ||
 		    (ret == -1 && errno != ERANGE))
 			break;
 
@@ -2392,6 +2396,10 @@ uc_socket_inst_getopt(uc_vm_t *vm, size_t nargs)
 
 		case (uintptr_t)SV_BINARY:
 			value = strbuf_finish(&sb, vallen);
+			break;
+
+		case (uintptr_t)SV_STRING:
+			value = strbuf_finish(&sb, strnlen(strbuf_data(sb), vallen));
 			break;
 
 		case (uintptr_t)SV_IFNAME:
