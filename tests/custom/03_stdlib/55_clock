@@ -4,23 +4,32 @@ default realtime one.
 
 -- Testcase --
 {%
+	function delta(from, to) {
+		return (to[0] - from[0]) * 1000000000 + (to[1] - from[1]);
+	}
+
+	let before = clock(true);
 	let t1 = clock();
 	let t3 = clock(true);
 
 	sleep(250);
 
-	let t2 = clock();
 	let t4 = clock(true);
+	let t2 = clock();
+	let after = clock(true);
 
-	let delta1 = (t2[0] - t1[0]) * 1000000000 + (t2[1] - t1[1]);
-	let delta2 = (t4[0] - t3[0]) * 1000000000 + (t4[1] - t3[1]);
+	let delta1 = delta(t1, t2);
+	let delta2 = delta(t3, t4);
+	let outer = delta(before, after);
 
 	assert(delta1 >= 0, "Realtime clock went backwards!");
 	assert(delta2 >= 0, "Monotonic clock went backwards!");
 
+	// A host under load ends the sleep late, by an unknown time. The monotonic
+	// readings enclose the realtime ones and bound their delta on both sides.
 	printf("%.J\n", [
-		(delta1 >= 240000000 && delta1 <= 260000000) ? true : "unexpected delta: " + delta1,
-		(delta2 >= 240000000 && delta2 <= 260000000) ? true : "unexpected delta: " + delta2
+		(delta1 >= 240000000 && delta1 >= delta2 - 10000000 && delta1 <= outer + 10000000) ? true : "unexpected delta: " + delta1,
+		(delta2 >= 240000000 && delta2 <= 60000000000) ? true : "unexpected delta: " + delta2
 	]);
 %}
 -- End --

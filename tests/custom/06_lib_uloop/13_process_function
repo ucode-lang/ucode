@@ -13,7 +13,7 @@ child.
 
 	uloop.init();
 
-	const tmpdir = fs.mkdtemp('/tmp/ucode-uloop-process-XXXXXX');
+	const tmpdir = fs.mkdtemp('./ucode-uloop-process-XXXXXX');
 	const outfile = tmpdir + '/out';
 
 	function run(label, executable, args, env) {
@@ -59,16 +59,37 @@ child.
 		return ['/bin/true'];
 	});
 
+	let ready = fs.pipe(), resume = fs.pipe();
+
+	function signal_wait() {
+		ready[1].write('x');
+		ready[1].flush();
+		resume[0].read(1);
+
+		return ['/bin/true'];
+	}
+
+	// The signal must find the child in its function: wait for its report.
+	// A child that the signal did not end goes on and exits with code 0.
+	function signal_send(child, signal) {
+		ready[1].close();
+
+		// a signal for the parent, like SIGCHLD, interrupts the read
+		for (let i = 0; i < 100 && ready[0].read(1) == null; i++)
+			continue;
+
+		system(['kill', signal, `${child.pid()}`]);
+		resume[1].write('x');
+		resume[1].flush();
+	}
+
 	uloop.timer(1, () => {
-		let child = uloop.process(() => {
-			sleep(300);
-			return ['/bin/true'];
-		}, null, null, (status) => {
+		let child = uloop.process(signal_wait, null, null, (status) => {
 			printf('TERM: %d\n', status);
 			uloop.end();
 		});
 
-		uloop.timer(100, () => system(['kill', '-TERM', `${child.pid()}`]));
+		signal_send(child, '-TERM');
 	});
 
 	uloop.run();
@@ -100,28 +121,55 @@ parent.
 -- Testcase --
 {%
 	import * as uloop from 'uloop';
+	import * as fs from 'fs';
 
 	if (!uloop.signal)
 		exit(77);
 
 	uloop.init();
 
-	let usr1_count = 0;
+	let usr1_count = 0, child_status;
 	let usr1 = uloop.signal('SIGUSR1', () => usr1_count++);
+	let ready = fs.pipe(), resume = fs.pipe();
+
+	function signal_wait() {
+		ready[1].write('x');
+		ready[1].flush();
+		resume[0].read(1);
+
+		return ['/bin/true'];
+	}
+
+	// The signal must find the child in its function: wait for its report.
+	function signal_send(child, signal) {
+		ready[1].close();
+
+		// a signal for the parent, like SIGCHLD, interrupts the read
+		for (let i = 0; i < 100 && ready[0].read(1) == null; i++)
+			continue;
+
+		system(['kill', signal, `${child.pid()}`]);
+		resume[1].write('x');
+		resume[1].flush();
+	}
 
 	uloop.timer(1, () => {
-		let child = uloop.process(() => {
-			sleep(300);
-			return ['/bin/true'];
-		}, null, null, (status) => {
-			printf('USR1: %d, parent callbacks: %d\n', status, usr1_count);
+		let child = uloop.process(signal_wait, null, null, (status) => {
+			child_status = status;
 			uloop.end();
 		});
 
-		uloop.timer(100, () => system(['kill', '-USR1', `${child.pid()}`]));
+		signal_send(child, '-USR1');
 	});
 
 	uloop.run();
+
+	// A signal that the child passed to the parent is an event of the loop,
+	// which can come after the exit of the child.
+	for (let i = 0; i < 3; i++)
+		uloop.run(0);
+
+	printf('USR1: %d, parent callbacks: %d\n', child_status, usr1_count);
 
 	usr1.delete();
 	uloop.done();

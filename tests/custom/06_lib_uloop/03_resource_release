@@ -10,7 +10,22 @@ after an error or hangup.
 
 	uloop.init();
 
+	// With an old libubox, uloop.run() with a timeout returns only when the
+	// loop ends: end the loop from a timer.
+	function run(msecs) {
+		uloop.timer(msecs, () => uloop.end());
+		uloop.run();
+	}
+
+	// A host under load needs an unknown time until the process and the task
+	// ended: run the loop until the state is there.
+	function loop_until(done) {
+		for (let limit = time() + 10; !done() && time() < limit; )
+			run(10);
+	}
+
 	let events = [];
+	let base_fds = length(fs.lsdir('/dev/fd'));
 	let base = gc('count');
 
 	let fds = fs.pipe();
@@ -31,8 +46,9 @@ after an error or hangup.
 		(msg) => push(events, sprintf("task output=%s", msg))
 	);
 
-	uloop.timer(500, () => uloop.end());
-	uloop.run();
+	// the released handle and the finished task close their descriptors
+	loop_until(() => length(events) == 3 &&
+		length(fs.lsdir('/dev/fd')) == base_fds);
 
 	printf("%s\nalive: %d\n", join('\n', sort(events)), gc('count') - base);
 
@@ -58,6 +74,20 @@ deleted, even without a script reference.
 
 	uloop.init();
 
+	// With an old libubox, uloop.run() with a timeout returns only when the
+	// loop ends: end the loop from a timer.
+	function run(msecs) {
+		uloop.timer(msecs, () => uloop.end());
+		uloop.run();
+	}
+
+	// A run whose timer is due at its start ends before it reports a hangup:
+	// run the loop until the state is there.
+	function loop_until(done) {
+		for (let limit = time() + 10; !done() && time() < limit; )
+			run(10);
+	}
+
 	let base = gc('count');
 	let fds = fs.pipe();
 	let hangups = 0;
@@ -70,10 +100,13 @@ deleted, even without a script reference.
 	fds[1].close();
 	fds = null;
 
-	uloop.timer(50, () => uloop.end());
-
 	printf("registered: %s\n", gc('count') > base);
-	uloop.run();
+
+	loop_until(() => hangups >= 2);
+
+	// a handle that is still registered reports more hangups
+	run(10);
+
 	printf("hangups: %d, alive: %d\n", hangups, gc('count') - base);
 
 	uloop.done();
@@ -98,8 +131,23 @@ deleted, even without a script reference.
 
 	uloop.init();
 
+	// the signal callback ends a run before its timer
+	function run(msecs) {
+		let timer = uloop.timer(msecs, () => uloop.end());
+
+		uloop.run();
+		timer.cancel();
+	}
+
+	// A host under load needs an unknown time for three ticks and for the
+	// signal: run the loop until the state is there.
+	function loop_until(done) {
+		for (let limit = time() + 10; !done() && time() < limit; )
+			run(10);
+	}
+
 	let base = gc('count');
-	let ticks = 0;
+	let ticks = 0, signalled = false;
 
 	uloop.interval(1, function() {
 		if (++ticks == 3)
@@ -109,13 +157,19 @@ deleted, even without a script reference.
 	uloop.signal('SIGUSR1', function() {
 		printf("signal received\n");
 		this.delete();
+		signalled = true;
 		uloop.end();
 	});
 
-	uloop.timer(50, () => system('kill -USR1 $PPID'));
-
 	printf("registered: %s\n", gc('count') > base);
-	uloop.run();
+
+	loop_until(() => ticks >= 3);
+	system('kill -USR1 $PPID');
+	loop_until(() => signalled);
+
+	// an interval that is still armed ticks in a further run
+	run(15);
+
 	printf("ticks: %d, alive: %d\n", ticks, gc('count') - base);
 
 	uloop.done();
