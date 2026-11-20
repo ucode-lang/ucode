@@ -1716,7 +1716,7 @@ static struct_t st_timespec_new = {
 #define SV_INT		(struct_t *)1
 #define SV_INT_RO	(struct_t *)2
 #define SV_BOOL		(struct_t *)3
-#define SV_STRING	(struct_t *)4
+#define SV_BINARY	(struct_t *)4
 #define SV_IFNAME	(struct_t *)5
 
 #define CV_INT		(struct_t *)0
@@ -1748,9 +1748,9 @@ static sockopt_t sockopts[] = {
 #if defined(__linux__)
     { SOL_SOCKET, SO_ATTACH_FILTER, &st_sock_fprog },
     { SOL_SOCKET, SO_ATTACH_BPF, SV_INT },
-    { SOL_SOCKET, SO_ATTACH_REUSEPORT_CBPF, SV_STRING },
+    { SOL_SOCKET, SO_ATTACH_REUSEPORT_CBPF, SV_BINARY },
     { SOL_SOCKET, SO_ATTACH_REUSEPORT_EBPF, SV_INT },
-    { SOL_SOCKET, SO_BINDTODEVICE, SV_STRING },
+    { SOL_SOCKET, SO_BINDTODEVICE, SV_BINARY },
     { SOL_SOCKET, SO_DETACH_FILTER, SV_VOID },
     { SOL_SOCKET, SO_DETACH_BPF, SV_VOID },
     { SOL_SOCKET, SO_DOMAIN, SV_INT_RO },
@@ -1762,7 +1762,7 @@ static sockopt_t sockopts[] = {
     { SOL_SOCKET, SO_PASSSEC, SV_BOOL },
     { SOL_SOCKET, SO_PEEK_OFF, SV_INT },
     { SOL_SOCKET, SO_PEERCRED, &st_ucred },
-    { SOL_SOCKET, SO_PEERSEC, SV_STRING },
+    { SOL_SOCKET, SO_PEERSEC, SV_BINARY },
     { SOL_SOCKET, SO_PRIORITY, SV_INT },
     { SOL_SOCKET, SO_PROTOCOL, SV_INT },
     { SOL_SOCKET, SO_RCVBUFFORCE, SV_INT },
@@ -1781,7 +1781,7 @@ static sockopt_t sockopts[] = {
     { IPPROTO_IP, IP_MULTICAST_IF, &st_ip_mreqn },
     { IPPROTO_IP, IP_MULTICAST_LOOP, SV_BOOL },
     { IPPROTO_IP, IP_MULTICAST_TTL, SV_INT },
-    { IPPROTO_IP, IP_OPTIONS, SV_STRING },
+    { IPPROTO_IP, IP_OPTIONS, SV_BINARY },
     { IPPROTO_IP, IP_PKTINFO, SV_BOOL },
     { IPPROTO_IP, IP_RECVOPTS, SV_BOOL },
     { IPPROTO_IP, IP_RECVTOS, SV_BOOL },
@@ -1823,10 +1823,10 @@ static sockopt_t sockopts[] = {
 	{ IPPROTO_IPV6, IPV6_AUTOFLOWLABEL, SV_BOOL },
 	{ IPPROTO_IPV6, IPV6_DONTFRAG, SV_BOOL },
 	{ IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP, &st_ipv6_mreq },
-	{ IPPROTO_IPV6, IPV6_DSTOPTS, SV_STRING },
+	{ IPPROTO_IPV6, IPV6_DSTOPTS, SV_BINARY },
 	{ IPPROTO_IPV6, IPV6_FREEBIND, SV_BOOL },
 	{ IPPROTO_IPV6, IPV6_HOPLIMIT, SV_BOOL },
-	{ IPPROTO_IPV6, IPV6_HOPOPTS, SV_STRING },
+	{ IPPROTO_IPV6, IPV6_HOPOPTS, SV_BINARY },
 	{ IPPROTO_IPV6, IPV6_JOIN_ANYCAST, &st_ipv6_mreq },
 	{ IPPROTO_IPV6, IPV6_LEAVE_ANYCAST, &st_ipv6_mreq },
 	{ IPPROTO_IPV6, IPV6_MINHOPCOUNT, SV_INT },
@@ -1845,8 +1845,8 @@ static sockopt_t sockopts[] = {
 	{ IPPROTO_IPV6, IPV6_RECVRTHDR, SV_BOOL },
 	{ IPPROTO_IPV6, IPV6_ROUTER_ALERT_ISOLATE, SV_BOOL },
 	{ IPPROTO_IPV6, IPV6_ROUTER_ALERT, SV_BOOL },
-	{ IPPROTO_IPV6, IPV6_RTHDR, SV_STRING },
-	{ IPPROTO_IPV6, IPV6_RTHDRDSTOPTS, SV_STRING },
+	{ IPPROTO_IPV6, IPV6_RTHDR, SV_BINARY },
+	{ IPPROTO_IPV6, IPV6_RTHDRDSTOPTS, SV_BINARY },
 	{ IPPROTO_IPV6, IPV6_TRANSPARENT, SV_BOOL },
 	{ IPPROTO_IPV6, IPV6_UNICAST_IF, SV_IFNAME },
 #endif
@@ -1857,7 +1857,7 @@ static sockopt_t sockopts[] = {
     { IPPROTO_TCP, TCP_NODELAY, SV_BOOL },
     { IPPROTO_TCP, TCP_FASTOPEN, SV_INT },
 #if defined(__linux__)
-    { IPPROTO_TCP, TCP_CONGESTION, SV_STRING },
+    { IPPROTO_TCP, TCP_CONGESTION, SV_BINARY },
     { IPPROTO_TCP, TCP_CORK, SV_BOOL },
     { IPPROTO_TCP, TCP_DEFER_ACCEPT, SV_INT },
 	{ IPPROTO_TCP, TCP_INFO, &st_tcp_info },
@@ -1890,7 +1890,7 @@ static sockopt_t sockopts[] = {
 #endif
 
 #if defined(__linux__)
-	{ SOL_CAN_RAW, CAN_RAW_FILTER, SV_STRING },
+	{ SOL_CAN_RAW, CAN_RAW_FILTER, SV_BINARY },
 	{ SOL_CAN_RAW, CAN_RAW_ERR_FILTER, SV_INT },
 	{ SOL_CAN_RAW, CAN_RAW_LOOPBACK, SV_BOOL },
 	{ SOL_CAN_RAW, CAN_RAW_RECV_OWN_MSGS, SV_BOOL },
@@ -1919,8 +1919,8 @@ static cmsgtype_t cmsgtypes[] = {
 	{ SOL_SOCKET, SCM_RIGHTS, CV_FDS },
 #endif
 
-	{ IPPROTO_IP, IP_RECVOPTS, SV_STRING },
-	{ IPPROTO_IP, IP_RETOPTS, SV_STRING },
+	{ IPPROTO_IP, IP_RECVOPTS, SV_BINARY },
+	{ IPPROTO_IP, IP_RETOPTS, SV_BINARY },
 	{ IPPROTO_IP, IP_TOS, CV_INT },
 	{ IPPROTO_IP, IP_TTL, CV_INT },
 #if defined(__linux__)
@@ -2231,7 +2231,7 @@ uc_socket_inst_setopt(uc_vm_t *vm, size_t nargs)
 			vallen = sizeof(int);
 			break;
 
-		case (uintptr_t)SV_STRING:
+		case (uintptr_t)SV_BINARY:
 			valptr = ucv_string_get(value);
 			vallen = ucv_string_length(value);
 			break;
@@ -2340,7 +2340,7 @@ uc_socket_inst_getopt(uc_vm_t *vm, size_t nargs)
 		vallen = sizeof(ival);
 		break;
 
-	case (uintptr_t)SV_STRING:
+	case (uintptr_t)SV_BINARY:
 		sb = strbuf_alloc(64);
 
 		if (!sb)
@@ -2360,7 +2360,7 @@ uc_socket_inst_getopt(uc_vm_t *vm, size_t nargs)
 	while (true) {
 		ret = getsockopt(sockfd, solvl, soopt, valptr, &vallen);
 
-		if (sockopts[i].ctype != SV_STRING || vallen <= strbuf_size(sb) ||
+		if (sockopts[i].ctype != SV_BINARY || vallen <= strbuf_size(sb) ||
 		    (ret == -1 && errno != ERANGE))
 			break;
 
@@ -2390,7 +2390,7 @@ uc_socket_inst_getopt(uc_vm_t *vm, size_t nargs)
 			value = ucv_boolean_new(parse_integer(ival, vallen) != 0);
 			break;
 
-		case (uintptr_t)SV_STRING:
+		case (uintptr_t)SV_BINARY:
 			value = strbuf_finish(&sb, vallen);
 			break;
 
