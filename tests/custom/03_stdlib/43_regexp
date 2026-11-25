@@ -857,3 +857,44 @@ ordinary character, and the Unicode line separators are not line breaks.
 	null
 ]
 -- End --
+
+
+A pattern matching an empty string consumes a character to make progress;
+that character belongs to the surrounding text, not to the match.
+
+-- Testcase --
+{%
+	printf("%.J\n", [
+		replace("abc", /b*/g, "-"),
+		replace("abc", /b*/, "-"),
+		split("abc", /b*/),
+		split("abc", /b{0}/),
+		replace("aab", /a*/g, "[$&]"),
+		split("a\nb\nc", /^/m),
+		replace("a\nb", /x*/g, "X")
+	]);
+%}
+-- End --
+
+-- Expect stdout --
+[
+	"-a--c-",
+	"-abc",
+	[
+		"a",
+		"c"
+	],
+	[
+		"a",
+		"b",
+		"c"
+	],
+	"[aa][]b[]",
+	[
+		"a\n",
+		"b\n",
+		"c"
+	],
+	"XaX\nXbX"
+]
+-- End --

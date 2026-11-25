@@ -2069,7 +2069,7 @@ uc_split(uc_vm_t *vm, size_t nargs)
 	uc_value_t *lim = uc_fn_arg(2);
 	uc_value_t *arr = NULL;
 	const char *p, *sepstr, *splitstr;
-	size_t seplen, splitlen, limit;
+	size_t seplen, splitlen, limit, skip = 0;
 	int eflags = 0;
 	regmatch_t pmatch;
 
@@ -2086,19 +2086,26 @@ uc_split(uc_vm_t *vm, size_t nargs)
 
 	if (ucv_type(sep) == UC_REGEXP) {
 		while (limit > 1) {
-			if (!ucv_regexp_exec(sep, splitstr, 1, &pmatch, eflags))
+			if (!ucv_regexp_exec(sep, splitstr + skip, 1, &pmatch, eflags))
 				break;
 
 			if (pmatch.rm_so != pmatch.rm_eo) {
-				ucv_array_push(arr, ucv_string_new_length(splitstr, pmatch.rm_so));
-				splitstr += pmatch.rm_eo;
-			}
-			else if (*splitstr) {
-				ucv_array_push(arr, ucv_string_new_length(splitstr, 1));
-				splitstr++;
+				ucv_array_push(arr, ucv_string_new_length(splitstr, skip + pmatch.rm_so));
+				splitstr += skip + pmatch.rm_eo;
+				skip = 0;
 			}
 			else {
-				goto out;
+				/* an empty match at the current position is skipped, its character
+				 * becoming part of the next piece; any other empty match splits at
+				 * its position, whose character starts the next piece */
+				if (skip || pmatch.rm_so)
+					ucv_array_push(arr, ucv_string_new_length(splitstr, skip + pmatch.rm_so));
+
+				splitstr += skip + pmatch.rm_so;
+				skip = 1;
+
+				if (!*splitstr)
+					goto out;
 			}
 
 			eflags |= REG_NOTBOL;
@@ -3700,12 +3707,19 @@ uc_replace(uc_vm_t *vm, size_t nargs)
 			else
 				uc_replace_str(vm, replace, p, pmatch, nvis, resbuf);
 
-			if (pmatch[0].rm_so != pmatch[0].rm_eo)
+			if (pmatch[0].rm_so != pmatch[0].rm_eo) {
 				p += pmatch[0].rm_eo;
-			else if (*p)
+			}
+			else {
+				/* an empty match consumes the character at its position to make
+				 * progress, which must not be emitted twice */
+				p += pmatch[0].rm_so;
+
+				if (!*p)
+					break;
+
 				ucv_stringbuf_addstr(resbuf, p++, 1);
-			else
-				break;
+			}
 
 			if (re->global)
 				eflags |= REG_NOTBOL;
