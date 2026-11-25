@@ -118,3 +118,514 @@ In line 2, byte 20:
 
 
 -- End --
+
+
+Anchored patterns match the whole subject string only. The dot operator
+matches newlines only when the `s` (dotAll) flag is given, while negated
+character lists match newlines regardless.
+
+-- Testcase --
+{%
+	printf("%.J\n", [
+		match("abc\ndef", /^[a-z]+$/),
+		match("abc\ndef", /^[a-z]+$/s),
+		match("abc\ndef", /^abc.def$/),
+		match("abc\ndef", /^abc.def$/s),
+		match("a\nb", /a[^x]b/),
+		match("a\nb", /a[^x]b/s)
+	]);
+%}
+-- End --
+
+-- Expect stdout --
+[
+	null,
+	null,
+	null,
+	[
+		"abc\ndef"
+	],
+	[
+		"a\nb"
+	],
+	[
+		"a\nb"
+	]
+]
+-- End --
+
+
+Rewriting the dot operator must not affect escaped dots, bracket expressions,
+POSIX character classes or capture group numbering.
+
+-- Testcase --
+{%
+	printf("%.J\n", [
+		match("a.b", /^(a).(b)$/),
+		match("aXb", /a\.b/),
+		match("a.b", /a[.]b/),
+		match("a.b", /a[[:alpha:].]b/),
+		match("a\nb", /a[[:alpha:].]b/),
+		match("a]b", /a[]]b/),
+		match("a\nb", /a[]]b/),
+		match("a\nb", /a[\n]b/),
+		match("aXb", /a[\n]b/),
+		match("a\\Xb", /a\\.b/),
+		match("a\\\nb", /a\\.b/)
+	]);
+%}
+-- End --
+
+-- Expect stdout --
+[
+	[
+		"a.b",
+		"a",
+		"b"
+	],
+	null,
+	[
+		"a.b"
+	],
+	[
+		"a.b"
+	],
+	null,
+	[
+		"a]b"
+	],
+	null,
+	[
+		"a\nb"
+	],
+	null,
+	[
+		"a\\Xb"
+	],
+	null
+]
+-- End --
+
+Members of a character list may be quoted with a backslash. The engines read
+a backslash within a bracket expression as an ordinary member and end the
+expression at its first right bracket, so a quoted member is rewritten to a
+position where it cannot be misread: a quoted right bracket moves to the front
+of the list, a quoted dash and a quoted backslash to its end, where a dash
+cannot denote a range. A quoted dash therefore denotes a dash instead of
+turning the surrounding members into a range, and a regexp literal and the
+equivalent regexp() constructor call describe the same pattern.
+
+-- Testcase --
+{%
+	printf("%.J\n", [
+		match("abc", /^[a\-z]+$/),
+		match("a-z", /^[a\-z]+$/),
+		match("-", /^[a\-z]+$/),
+		match("a]b", /^[a\]b]+$/),
+		match("ab]", /^[a\]b]+$/),
+		match("\\", /^[a\]b]+$/),
+		match("]", /^[\]]$/),
+		match("\\", /^[\]]$/),
+		match("a-z", regexp("^[a\\-z]+$")),
+		match("-", regexp("^[a\\-z]+$")),
+		match("a]b", regexp("^[a\\]b]+$")),
+		match("]", regexp("^[\\]]$"))
+	]);
+%}
+-- End --
+
+-- Expect stdout --
+[
+	null,
+	[
+		"a-z"
+	],
+	[
+		"-"
+	],
+	[
+		"a]b"
+	],
+	[
+		"ab]"
+	],
+	null,
+	[
+		"]"
+	],
+	null,
+	[
+		"a-z"
+	],
+	[
+		"-"
+	],
+	[
+		"a]b"
+	],
+	[
+		"]"
+	]
+]
+-- End --
+
+A regexp literal is kept as written, so converting it back to a string yields
+the pattern as written rather than the pattern handed to the engine.
+
+-- Testcase --
+{%
+	printf("%.J\n", [
+		"" + /\d+/,
+		"" + regexp("\\d+"),
+		"" + /[a\-z]/,
+		"" + /a\/b/,
+		"" + /[[:alpha:]]/
+	]);
+%}
+-- End --
+
+-- Expect stdout --
+[
+	"/\\\\d+/",
+	"/\\\\d+/",
+	"/[a\\\\-z]/",
+	"/a\\\\/b/",
+	"/[[:alpha:]]/"
+]
+-- End --
+
+An incomplete escape sequence is rejected rather than read past the end of the
+pattern.
+
+-- Testcase --
+{%
+	for (let p in [ "a\\", "\\", "\\d\\", "\\x", "\\u", "\\x4", "\\u00" ]) {
+		try {
+			print("ok ", regexp(p), "\n");
+		} catch (e) {
+			print("error: ", e.message, "\n");
+		}
+	}
+%}
+-- End --
+
+-- Expect stdout --
+error: Invalid escape sequence
+error: Invalid escape sequence
+error: Invalid escape sequence
+error: Invalid escape sequence
+error: Invalid escape sequence
+error: Invalid escape sequence
+error: Invalid escape sequence
+-- End --
+
+An escape sequence denotes a character, never an atom of the pattern, so the
+character it denotes cannot change how the pattern is read: `\u002e` is a full
+stop and not the dot operator, `\u0028` a bracket and not a capture group.
+
+-- Testcase --
+{%
+	printf("%.J\n", [
+		match(".", /\u002e/),
+		match("\n", /\u002e/),
+		match("\n", /\x2e/),
+		match("\n", /\056/),
+		match("(a)", regexp("\\u0028a\\u0029")),
+		match("a", regexp("\\u0028a\\u0029")),
+		match("[", regexp("\\u005b")),
+		match("\\", regexp("\\u005c")),
+		match("*", regexp("\\u002a")),
+		match("|", regexp("\\u007c")),
+		match("a", regexp("\\u007c")),
+		match("a$", regexp("a\\u0024")),
+		match("^a", regexp("\\u005ea")),
+		match("a{2}", regexp("a\\u007b2\\u007d")),
+		match("-", regexp("\\u002d")),
+		match("]", regexp("\\u005d"))
+	]);
+%}
+-- End --
+
+-- Expect stdout --
+[
+	[
+		"."
+	],
+	null,
+	null,
+	null,
+	[
+		"(a)"
+	],
+	null,
+	[
+		"["
+	],
+	[
+		"\\"
+	],
+	[
+		"*"
+	],
+	[
+		"|"
+	],
+	null,
+	[
+		"a$"
+	],
+	[
+		"^a"
+	],
+	[
+		"a{2}"
+	],
+	[
+		"-"
+	],
+	[
+		"]"
+	]
+]
+-- End --
+
+A character list member denoted by an escape sequence is moved to a position
+where the engine reads it as a member, which keeps a quoted right bracket from
+ending the list, a quoted dash from forming a range and a quoted caret from
+negating the list. A range whose endpoints are denoted by escapes keeps being a
+range.
+
+-- Testcase --
+{%
+	printf("%.J\n", [
+		match("]", regexp("[a\\u005d]")),
+		match("b", regexp("[a\\u005db]")),
+		match("\\", regexp("[a\\u005db]")),
+		match("x]y", regexp("[^a\\u005db]+")),
+		match("b", regexp("[a\\u002dz]")),
+		match("-", regexp("[a\\u002dz]")),
+		match("^", regexp("[\\u005ea]")),
+		match("b", regexp("[\\u005ea]")),
+		match("^", regexp("[^\\u005e]")),
+		match("a", regexp("[^\\u005e]")),
+		match("[", regexp("[a\\u005bb]")),
+		match("5", regexp("[\\x30-\\x39]")),
+		match("M", regexp("[\\x41-z]")),
+		match("]", regexp("[a\\]\\]b]")),
+		match("^", regexp("[a\\]-z]")),
+		match("-", regexp("[a\\]-z]")),
+		match("b", regexp("[a-\\z]"))
+	]);
+%}
+-- End --
+
+-- Expect stdout --
+[
+	[
+		"]"
+	],
+	[
+		"b"
+	],
+	null,
+	[
+		"x"
+	],
+	null,
+	[
+		"-"
+	],
+	[
+		"^"
+	],
+	null,
+	null,
+	[
+		"a"
+	],
+	[
+		"["
+	],
+	[
+		"5"
+	],
+	[
+		"M"
+	],
+	[
+		"]"
+	],
+	[
+		"^"
+	],
+	null,
+	[
+		"b"
+	]
+]
+-- End --
+
+A range whose endpoint is a right bracket, a dash or a caret is written as the
+contiguous residual range between the endpoint and its neighbour, and the
+endpoint itself is written where the engine reads it as a member.
+
+-- Testcase --
+{%
+	printf("%.J\n", [
+		match("0", regexp("[\\--z]")),
+		match("z", regexp("[\\--z]")),
+		match("A", regexp("[!-\\]]")),
+		match("]", regexp("[!-\\]]")),
+		match("z", regexp("[!-\\]]")),
+		match(" ", regexp("[\\x20-\\]]")),
+		match("]", regexp("[\\x20-\\]]")),
+		match("~", regexp("[\\x20-\\]]")),
+		match("^", regexp("[\\^-z]")),
+		match("z", regexp("[\\^-z]")),
+		match("\\", regexp("[\\^-z]")),
+		match("-", regexp("[\\^-]")),
+		match("^", regexp("[\\^-]")),
+		match("a", regexp("[\\^-]")),
+		match(":", regexp("[A-[\\x3a]")),
+		match("[", regexp("[A-[\\x3a]")),
+		match("a", regexp("[A-[\\x3a]")),
+		match("=", regexp("[A-[\\x3d]"))
+	]);
+%}
+-- End --
+
+-- Expect stdout --
+[
+	[
+		"0"
+	],
+	[
+		"z"
+	],
+	[
+		"A"
+	],
+	[
+		"]"
+	],
+	null,
+	[
+		" "
+	],
+	[
+		"]"
+	],
+	null,
+	[
+		"^"
+	],
+	[
+		"z"
+	],
+	null,
+	[
+		"-"
+	],
+	[
+		"^"
+	],
+	null,
+	[
+		":"
+	],
+	[
+		"["
+	],
+	null,
+	[
+		"="
+	]
+]
+-- End --
+
+A character list which the pattern does not close is rejected rather than
+handed to the engine, which would close it at a right bracket the pattern
+quotes and so read a different pattern than the same one written as a regexp
+literal.
+
+-- Testcase --
+{%
+	for (let p in [ "[a\\]", "[", "[[:alpha:]", "[a-\\-z]", "[z-a]", "[a-\\]]" ]) {
+		try {
+			print("ok ", regexp(p), "\n");
+		} catch (e) {
+			print("error: ", e.message, "\n");
+		}
+	}
+%}
+-- End --
+
+-- Expect stdout --
+error: Unmatched [ or [^
+error: Unmatched [ or [^
+error: Unmatched [ or [^
+error: Invalid range end
+error: Invalid range end
+error: Invalid range end
+-- End --
+
+A surrogate escape which is not part of a surrogate pair denotes the replacement
+character at the position of the escape itself, and a leading surrogate pairs
+with a trailing one following it immediately.
+
+-- Testcase --
+{%
+	printf("%.J\n", [
+		match("\ufffd", /\ud800/),
+		match("a\ufffdb", /\ud800b/),
+		match("\ud800\udc00", /\ud800\udc00/),
+		match("\ufffd\ufffd", /\ud800\ud800/),
+		match("\ufffd", /\udc00/),
+		match("\ufffdd", /\ud800d/)
+	]);
+%}
+-- End --
+
+-- Expect stdout --
+[
+	[
+		"�"
+	],
+	[
+		"�b"
+	],
+	[
+		"𐀀"
+	],
+	[
+		"��"
+	],
+	[
+		"�"
+	],
+	[
+		"�d"
+	]
+]
+-- End --
+
+An escape sequence denoting NUL is rejected, since the pattern is a C string
+and a NUL byte in it would truncate rather than denote itself.
+
+-- Testcase --
+{%
+	for (let p in [ "\\x00", "\\0", "\\u0000" ]) {
+		try {
+			print("ok ", regexp(p), "\n");
+		} catch (e) {
+			print("error: ", e.message, "\n");
+		}
+	}
+%}
+-- End --
+
+-- Expect stdout --
+error: Regular expression must not contain NUL
+error: Regular expression must not contain NUL
+error: Regular expression must not contain NUL
+-- End --

@@ -135,6 +135,12 @@ typedef struct {
 	struct lh_table *table;
 } uc_object_t;
 
+enum uc_regexp_flags {
+	UC_REGEXP_GLOBAL    = (1 << 0),
+	UC_REGEXP_ICASE     = (1 << 1),
+	UC_REGEXP_DOTALL    = (1 << 2),
+};
+
 typedef struct {
 	uc_value_t header;
 	regex_t regexp;

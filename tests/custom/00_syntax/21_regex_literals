@@ -1,10 +1,11 @@
 Regex literals are enclosed in forward slashes and may contain zero
-or more trailing flag characters. Interpretation of escape sequences
-within regular expression literals is subject of the underlying
-regular expression engine.
+or more trailing flag characters. The pattern is kept as written and is
+preprocessed when the literal is loaded, so converting a regexp back to
+a string yields the pattern as it was written, while its interpretation
+is subject to the underlying regular expression engine.
 
 -- Expect stdout --
-[ "/Hello world/", "/test/gis", "/test/g", "/test1 / test2/", "/1\n\\.\u0007\\bc☀\\\\/" ]
+[ "/Hello world/", "/test/gis", "/test/g", "/test1 \\/ test2/", "/\\x31\\n\\.\\a\\b\\c\\u2600\\\\/" ]
 -- End --
 
 -- Testcase --
@@ -54,7 +55,7 @@ In line 2, byte 8:
 Testing unclosed regular expression.
 
 -- Expect stderr --
-Syntax error: Unterminated string
+Syntax error: Unterminated regexp pattern
 In line 2, byte 2:
 
  `    /foo \/`
@@ -120,27 +121,115 @@ literal delimitters.
 
 
 Testing that regex extension macros are substituted only outside of
-bracket set expressions.
+bracket set expressions, where a backslash there merely quotes the
+following character.
 
 -- Expect stdout --
 [
-	"/ \\b \\B [\b B] /",
-	"/ \\< \\> [< >] /",
-	"/ [[:digit:]] [^[:digit:]] [d D] /",
-	"/ [[:space:]] [^[:space:]] [s S] /",
-	"/ [[:alnum:]_] [^[:alnum:]_] [w W] /"
+	"/ \\d \\D [\\d \\D] /",
+	"/ \\s \\S [\\s \\S] /",
+	"/ \\w \\W [\\w \\W] /",
+	[
+		"5"
+	],
+	[
+		"d"
+	],
+	null,
+	[
+		" "
+	],
+	[
+		"s"
+	],
+	[
+		"a"
+	],
+	[
+		"w"
+	]
 ]
 -- End --
 
 -- Testcase --
 {%
 	printf("%.J\n", [
-		/ \b \B [\b \B] /,   // \b outside brackets is a word boundary,
-		                     // \b within brackets is backspace
-		/ \< \> [\< \>] /,
 		/ \d \D [\d \D] /,
 		/ \s \S [\s \S] /,
-		/ \w \W [\w \W] /
+		/ \w \W [\w \W] /,
+		match("5", /\d/),
+		match("d", /[\d]/),
+		match("5", /[\d]/),
+		match(" ", /\s/),
+		match("s", /[\s]/),
+		match("a", /\w/),
+		match("w", /[\w]/)
 	]);
+%}
+-- End --
+
+
+Testing that only the byte right behind the opening bracket of a character
+list negates it, and that a right bracket in leading position - and in the
+position behind a negation - is an ordinary member. A second caret therefore
+denotes itself, which makes `[^^]` the list of everything but a caret.
+
+-- Expect stdout --
+[
+	"/[^^]/",
+	[
+		"a"
+	],
+	null,
+	"/[]]/",
+	[
+		"]"
+	],
+	"/[^]]/",
+	null,
+	[
+		"a"
+	],
+	"/[a^]/",
+	[
+		"^"
+	]
+]
+-- End --
+
+-- Testcase --
+{%
+	printf("%.J\n", [
+		/[^^]/,
+		match("a", /[^^]/),
+		match("^", /[^^]/),
+		/[]]/,
+		match("]", /[]]/),
+		/[^]]/,
+		match("]", /[^]]/),
+		match("a", /[^]]/),
+		/[a^]/,
+		match("^", /[a^]/)
+	]);
+%}
+-- End --
+
+
+Testing that a character list whose right bracket is quoted is not closed,
+since the backslash only quotes the bracket and does not end the list.
+
+-- Expect stderr --
+Syntax error: Unterminated regexp pattern
+In line 2, byte 2:
+
+ `    /[a\]/`
+      ^-- Near here
+
+
+-- End --
+
+-- Testcase --
+{%
+	/[a\]/
 %}
 -- End --

@@ -1510,7 +1510,7 @@ static void
 uc_vm_insn_load_regexp(uc_vm_t *vm, uc_vm_insn_t insn)
 {
 	uc_value_t *re, *jstr = uc_program_get_constant(uc_vm_current_program(vm), vm->arg.u32);
-	bool icase = false, newline = false, global = false;
+	unsigned int flags = 0;
 	char *str, *err = NULL;
 
 	if (ucv_type(jstr) != UC_STRING || ucv_string_length(jstr) < 2) {
@@ -1522,11 +1522,11 @@ uc_vm_insn_load_regexp(uc_vm_t *vm, uc_vm_insn_t insn)
 
 	str = ucv_string_get(jstr);
 
-	global  = (*str & (1 << 0));
-	icase   = (*str & (1 << 1));
-	newline = (*str & (1 << 2));
+	/* the lexer encodes the flags byte at the enum uc_regexp_flags bit positions */
+	flags = (unsigned char)*str;
 
-	re = ucv_regexp_new(++str, icase, newline, global, &err);
+	re = ucv_regexp_new(++str, flags & UC_REGEXP_ICASE,
+	                    flags & UC_REGEXP_DOTALL, flags & UC_REGEXP_GLOBAL, &err);
 
 	ucv_put(jstr);
 

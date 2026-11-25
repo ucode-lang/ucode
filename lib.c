@@ -4615,6 +4615,11 @@ uc_assert(uc_vm_t *vm, size_t nargs)
  *  - `s`: DotAll - makes `.` match newline characters (default: `.` does not match newlines)
  *  - `g`: Global matching (for match() function)
  *
+ * Note that there is no multi-line mode: `^` and `$` always anchor at the
+ * start and end of the whole subject string, regardless of flags, so an
+ * anchored pattern such as `/^[a-z]+$/` never matches a single line of a
+ * multi-line subject.
+ *
  *  - Throws a type error exception if `flags` is not a string or if the string
  *    in `flags` contains unrecognized regular expression flag characters.
  *  - Throws a syntax error when the pattern in `source` cannot be compiled into
@@ -4644,6 +4649,39 @@ uc_assert(uc_vm_t *vm, size_t nargs)
  * @example
  * // With 's' flag, . matches newlines (dotAll behavior)
  * match("hello\nworld", /hello.world/s);   // matches
+ *
+ * @example
+ * // There is no multi-line mode, ^ and $ anchor at the whole subject
+ * match("abc\ndef", /^[a-z]+$/);           // null
+ * match("abc\ndef", /^[a-z]+$/s);          // null
+ *
+ * @example
+ * // Escape sequences and the extension macros \d, \D, \w, \W, \s and \S are
+ * // resolved by ucode before the pattern reaches the regexp engine, both in a
+ * // regexp literal and in a pattern given to this function
+ * match("5", /\d/);                        // matches
+ * match("5", regexp("\\d"));               // matches
+ * match("d", /[\d]/);                      // matches, since within a character
+ *                                          // list a backslash only quotes the
+ *                                          // following character
+ *
+ * @example
+ * // An escape sequence denotes a character, never an operator of the pattern,
+ * // so the character it denotes cannot change how the pattern is read
+ * match(".", /\u002e/);                    // matches, the escape is a full stop
+ * match("\n", /\u002e/);                   // null
+ * match("(a)", regexp("\\u0028a\\u0029")); // matches, the escapes are brackets
+ *
+ * @example
+ * // A quoted character list member is moved to a position where the engine
+ * // reads it as a member, so a quoted dash does not form a range
+ * match("-", /[a\-z]/);                    // matches
+ * match("b", /^[a\-z]+$/);                 // null
+ *
+ * @example
+ * // A character list is a list of bytes, which makes it of no use for the
+ * // multi-byte characters of a UTF-8 subject
+ * match("\u00e4", /[\u00e4]/);             // matches one byte of the character
  */
 static uc_value_t *
 uc_regexp(uc_vm_t *vm, size_t nargs)
