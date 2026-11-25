@@ -121,6 +121,10 @@
 # define IPV6_FLOWINFO_SEND 33
 #endif
 
+#ifndef TCP_FASTOPEN
+# define TCP_FASTOPEN 23
+#endif
+
 #define ok_return(expr) do { set_error(0, NULL); return (expr); } while(0)
 #define err_return(err, ...) do { set_error(err, __VA_ARGS__); return NULL; } while(0)
 
