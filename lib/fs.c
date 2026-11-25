@@ -2693,7 +2693,6 @@ uc_fs_lsdir(uc_vm_t *vm, size_t nargs)
 	uc_value_t *path = uc_fn_arg(0);
 	uc_value_t *pat = uc_fn_arg(1);
 	uc_value_t *res = NULL;
-	uc_regexp_t *reg;
 	struct dirent *e;
 	DIR *d;
 
@@ -2722,9 +2721,7 @@ uc_fs_lsdir(uc_vm_t *vm, size_t nargs)
 			continue;
 
 		if (ucv_type(pat) == UC_REGEXP) {
-			reg = (uc_regexp_t *)pat;
-
-			if (regexec(&reg->regexp, e->d_name, 0, NULL, 0) == REG_NOMATCH)
+			if (!ucv_regexp_exec(pat, e->d_name, 0, NULL, 0))
 				continue;
 		}
 		else if (ucv_type(pat) == UC_STRING) {

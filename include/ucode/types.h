@@ -139,12 +139,15 @@ enum uc_regexp_flags {
 	UC_REGEXP_GLOBAL    = (1 << 0),
 	UC_REGEXP_ICASE     = (1 << 1),
 	UC_REGEXP_DOTALL    = (1 << 2),
+	UC_REGEXP_MULTILINE = (1 << 3),
 };
 
 typedef struct {
 	uc_value_t header;
 	regex_t regexp;
-	bool icase, newline, global;
+	bool icase, newline, global, multiline;
+	uint32_t nsub;
+	uint32_t *groupmap;
 	char source[];
 } uc_regexp_t;
 
@@ -472,6 +475,9 @@ ucv_resource_proto_set(uc_value_t *uv, uc_value_t *proto)
 }
 
 uc_value_t *ucv_regexp_new(const char *, bool, bool, bool, char **);
+uc_value_t *ucv_regexp_new_ex(const char *, unsigned int, char **);
+size_t ucv_regexp_nmatch(uc_value_t *);
+bool ucv_regexp_exec(uc_value_t *, const char *, size_t, regmatch_t *, int);
 
 uc_value_t *ucv_upvalref_new(size_t);
 

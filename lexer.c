@@ -470,6 +470,8 @@ delimited:
 			flags |= UC_REGEXP_ICASE;
 		else if (check_char(lex, 's'))
 			flags |= UC_REGEXP_DOTALL;
+		else if (check_char(lex, 'm'))
+			flags |= UC_REGEXP_MULTILINE;
 		else
 			break;
 	}

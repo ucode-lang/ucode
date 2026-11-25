@@ -1525,8 +1525,7 @@ uc_vm_insn_load_regexp(uc_vm_t *vm, uc_vm_insn_t insn)
 	/* the lexer encodes the flags byte at the enum uc_regexp_flags bit positions */
 	flags = (unsigned char)*str;
 
-	re = ucv_regexp_new(++str, flags & UC_REGEXP_ICASE,
-	                    flags & UC_REGEXP_DOTALL, flags & UC_REGEXP_GLOBAL, &err);
+	re = ucv_regexp_new_ex(++str, flags, &err);
 
 	ucv_put(jstr);
 

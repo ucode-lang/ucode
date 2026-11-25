@@ -319,6 +319,128 @@ error: Invalid escape sequence
 error: Invalid escape sequence
 -- End --
 
+The `m` flag enables multi-line matching: `^` and `$` anchor at the beginning
+and end of a line instead of the beginning and end of the subject. The dot
+operator and negated character lists keep their usual meaning, which is why
+`s` is needed in addition to `m` to let a dot match a newline.
+
+-- Testcase --
+{%
+	printf("%.J\n", [
+		match("abc\ndef", /^[a-z]+$/),
+		match("abc\ndef", /^[a-z]+$/m),
+		match("abc\ndef", /^def$/m),
+		match("abc\ndef", /./m),
+		match("abc\ndef", /^.*$/m),
+		match("abc\ndef", /^.*$/ms),
+		match("a\nb", /[^a]/m),
+		match("a\nb", /[^a]/),
+		match("a\nb", /[^[:cntrl:]]/m),
+		match("a\nb", /[\n]/m),
+		match("a\nb", /([^a])/m),
+		match("abc\ndef", /(a)|(def)/m),
+		match("abc\ndef", /(a)([^b])(c)/m),
+		split("abc\ndef", /\n/m),
+		replace("abc\ndef", /b/m, "X"),
+		"" + /a/m,
+		"" + regexp("a", "ms")
+	]);
+%}
+-- End --
+
+-- Expect stdout --
+[
+	null,
+	[
+		"abc"
+	],
+	[
+		"def"
+	],
+	[
+		"a"
+	],
+	[
+		"abc"
+	],
+	[
+		"abc\ndef"
+	],
+	[
+		"\n"
+	],
+	[
+		"\n"
+	],
+	[
+		"a"
+	],
+	[
+		"\n"
+	],
+	[
+		"\n",
+		"\n"
+	],
+	[
+		"a",
+		"a",
+		null
+	],
+	null,
+	[
+		"abc",
+		"def"
+	],
+	"aXc\ndef",
+	"/a/m",
+	"/a/sm"
+]
+-- End --
+
+In a single-byte locale the dot operator matches any byte, so the list
+standing in for a dotAll dot covers the high bytes as well.
+
+-- Testcase --
+{%
+	printf("%.J\n", [
+		match("\x80", /^.$/),
+		match("\x80", /^.$/s),
+		match("\x80", /^.$/m),
+		match("\x80", /^.$/ms),
+		match("\n", /^.$/),
+		match("\n", /^.$/s),
+		match("\n", /^.$/m),
+		match("\n", /^.$/ms)
+	]);
+%}
+-- End --
+
+-- Expect stdout --
+[
+	[
+		"\ufffd"
+	],
+	[
+		"\ufffd"
+	],
+	[
+		"\ufffd"
+	],
+	[
+		"\ufffd"
+	],
+	null,
+	[
+		"\n"
+	],
+	null,
+	[
+		"\n"
+	]
+]
+-- End --
+
 An escape sequence denotes a character, never an atom of the pattern, so the
 character it denotes cannot change how the pattern is read: `\u002e` is a full
 stop and not the dot operator, `\u0028` a bracket and not a capture group.
@@ -628,4 +750,110 @@ and a NUL byte in it would truncate rather than denote itself.
 error: Regular expression must not contain NUL
 error: Regular expression must not contain NUL
 error: Regular expression must not contain NUL
+-- End --
+
+The extension macros expand to character lists, so the `m` flag rewrites them
+the same way it rewrites a list written in the pattern: a negated macro matches
+a newline under `m`, and a positive one does not.
+
+-- Testcase --
+{%
+	printf("%.J\n", [
+		match("\n", /\D/m),
+		match("\n", /[^[:digit:]]/m),
+		match("\n", /\W/m),
+		match("\n", /\d/m),
+		match(" ", /\S/m),
+		match("a\nb", /\D\D\D/m)
+	]);
+%}
+-- End --
+
+-- Expect stdout --
+[
+	[
+		"\n"
+	],
+	[
+		"\n"
+	],
+	[
+		"\n"
+	],
+	null,
+	null,
+	[
+		"a\nb"
+	]
+]
+-- End --
+
+The capture groups which the `m` flag introduces stay invisible to the script:
+the groups of the pattern as written keep their numbering, however many lists
+the rewriting wraps and however deeply the groups are nested.
+
+-- Testcase --
+{%
+	printf("%.J\n", [
+		match("a1b", /(\D)(\d)(\D)/m),
+		match("a\nb", /([^x])(\d?)([^y])/m),
+		length(match("a\nb", /([^x])(\d?)([^y])/m)),
+		match("a", /(([^x]))/m),
+		match("a\n(a)", regexp("[^x]\\u0028a\\u0029", "m")),
+		"" + regexp("[^x]a", "ms")
+	]);
+%}
+-- End --
+
+-- Expect stdout --
+[
+	[
+		"a1b",
+		"a",
+		"1",
+		"b"
+	],
+	[
+		"a\n",
+		"a",
+		"",
+		"\n"
+	],
+	4,
+	[
+		"a",
+		"a",
+		"a"
+	],
+	[
+		"\n(a)"
+	],
+	"/[^x]a/sm"
+]
+-- End --
+
+The line boundaries of the `m` flag are those of the operating system regexp
+engine, which knows the newline only: a carriage return before one is an
+ordinary character, and the Unicode line separators are not line breaks.
+
+-- Testcase --
+{%
+	printf("%.J\n", [
+		match("abc\ndef", /^[a-z]+$/m),
+		match("abc\r\ndef", /^[a-z]+$/m),
+		match("a\u2028b", /^[a-z]+$/m)
+	]);
+%}
+-- End --
+
+-- Expect stdout --
+[
+	[
+		"abc"
+	],
+	[
+		"def"
+	],
+	null
+]
 -- End --

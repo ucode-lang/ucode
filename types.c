@@ -1641,6 +1641,12 @@ uc_re_bytes_append_utf8(uc_re_bytes_t *v, uint32_t cp)
 	}
 }
 
+static bool
+uc_re_bytes_is(const uc_re_bytes_t *v, const char *s)
+{
+	return v->count == strlen(s) && memcmp(v->entries, s, v->count) == 0;
+}
+
 static int
 uc_re_hex(int ch)
 {
@@ -2067,7 +2073,8 @@ badrange:
 }
 
 /* Appends to `expr` the bracket expression denoting the same characters as the
- * parsed units, in a form the engines read back unchanged.
+ * parsed units, in a form the engines read back unchanged, and reports in
+ * `has_lf` whether a newline is one of them.
  *
  * A member which the pattern quotes cannot be quoted to the engines, since
  * they read a backslash inside a bracket expression as an ordinary member, so
@@ -2090,12 +2097,15 @@ badrange:
  * The only list that cannot be written as an expression is a lone caret, which
  * the caller writes as the escaped character instead. */
 static bool
-uc_re_class_write(const uc_re_units_t *units, bool neg, uc_re_bytes_t *expr)
+uc_re_class_write(const uc_re_units_t *units, bool neg, uc_re_bytes_t *expr,
+                  bool *has_lf)
 {
 	uc_re_bytes_t body = { 0, NULL };
 	bool front_bracket = false, dash = false, caret = false;
 	bool bracket = false, backslash = false;
 	size_t i;
+
+	*has_lf = false;
 
 	for (i = 0; i < units->count; i++) {
 		const uc_re_unit_t *u = &units->entries[i];
@@ -2104,6 +2114,9 @@ uc_re_class_write(const uc_re_units_t *units, bool neg, uc_re_bytes_t *expr)
 		case UC_RE_UNIT_MEMBER:
 			if (u->text.count == 1) {
 				char c = u->text.entries[0];
+
+				if (c == '\n')
+					*has_lf = true;
 
 				if (c == ']') {
 					front_bracket = true;
@@ -2143,6 +2156,9 @@ uc_re_class_write(const uc_re_units_t *units, bool neg, uc_re_bytes_t *expr)
 		case UC_RE_UNIT_RANGE: {
 			unsigned char lo = (unsigned char)u->lo;
 			unsigned char hi = (unsigned char)u->hi;
+
+			if (lo <= '\n' && hi >= '\n')
+				*has_lf = true;
 
 			if (lo == hi) {
 				/* a range of a single byte is a member */
@@ -2193,6 +2209,10 @@ uc_re_class_write(const uc_re_units_t *units, bool neg, uc_re_bytes_t *expr)
 		}
 
 		default:
+			if (uc_re_bytes_is(&u->text, "[:space:]") ||
+			    uc_re_bytes_is(&u->text, "[:cntrl:]"))
+				*has_lf = true;
+
 			uc_re_bytes_append(&body, u->text.entries, u->text.count);
 
 			break;
@@ -2238,16 +2258,51 @@ uc_re_class_write(const uc_re_units_t *units, bool neg, uc_re_bytes_t *expr)
 	return true;
 }
 
+/* The capture groups of a preprocessed pattern: the number of groups of the
+ * pattern as it is handed to regcomp(), and the indices of the groups the
+ * preprocessing introduced itself, numbered as in that pattern. */
+uc_declare_vector(uc_re_groupidx_t, size_t);
+
+typedef struct {
+	size_t ngroups;
+	uc_re_groupidx_t injected;
+} uc_re_groups_t;
+
+
+/* The character list standing in for the dot operator when the pattern is
+ * compiled with newline-sensitive matching and the dot shall match newlines
+ * too. It has to be a positive list, since REG_NEWLINE keeps a negated list
+ * from matching a newline.
+ *
+ * The POSIX character classes cover every character of the current locale, but
+ * in a single-byte locale they leave out the high bytes, which the dot
+ * operator does match there, so the range of high bytes is added. That range
+ * cannot be written in a multi-byte locale, where the engines reject a range
+ * of raw bytes, but there the classes alone already cover everything. */
+static const char *
+uc_re_dotall_class(void)
+{
+	static const char classes[] = "[[:print:][:cntrl:]]";
+	static const char classes_bytes[] = "[[:print:][:cntrl:]\200-\377]";
+
+	return MB_CUR_MAX > 1 ? classes : classes_bytes;
+}
+
 /* Copies the bracket expression starting at `*pp` - which points just behind
  * its opening `[` - to `out` in a normalized form and advances `*pp` past it.
- */
+ *
+ * Under newline-sensitive matching a negated expression does not match a
+ * newline, which surprises anyone writing `[^a]`; a newline is restored by an
+ * alternative against one, at the cost of a capture group which
+ * ucv_regexp_exec() filters out again. */
 static bool
-uc_re_class_prepare(const char **pp, uc_re_bytes_t *out, char **error)
+uc_re_class_prepare(const char **pp, uc_re_bytes_t *out, bool multiline,
+                    uc_re_groups_t *grp, char **error)
 {
 	uc_re_units_t units = { 0, NULL };
 	uc_re_bytes_t expr = { 0, NULL };
 	const char *p = *pp;
-	bool neg;
+	bool neg, has_lf;
 
 	if (!uc_re_class_parse(&p, &units, &neg, error))
 		goto error;
@@ -2270,11 +2325,20 @@ uc_re_class_prepare(const char **pp, uc_re_bytes_t *out, char **error)
 		return true;
 	}
 
-	uc_re_class_write(&units, neg, &expr);
+	uc_re_class_write(&units, neg, &expr, &has_lf);
 
 	uc_re_units_clear(&units);
 
-	uc_re_bytes_append(out, expr.entries, expr.count);
+	if (multiline && neg && !has_lf) {
+		grp->ngroups++;
+		uc_vector_push(&grp->injected, grp->ngroups);
+
+		uc_vector_push(out, '(');
+		uc_re_bytes_append(out, expr.entries, expr.count);
+		uc_re_bytes_append(out, "|\n)", 3);
+	}
+	else
+		uc_re_bytes_append(out, expr.entries, expr.count);
 
 	uc_vector_clear(&expr);
 
@@ -2291,10 +2355,9 @@ error:
 
 
 
-
 /* Preprocesses a pattern before it is handed to regcomp(): resolves the escape
  * sequences, expands the extension macros, normalizes the bracket expressions
- * and rewrites the dot operator.
+ * and rewrites the atoms whose meaning the flags change.
  *
  * The lexer scans a regexp literal only far enough to find the slash which
  * delimits it and the flags following it, and hands the pattern over as
@@ -2302,17 +2365,27 @@ error:
  * paths come here, which is what keeps a regexp literal and the equivalent
  * constructor call from describing different patterns.
  *
- * The dot operator needs the rewrite: the engines implement `.` as matching
- * any character unless REG_NEWLINE is given, but REG_NEWLINE also turns `^`
- * and `$` into line anchors. Relying on it therefore lets an anchored pattern
- * such as `/^[a-z]+$/` match a single line of a multi-line subject, which
- * breaks input validation based on such patterns. Rewriting an unescaped dot
- * to an "any character but newline" list keeps the operator independent of
- * anchoring. */
-static char *
-uc_regexp_prepare(const char *pattern, bool dotall, char **error)
+ * The dot operator and the negated character lists are the atoms whose meaning
+ * depends on the flags. The engines implement `.` as matching any character
+ * unless REG_NEWLINE is given, but REG_NEWLINE also turns `^` and `$` into
+ * line anchors and keeps negated lists from matching newlines. Relying on
+ * REG_NEWLINE alone therefore lets an anchored pattern such as `/^[a-z]+$/`
+ * match a single line of a multi-line subject, which breaks input validation
+ * based on such patterns, while giving up on it entirely would leave the
+ * multi-line flag unimplementable. The atoms are rewritten instead, so that
+ * anchoring and the dot operator stay independent of each other.
+ *
+ * With `wrap` off the negated lists are normalized but not wrapped, which is
+ * what ucv_regexp_new_ex() falls back to should the groups it counted not be
+ * the groups regcomp() reports. */
+static bool
+uc_regexp_prepare(const char *pattern, unsigned int flags, bool wrap,
+                  uc_re_bytes_t *out, uc_re_groups_t *grp, char **error)
 {
-	uc_re_bytes_t out = { 0, NULL }, lit = { 0, NULL };
+	bool multiline = (flags & UC_REGEXP_MULTILINE) != 0;
+	bool dotall = (flags & UC_REGEXP_DOTALL) != 0;
+	const char *dotall_class = uc_re_dotall_class();
+	uc_re_bytes_t lit = { 0, NULL };
 	enum uc_re_esc kind;
 	const char *p;
 
@@ -2325,18 +2398,19 @@ uc_regexp_prepare(const char *pattern, bool dotall, char **error)
 
 			switch (kind) {
 			case UC_RE_ESC_CLASS: {
-				/* the expansion is a bracket expression like any other, so it
-				 * goes through the same normalization */
+				/* the expansion is a bracket expression like any other, and
+				 * goes through the same normalization so that it is rewritten
+				 * under newline-sensitive matching too */
 				const char *q = lit.entries + 1;
 
-				if (!uc_re_class_prepare(&q, &out, error))
+				if (!uc_re_class_prepare(&q, out, multiline && wrap, grp, error))
 					goto error;
 
 				break;
 			}
 
 			case UC_RE_ESC_RAW:
-				uc_re_bytes_append(&out, lit.entries, lit.count);
+				uc_re_bytes_append(out, lit.entries, lit.count);
 
 				break;
 
@@ -2345,9 +2419,9 @@ uc_regexp_prepare(const char *pattern, bool dotall, char **error)
 				 * denotes have to be quoted to keep the engine from reading
 				 * them as an operator */
 				if (lit.count == 1 && strchr(UC_RE_METACHARS, lit.entries[0]))
-					uc_vector_push(&out, '\\');
+					uc_vector_push(out, '\\');
 
-				uc_re_bytes_append(&out, lit.entries, lit.count);
+				uc_re_bytes_append(out, lit.entries, lit.count);
 
 				break;
 			}
@@ -2358,28 +2432,169 @@ uc_regexp_prepare(const char *pattern, bool dotall, char **error)
 		}
 
 		if (c == '[') {
-			if (!uc_re_class_prepare(&p, &out, error))
+			if (!uc_re_class_prepare(&p, out, multiline && wrap, grp, error))
 				goto error;
 
 			continue;
 		}
 
-		if (c == '.' && !dotall) {
-			uc_re_bytes_append(&out, "[^\n]", 4);
+		if (c == '(') {
+			/* POSIX ERE has no non-capturing groups, every group counts */
+			grp->ngroups++;
+
+			uc_re_push(out, (char)c);
 
 			continue;
 		}
 
-		uc_vector_push(&out, (char)c);
+		if (c == '.') {
+			/* without newline-sensitive matching the dot already excludes
+			 * nothing, so it has to be told to; with it, the dot already
+			 * excludes newlines, so only dotAll has to undo that */
+			if (!multiline && !dotall)
+				uc_re_bytes_append(out, "[^\n]", 4);
+			else if (multiline && dotall)
+				uc_re_bytes_append(out, dotall_class, strlen(dotall_class));
+			else
+				uc_re_push(out, (char)c);
+
+			continue;
+		}
+
+		uc_re_push(out, (char)c);
 	}
 
-	uc_vector_push(&out, '\0');
+	uc_re_push(out, '\0');
 
-	return out.entries;
+	return true;
 
 error:
 	uc_vector_clear(&lit);
-	uc_vector_clear(&out);
+	uc_vector_clear(out);
+
+	return false;
+}
+
+
+/* Whether the group with the given index of a preprocessed pattern was
+ * introduced by the preprocessing rather than written in the pattern. */
+static bool
+uc_re_group_injected(const uc_re_groups_t *grp, size_t idx)
+{
+	size_t i;
+
+	for (i = 0; i < grp->injected.count; i++)
+		if (grp->injected.entries[i] == idx)
+			return true;
+
+	return false;
+}
+
+uc_value_t *
+ucv_regexp_new_ex(const char *pattern, unsigned int flags, char **error)
+{
+	int cflags = REG_EXTENDED, res;
+	uc_re_bytes_t expr = { 0, NULL };
+	uc_re_groups_t grp = { 0, { 0, NULL } };
+	uint32_t *map;
+	uc_regexp_t *re;
+	size_t j, n, len, maplen;
+
+	if (!uc_regexp_prepare(pattern, flags, true, &expr, &grp, error)) {
+		/* the scan may have recorded groups before running into the error */
+		uc_vector_clear(&grp.injected);
+
+		return NULL;
+	}
+
+	/* the copy of the pattern and, when the preprocessing introduced groups,
+	 * the group map share the allocation trailing the struct; the map follows
+	 * the pattern at an offset aligned for it, and is sized by the scan, since
+	 * regcomp() has not run yet: one entry for each capture group of the
+	 * prepared pattern which the script sees, the whole match excluded since it
+	 * always maps to itself */
+	len = ALIGN(strlen(pattern) + 1);
+	maplen = grp.injected.count != 0
+		? (grp.ngroups - grp.injected.count) * sizeof(uint32_t)
+		: 0;
+
+	re = xalloc(sizeof(*re) + len + maplen);
+	re->header.type = UC_REGEXP;
+	re->header.refcount = 1;
+	re->icase = flags & UC_REGEXP_ICASE;
+	re->global = flags & UC_REGEXP_GLOBAL;
+	re->newline = flags & UC_REGEXP_DOTALL;
+	re->multiline = flags & UC_REGEXP_MULTILINE;
+	strcpy(re->source, pattern);
+
+	if (re->icase)
+		cflags |= REG_ICASE;
+
+	if (re->multiline)
+		cflags |= REG_NEWLINE;
+
+	res = regcomp(&re->regexp, expr.entries, cflags);
+
+	uc_vector_clear(&expr);
+
+	if (res != 0)
+		goto failed;
+
+	/* The scan counts the groups of the pattern it wrote, so regcomp() has to
+	 * report the same number. Should it ever not, the groups the preprocessing
+	 * introduced cannot be mapped; the pattern is then prepared without them,
+	 * which costs a negated list the newline it had restored but keeps the
+	 * capture groups and the flags the script asked for. */
+	if (grp.injected.count != 0 && re->regexp.re_nsub != grp.ngroups) {
+		regfree(&re->regexp);
+		uc_vector_clear(&grp.injected);
+
+		grp.ngroups = 0;
+
+		if (!uc_regexp_prepare(pattern, flags, false, &expr, &grp, error))
+			goto bail;
+
+		res = regcomp(&re->regexp, expr.entries, cflags);
+		uc_vector_clear(&expr);
+
+		if (res != 0)
+			goto failed;
+	}
+
+	/* the group map holds the indices the scan recorded, in the order the
+	 * script sees them, indexed from zero by the number of the group */
+	if (grp.injected.count != 0) {
+		map = (uint32_t *)(void *)(re->source + len);
+		n = 0;
+
+		for (j = 1; j <= re->regexp.re_nsub; j++)
+			if (!uc_re_group_injected(&grp, j))
+				map[n++] = j;
+
+		re->groupmap = map;
+		re->nsub = n;
+	}
+	else
+		re->nsub = re->regexp.re_nsub;
+
+	uc_vector_clear(&grp.injected);
+
+	return &re->header;
+
+failed:
+	/* regerror() describes the compiled pattern, so it has to run before that
+	 * pattern is released */
+	if (error) {
+		len = regerror(res, &re->regexp, NULL, 0);
+		*error = xalloc(len);
+
+		regerror(res, &re->regexp, *error, len);
+	}
+
+bail:
+	uc_vector_clear(&grp.injected);
+
+	free(re);
 
 	return NULL;
 }
@@ -2387,45 +2602,51 @@ error:
 uc_value_t *
 ucv_regexp_new(const char *pattern, bool icase, bool newline, bool global, char **error)
 {
-	int cflags = REG_EXTENDED, res;
-	uc_regexp_t *re;
-	char *prepared;
-	size_t len;
+	return ucv_regexp_new_ex(pattern,
+	                         (global    ? UC_REGEXP_GLOBAL : 0) |
+	                         (icase     ? UC_REGEXP_ICASE  : 0) |
+	                         (newline   ? UC_REGEXP_DOTALL : 0),
+	                         error);
+}
 
-	prepared = uc_regexp_prepare(pattern, newline, error);
+/* The number of match array entries a match against this regexp reports, the
+ * whole match included. While preprocessing a pattern ucode may introduce
+ * groups of its own, so this can be more than the capture groups visible to
+ * the script, which are the nsub field plus one. */
+size_t
+ucv_regexp_nmatch(uc_value_t *val)
+{
+	return 1 + ucv_as_regexp(val)->regexp.re_nsub;
+}
 
-	if (!prepared)
-		return NULL;
+/* Matches a subject string, storing the extents of the whole match and of up
+ * to nmatch - 1 capture groups in an array of nmatch entries. The array has to
+ * be large enough for the groups of the compiled pattern, see
+ * ucv_regexp_nmatch(); the extents of the groups written in the pattern are
+ * left at its front, in the order the script sees them. */
+bool
+ucv_regexp_exec(uc_value_t *val, const char *subject, size_t nmatch,
+                regmatch_t *pmatch, int eflags)
+{
+	uc_regexp_t *re = ucv_as_regexp(val);
+	size_t i;
 
-	re = xalloc(sizeof(*re) + strlen(pattern) + 1);
-	re->header.type = UC_REGEXP;
-	re->header.refcount = 1;
-	re->icase = icase;
-	re->global = global;
-	re->newline = newline;
-	strcpy(re->source, pattern);
+	/* group 0 is never one of the groups the preprocessing introduced, so a
+	 * caller asking for the whole match alone needs no mapping */
+	if (!re->groupmap || nmatch < 2)
+		return regexec(&re->regexp, subject, nmatch, pmatch, eflags) == 0;
 
-	if (icase)
-		cflags |= REG_ICASE;
+	if (regexec(&re->regexp, subject, nmatch, pmatch, eflags) != 0)
+		return false;
 
-	res = regcomp(&re->regexp, prepared, cflags);
+	/* move the groups the script wrote to the front of the array, in the order
+	 * it sees them; the map is ascending and never maps a group to a lower
+	 * index, so an entry is moved only after it has been read for the last
+	 * time. The entries behind them are those of the introduced groups */
+	for (i = 1; i <= re->nsub && i < nmatch; i++)
+		pmatch[i] = pmatch[re->groupmap[i - 1]];
 
-	free(prepared);
-
-	if (res != 0) {
-		if (error) {
-			len = regerror(res, &re->regexp, NULL, 0);
-			*error = xalloc(len);
-
-			regerror(res, &re->regexp, *error, len);
-		}
-
-		free(re);
-
-		return NULL;
-	}
-
-	return &re->header;
+	return true;
 }
 
 uc_value_t *
@@ -2668,11 +2889,12 @@ ucv_to_json(uc_value_t *uv)
 
 	case UC_REGEXP:
 		regexp = ucv_as_regexp(uv);
-		i = asprintf(&s, "/%s/%s%s%s",
+		i = asprintf(&s, "/%s/%s%s%s%s",
 			regexp->source,
 			regexp->global ? "g" : "",
 			regexp->icase ? "i" : "",
-			regexp->newline ? "s" : "");
+			regexp->newline ? "s" : "",
+			regexp->multiline ? "m" : "");
 
 		if (i <= 0)
 			return NULL;
@@ -3073,6 +3295,9 @@ ucv_to_stringbuf_formatted(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, size
 
 		if (regexp->newline)
 			ucv_stringbuf_append(pb, "s");
+
+		if (regexp->multiline)
+			ucv_stringbuf_append(pb, "m");
 
 		if (json)
 			ucv_stringbuf_append(pb, "\"");
