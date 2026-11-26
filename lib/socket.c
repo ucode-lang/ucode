@@ -251,7 +251,7 @@ args_get_(uc_vm_t *vm, size_t nargs, int *fdptr, ...)
 static void
 strbuf_free(uc_stringbuf_t *sb)
 {
-	printbuf_free(sb);
+	uc_stringbuf_free(sb);
 }
 
 static bool
@@ -261,7 +261,7 @@ strbuf_grow(uc_stringbuf_t *sb, size_t size)
 		if (size > (size_t)INT_MAX - sizeof(uc_string_t))
 			err_return(EOVERFLOW, "Requested size too large");
 
-		if (printbuf_memset(sb, sizeof(uc_string_t) + size - 1, '\0', 1))
+		if (uc_stringbuf_memset(sb, sizeof(uc_string_t) + size - 1, '\0', 1))
 			err_return(ENOMEM, "Out of memory");
 	}
 
@@ -311,7 +311,7 @@ strbuf_alloc(size_t size)
 	uc_stringbuf_t *sb = ucv_stringbuf_new();
 
 	if (!strbuf_grow(sb, size)) {
-		printbuf_free(sb);
+		uc_stringbuf_free(sb);
 
 		return NULL;
 	}
@@ -2872,7 +2872,7 @@ uc_socket_addrinfo(uc_vm_t *vm, size_t nargs)
 static uc_value_t *
 uc_socket_poll(uc_vm_t *vm, size_t nargs)
 {
-	struct { struct pollfd *entries; size_t count; } pfds = { 0 };
+	struct { struct pollfd *entries; size_t count, capacity; } pfds = { 0 };
 	uc_value_t *timeoutarg, *rv, *item;
 	int64_t timeout;
 	int ret;
@@ -2988,8 +2988,8 @@ uc_socket_connect(uc_vm_t *vm, size_t nargs)
 		int fd;
 	} *ap;
 
-	struct { struct address *entries; size_t count; } addresses = { 0 };
-	struct { struct pollfd *entries; size_t count; } pollfds = { 0 };
+	struct { struct address *entries; size_t count, capacity; } addresses = { 0 };
+	struct { struct pollfd *entries; size_t count, capacity; } pollfds = { 0 };
 	struct addrinfo *ai_results, *ai_hints, *ai;
 	uc_value_t *host, *serv, *hints, *timeout;
 	const char *errmsg = NULL;
@@ -4002,7 +4002,7 @@ estimate_cmsg_size(uc_value_t *uv)
 static bool
 encode_cmsg(uc_vm_t *vm, uc_value_t *uv, struct cmsghdr *cmsg)
 {
-	struct { int *entries; size_t count; } fds = { 0 };
+	struct { int *entries; size_t count, capacity; } fds = { 0 };
 	void *dataptr = NULL;
 	socklen_t datasz = 0;
 	char *st = NULL;
@@ -4264,7 +4264,7 @@ uc_socket_inst_sendmsg(uc_vm_t *vm, size_t nargs)
 				msg.msg_iov[i].iov_len = ucv_string_length(item);
 			}
 			else if (item) {
-				struct printbuf *pb = xprintbuf_new();
+				uc_stringbuf_t *pb = uc_stringbuf_new();
 				uc_vector_push(&sbarr, pb);
 				ucv_to_stringbuf(vm, pb, item, false);
 				msg.msg_iov[i].iov_base = pb->buf;
@@ -4279,7 +4279,7 @@ uc_socket_inst_sendmsg(uc_vm_t *vm, size_t nargs)
 		vec.iov_len = ucv_string_length(data);
 	}
 	else if (data) {
-		struct printbuf *pb = xprintbuf_new();
+		uc_stringbuf_t *pb = uc_stringbuf_new();
 		uc_vector_push(&sbarr, pb);
 		ucv_to_stringbuf(vm, pb, data, false);
 		msg.msg_iovlen = 1;
@@ -4300,7 +4300,7 @@ uc_socket_inst_sendmsg(uc_vm_t *vm, size_t nargs)
 	} while (ret == -1 && errno == EINTR);
 
 	while (sbarr.count > 0)
-		printbuf_free(sbarr.entries[--sbarr.count]);
+		uc_stringbuf_free(sbarr.entries[--sbarr.count]);
 
 	uc_vector_clear(&sbarr);
 

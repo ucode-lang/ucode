@@ -19,14 +19,18 @@
 #include <errno.h>
 #include <math.h>
 #include <float.h>
-
+#include <inttypes.h>
+#include <stddef.h>
+#include <limits.h>
+#include <fcntl.h>
+#include <time.h>
+#include <unistd.h>
 
 #include "ucode/internal/types.h"
 #include "ucode/internal/vm.h" /* ISA: I_* opcodes */
 #include "ucode/internal/program.h"
 #include "ucode/internal/source.h"
 #include "ucode/internal/chunk.h"
-#include "ucode/internal/json-c-compat.h"
 
 /* initial capacity step of array entry vectors; must be at least 2 */
 #define UC_ARRAY_INIT_SIZE 2
@@ -181,7 +185,6 @@ ucv_gc_mark(uc_value_t *uv)
 	uc_export_instance_t *instance;
 	uc_program_t *program;
 	uc_value_t **values;
-	struct lh_entry *entry;
 	size_t i;
 
 	if (ucv_is_gc_marked(uv))
@@ -209,8 +212,8 @@ ucv_gc_mark(uc_value_t *uv)
 
 		ucv_gc_mark(object->proto);
 
-		lh_foreach(object->table, entry)
-			ucv_gc_mark((uc_value_t *)lh_entry_v(entry));
+		for (i = 0; i < object->used; i++)
+			ucv_gc_mark(object->entries[i].value);
 
 		break;
 
@@ -230,6 +233,9 @@ ucv_gc_mark(uc_value_t *uv)
 
 		for (i = 0; instance && i < instance->exports.count; i++)
 			ucv_gc_mark(&instance->exports.entries[i]->header);
+
+		for (i = 0; instance && i < instance->namespaces.count; i++)
+			ucv_gc_mark(instance->namespaces.entries[i].object);
 
 		ucv_gc_mark(&function->program->header);
 
@@ -279,6 +285,7 @@ void
 uc_program_instance_free(uc_program_t *program, uc_closure_t *closure, bool retain)
 {
 	uc_export_instance_t *instance = uc_program_instance_get(program, closure, false);
+	uc_namespaces_t namespaces;
 	uc_modexports_t exports;
 	size_t i;
 
@@ -287,11 +294,16 @@ uc_program_instance_free(uc_program_t *program, uc_closure_t *closure, bool reta
 
 	/* the release of an export can free another closure of the program */
 	exports = instance->exports;
+	namespaces = instance->namespaces;
 	*instance = program->instances.entries[--program->instances.count];
+
+	for (i = 0; i < namespaces.count; i++)
+		ucv_put_value(namespaces.entries[i].object, retain);
 
 	for (i = 0; i < exports.count; i++)
 		ucv_put_value(&exports.entries[i]->header, retain);
 
+	uc_vector_clear(&namespaces);
 	uc_vector_clear(&exports);
 }
 
@@ -334,7 +346,14 @@ ucv_free(uc_value_t *uv, bool retain)
 		object = ucv_as_object(uv);
 		ref = &object->ref;
 		ucv_put_value(object->proto, retain);
-		lh_table_free(object->table);
+
+		for (i = 0; i < object->used; i++) {
+			ucv_put(object->entries[i].key);
+			ucv_put(object->entries[i].value);
+		}
+
+		free(object->entries);
+		free(object->index);
 		break;
 
 	case UC_REGEXP:
@@ -397,6 +416,12 @@ ucv_free(uc_value_t *uv, bool retain)
 			uc_program_function_free(func);
 
 		uc_vallist_free(&program->constants);
+
+		for (i = 0; i < program->constant_values.count; i++)
+			ucv_put(program->constant_values.entries[i]);
+
+		uc_vector_clear(&program->constant_values);
+		uc_vector_clear(&program->constant_hashes);
 
 		for (i = 0; i < program->sources.count; i++)
 			ucv_put_value(&program->sources.entries[i]->header, retain);
@@ -512,9 +537,108 @@ ucv_string_new_length(const char *str, size_t length)
 }
 
 uc_stringbuf_t *
+uc_stringbuf_new(void)
+{
+	uc_stringbuf_t *sb = xalloc(sizeof(*sb));
+
+	sb->size = 32;
+	sb->buf = xalloc(sb->size);
+
+	return sb;
+}
+
+void
+uc_stringbuf_free(uc_stringbuf_t *sb)
+{
+	if (!sb)
+		return;
+
+	free(sb->buf);
+	free(sb);
+}
+
+/* Grows the buffer to hold at least `size` bytes; a zeroed buffer is an
+ * empty one without storage */
+void
+uc_stringbuf_grow(uc_stringbuf_t *sb, size_t size)
+{
+	size_t next = sb->size ? sb->size : 32;
+
+	if (size > INT_MAX) {
+		fprintf(stderr, "Out of memory\n");
+		abort();
+	}
+
+	while (next < size)
+		next = (next > INT_MAX / 2) ? INT_MAX : next * 2;
+
+	sb->buf = xrealloc(sb->buf, next);
+	sb->size = next;
+}
+
+/* Fills `len` bytes from `offset`, or from the end if `offset` is -1, with
+ * `c`, and pads the bytes between the end and `offset` with NUL; returns 0,
+ * as the buffer aborts the program when it cannot grow */
+int
+uc_stringbuf_memset(uc_stringbuf_t *sb, int offset, int c, size_t len)
+{
+	size_t off = (offset < 0) ? (size_t)sb->bpos : (size_t)offset;
+
+	if (off + len + 1 > (size_t)sb->size)
+		uc_stringbuf_grow(sb, off + len + 1);
+
+	if ((size_t)sb->bpos < off)
+		memset(sb->buf + sb->bpos, 0, off - sb->bpos);
+
+	memset(sb->buf + off, c, len);
+
+	if ((size_t)sb->bpos < off + len)
+		sb->bpos = off + len;
+
+	sb->buf[sb->bpos] = 0;
+
+	return 0;
+}
+
+void
+uc_stringbuf_reset(uc_stringbuf_t *sb)
+{
+	sb->bpos = 0;
+
+	if (sb->buf)
+		sb->buf[0] = 0;
+}
+
+int
+uc_stringbuf_printf(uc_stringbuf_t *sb, const char *fmt, ...)
+{
+	size_t room = sb->size - sb->bpos;
+	va_list ap;
+	int len;
+
+	va_start(ap, fmt);
+	len = vsnprintf(sb->buf + sb->bpos, room, fmt, ap);
+	va_end(ap);
+
+	if (len < 0)
+		return -1;
+
+	if ((size_t)len >= room) {
+		uc_stringbuf_grow(sb, (size_t)sb->bpos + len + 1);
+		va_start(ap, fmt);
+		vsnprintf(sb->buf + sb->bpos, len + 1, fmt, ap);
+		va_end(ap);
+	}
+
+	sb->bpos += len;
+
+	return len;
+}
+
+uc_stringbuf_t *
 ucv_stringbuf_new(void)
 {
-	uc_stringbuf_t *sb = xprintbuf_new();
+	uc_stringbuf_t *sb = uc_stringbuf_new();
 	uc_string_t ustr = {
 		.header = {
 			.type = UC_STRING,
@@ -522,7 +646,7 @@ ucv_stringbuf_new(void)
 		}
 	};
 
-	printbuf_memappend_fast(sb, (char *)&ustr, (int)sizeof(ustr));
+	uc_stringbuf_add(sb, (char *)&ustr, (int)sizeof(ustr));
 
 	return sb;
 }
@@ -532,7 +656,7 @@ ucv_stringbuf_finish(uc_stringbuf_t *sb)
 {
 	uc_string_t *ustr = (uc_string_t *)sb->buf;
 
-	ustr->length = printbuf_length(sb) - offsetof(uc_string_t, str);
+	ustr->length = uc_stringbuf_length(sb) - offsetof(uc_string_t, str);
 
 	free(sb);
 
@@ -688,12 +812,8 @@ ucv_int64_get(uc_value_t *uv)
 
 	errno = 0;
 
-	if ((pv & 3) == UC_INTEGER) {
-		if (((pv >> 2) & 1) == 0)
-			return (int64_t)(pv >> 3);
-
-		return -(int64_t)(pv >> 3);
-	}
+	if ((pv & 3) == UC_INTEGER)
+		return ucv_small_integer_get(uv);
 
 	switch (ucv_type(uv)) {
 	case UC_INTEGER:
@@ -996,43 +1116,288 @@ ucv_array_length(uc_value_t *uv)
 }
 
 
-static void
-ucv_free_object_entry(struct lh_entry *entry)
-{
-	uc_list_foreach(item, &uc_thread_context_get()->object_iterators) {
-		uc_object_iterator_t *iter = (uc_object_iterator_t *)item;
+/* Objects keep their entries in insertion order, with the key as a string
+ * value, so that keys may contain NUL bytes and keys from constants or
+ * other strings are shared. Small objects are searched entry by entry;
+ * above UC_OBJECT_INDEX_MIN entries a hash index of open addressing finds
+ * them. A deleted entry stays as a gap until the array grows, so that the
+ * positions of iterations stay valid. */
 
-		if (iter->u.pos == entry)
-			iter->u.pos = entry->next;
+#define UC_OBJECT_INDEX_MIN 8
+
+static uint64_t ucv_object_hash_seed[2];
+
+/* The hash is keyed with a random seed as the one of json-c, so that keys
+ * chosen to collide cannot be prepared in advance. */
+__attribute__((constructor)) static void
+ucv_object_hash_init(void)
+{
+	struct timespec ts;
+	ssize_t n = -1;
+	int fd;
+
+	fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+
+	if (fd >= 0) {
+		n = read(fd, ucv_object_hash_seed, sizeof(ucv_object_hash_seed));
+		close(fd);
 	}
 
-	free(lh_entry_k(entry));
-	ucv_put(lh_entry_v(entry));
+	if (n == (ssize_t)sizeof(ucv_object_hash_seed))
+		return;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	ucv_object_hash_seed[0] = (uint64_t)ts.tv_nsec * 0x9e3779b97f4a7c15ULL ^ (uint64_t)getpid();
+	ucv_object_hash_seed[1] = (uint64_t)ts.tv_sec ^ (uint64_t)(uintptr_t)&ts;
+}
+
+#define UCV_ROTL(x, b) (uint64_t)(((x) << (b)) | ((x) >> (64 - (b))))
+
+static inline void
+ucv_object_hash_round(uint64_t *v)
+{
+	v[0] += v[1]; v[1] = UCV_ROTL(v[1], 13); v[1] ^= v[0]; v[0] = UCV_ROTL(v[0], 32);
+	v[2] += v[3]; v[3] = UCV_ROTL(v[3], 16); v[3] ^= v[2];
+	v[0] += v[3]; v[3] = UCV_ROTL(v[3], 21); v[3] ^= v[0];
+	v[2] += v[1]; v[1] = UCV_ROTL(v[1], 17); v[1] ^= v[2]; v[2] = UCV_ROTL(v[2], 32);
+}
+
+/* SipHash-1-3 */
+static uint64_t
+ucv_object_hash_bytes(const char *p, size_t len)
+{
+	uint64_t v[4] = {
+		0x736f6d6570736575ULL ^ ucv_object_hash_seed[0],
+		0x646f72616e646f6dULL ^ ucv_object_hash_seed[1],
+		0x6c7967656e657261ULL ^ ucv_object_hash_seed[0],
+		0x7465646279746573ULL ^ ucv_object_hash_seed[1]
+	};
+	uint64_t m, b = (uint64_t)len << 56;
+	size_t i, tail = len & 7;
+
+	for (i = 0; i + 8 <= len; i += 8) {
+		memcpy(&m, p + i, 8);
+		v[3] ^= m;
+		ucv_object_hash_round(v);
+		v[0] ^= m;
+	}
+
+	while (tail--)
+		b |= (uint64_t)(uint8_t)p[i + tail] << (8 * tail);
+
+	v[3] ^= b;
+	ucv_object_hash_round(v);
+	v[0] ^= b;
+	v[2] ^= 0xff;
+	ucv_object_hash_round(v);
+	ucv_object_hash_round(v);
+	ucv_object_hash_round(v);
+
+	return v[0] ^ v[1] ^ v[2] ^ v[3];
+}
+
+static const char *
+ucv_object_key_get(uc_object_entry_t *e, size_t *len)
+{
+	*len = ucv_string_length(e->key);
+
+	return _ucv_string_get(&e->key);
+}
+
+/* Whether entry `e` has the key `s` of `len` bytes; `kv` is the string value
+ * of the key if the caller has one, which matches by pointer. */
+static bool
+ucv_object_key_match(uc_object_entry_t *e, const char *s, size_t len, uc_value_t *kv)
+{
+	const char *k;
+	size_t klen;
+
+	if (!e->key)
+		return false;
+
+	if (e->key == kv)
+		return true;
+
+	k = ucv_object_key_get(e, &klen);
+
+	return klen == len && !memcmp(k, s, len);
+}
+
+/* Finds the key `s` of `len` bytes, whose hash is `*hash` if `hash` is
+ * given; only objects with an index need the hash. */
+static uc_object_entry_t *
+ucv_object_find_hashed(uc_object_t *object, const char *s, size_t len, uc_value_t *kv,
+                       const uint64_t *hash)
+{
+	uint32_t i, n;
+
+	if (!object->index) {
+		for (n = 0; n < object->used; n++)
+			if (ucv_object_key_match(&object->entries[n], s, len, kv))
+				return &object->entries[n];
+
+		return NULL;
+	}
+
+	for (i = (hash ? *hash : ucv_object_hash_bytes(s, len)) & object->mask;
+	     (n = object->index[i]) != 0;
+	     i = (i + 1) & object->mask)
+		if (ucv_object_key_match(&object->entries[n - 1], s, len, kv))
+			return &object->entries[n - 1];
+
+	return NULL;
+}
+
+static uc_object_entry_t *
+ucv_object_find(uc_object_t *object, const char *s, size_t len, uc_value_t *kv)
+{
+	return ucv_object_find_hashed(object, s, len, kv, NULL);
+}
+
+uint64_t
+ucv_object_key_hash(uc_value_t *key)
+{
+	if (ucv_type(key) != UC_STRING)
+		return 0;
+
+	return ucv_object_hash_bytes(_ucv_string_get(&key), ucv_string_length(key));
+}
+
+static void
+ucv_object_index_add(uc_object_t *object, uint32_t n)
+{
+	size_t len;
+	const char *k = ucv_object_key_get(&object->entries[n], &len);
+	uint32_t i = ucv_object_hash_bytes(k, len) & object->mask;
+
+	while (object->index[i])
+		i = (i + 1) & object->mask;
+
+	object->index[i] = n + 1;
+}
+
+/* Builds the index for the capacity of the entry array, at most three
+ * quarters full when the array is. */
+static void
+ucv_object_index_build(uc_object_t *object)
+{
+	uint32_t slots = 16;
+
+	while (slots * 3 < object->size * 4)
+		slots *= 2;
+
+	free(object->index);
+	object->index = xcalloc(slots, sizeof(*object->index));
+	object->mask = slots - 1;
+
+	for (uint32_t n = 0; n < object->used; n++)
+		if (object->entries[n].key)
+			ucv_object_index_add(object, n);
+}
+
+/* Drops the gaps of deleted entries and moves the iterations of the object
+ * to the positions of their next entries. */
+static void
+ucv_object_compact(uc_object_t *object)
+{
+	uint32_t from, to = 0;
+
+	uc_list_foreach(item, &uc_thread_context_get()->object_iterators) {
+		uc_object_iterator_t *iter = (uc_object_iterator_t *)item;
+		size_t live = 0;
+
+		if (iter->object != object)
+			continue;
+
+		for (from = 0; from < iter->pos && from < object->used; from++)
+			live += (object->entries[from].key != NULL);
+
+		iter->pos = live;
+	}
+
+	for (from = 0; from < object->used; from++)
+		if (object->entries[from].key)
+			object->entries[to++] = object->entries[from];
+
+	object->used = to;
+}
+
+/* Makes room for one more entry: drops the gaps if they are a quarter of
+ * the entries, or else doubles the array. */
+static void
+ucv_object_grow(uc_object_t *object)
+{
+	if (object->used < object->size)
+		return;
+
+	if (object->used && (object->used - object->count) * 4 >= object->used) {
+		ucv_object_compact(object);
+	}
+	else {
+		object->size = object->size ? object->size * 2 : 4;
+		object->entries = xrealloc(object->entries, object->size * sizeof(*object->entries));
+	}
+
+	if (object->index)
+		ucv_object_index_build(object);
+}
+
+/* Stores `val` under the key `s` of `len` bytes, whose string value `kv` the
+ * object shares if given; consumes `val` only on success. */
+static bool
+ucv_object_store(uc_value_t *uv, const char *s, size_t len, uc_value_t *kv, uc_value_t *val)
+{
+	uc_object_t *object = ucv_as_object(uv);
+	uc_object_entry_t *e;
+
+	if (ucv_type(uv) != UC_OBJECT || uv->ext_flag)
+		return false;
+
+	e = ucv_object_find(object, s, len, kv);
+
+	if (e) {
+		ucv_put(e->value);
+		e->value = val;
+
+		return true;
+	}
+
+	ucv_object_grow(object);
+
+	e = &object->entries[object->used];
+	e->key = kv ? ucv_get(kv) : ucv_string_new_length(s, len);
+	e->value = val;
+
+	if (object->index)
+		ucv_object_index_add(object, object->used);
+
+	object->used++;
+	object->count++;
+
+	if (!object->index && object->count > UC_OBJECT_INDEX_MIN)
+		ucv_object_index_build(object);
+
+	return true;
 }
 
 uc_value_t *
 ucv_object_new(uc_vm_t *vm)
 {
-	return ucv_object_new_size(vm, 16);
+	return ucv_object_new_size(vm, 0);
 }
 
 uc_value_t *
 ucv_object_new_size(uc_vm_t *vm, size_t size)
 {
-	struct lh_table *table;
-	uc_object_t *object;
+	uc_object_t *object = xalloc(sizeof(*object));
 
-	table = lh_kchar_table_new(size, ucv_free_object_entry);
-
-	if (!table) {
-		fprintf(stderr, "Out of memory\n");
-		abort();
-	}
-
-	object = xalloc(sizeof(*object));
 	object->header.type = UC_OBJECT;
 	object->header.refcount = 1;
-	object->table = table;
+
+	if (size) {
+		object->size = size;
+		object->entries = xalloc(size * sizeof(*object->entries));
+	}
 
 	if (vm) {
 		ucv_ref(&vm->values, &object->ref);
@@ -1043,143 +1408,79 @@ ucv_object_new_size(uc_vm_t *vm, size_t size)
 }
 
 bool
-ucv_object_add(uc_value_t *uv, const char *key, uc_value_t *val)
+ucv_object_insert(uc_value_t *uv, const char *key, size_t len, uc_value_t *val)
 {
-	uc_object_t *object = ucv_as_object(uv);
-	struct lh_entry *existing_entry;
-	uc_value_t *existing_value;
-	unsigned long hash;
-	void *k;
-
-	if (ucv_type(uv) != UC_OBJECT || uv->ext_flag)
-		return false;
-
-	hash = lh_get_hash(object->table, (const void *)key);
-	existing_entry = lh_table_lookup_entry_w_hash(object->table, (const void *)key, hash);
-
-	if (existing_entry == NULL) {
-		bool rehash = (object->table->count >= object->table->size * LH_LOAD_FACTOR);
-
-		/* insert will rehash table, backup affected iterator states */
-		if (rehash) {
-			uc_list_foreach(item, &uc_thread_context_get()->object_iterators) {
-				uc_object_iterator_t *iter = (uc_object_iterator_t *)item;
-
-				if (iter->table != object->table)
-					continue;
-
-				if (iter->u.pos == NULL)
-					continue;
-
-				iter->u.kh.k = iter->u.pos->k;
-				iter->u.kh.hash = lh_get_hash(iter->table, iter->u.kh.k);
-			}
-		}
-
-		k = xstrdup(key);
-
-		if (lh_table_insert_w_hash(object->table, k, val, hash, 0) != 0) {
-			free(k);
-
-			return false;
-		}
-
-		/* restore affected iterator state pointer after rehash */
-		if (rehash) {
-			uc_list_foreach(item, &uc_thread_context_get()->object_iterators) {
-				uc_object_iterator_t *iter = (uc_object_iterator_t *)item;
-
-				if (iter->table != object->table)
-					continue;
-
-				if (iter->u.kh.k == NULL)
-					continue;
-
-				iter->u.pos = lh_table_lookup_entry_w_hash(iter->table,
-				                                           iter->u.kh.k,
-				                                           iter->u.kh.hash);
-			}
-		}
-
-		return true;
-	}
-
-	existing_value = (uc_value_t *)lh_entry_v(existing_entry);
-
-	if (existing_value)
-		ucv_put(existing_value);
-
-	existing_entry->v = val;
-
-	return true;
+	return ucv_object_store(uv, key, len, NULL, val);
 }
 
+bool
+ucv_object_insert_string(uc_value_t *uv, uc_value_t *key, uc_value_t *val)
+{
+	return ucv_object_store(uv, ucv_string_get(key), ucv_string_length(key), key, val);
+}
+
+bool
+ucv_object_add(uc_value_t *uv, const char *key, uc_value_t *val)
+{
+	return ucv_object_store(uv, key, strlen(key), NULL, val);
+}
 
 typedef struct {
 	int (*cmp)(const void *, const void *);
 	int (*cmpr)(const char *, uc_value_t *, const char *, uc_value_t *, void *);
+	int (*cmpe)(const uc_object_entry_t *, const uc_object_entry_t *, void *);
 	void *ud;
 } object_sort_ctx_t;
 
-static uc_vector_sort_cb(ucv_object_sort_cb, const void *, object_sort_ctx_t *, {
+static uc_vector_sort_cb(ucv_object_sort_cb, uc_object_entry_t, object_sort_ctx_t *, {
+	uc_object_entry_t *e1 = (uc_object_entry_t *)k1, *e2 = (uc_object_entry_t *)k2;
+
 	(void)v1;
 	(void)v2;
 
-	return ctx->cmp(k1, k2);
-});
+	if (ctx->cmpe)
+		return ctx->cmpe(e1, e2, ctx->ud);
 
-static uc_vector_sort_cb(ucv_object_sort_r_cb, const struct lh_entry *, object_sort_ctx_t *, {
-	return ctx->cmpr(
-		v1 ? lh_entry_k(v1) : NULL, v1 ? lh_entry_v(v1) : NULL,
-		v2 ? lh_entry_k(v2) : NULL, v2 ? lh_entry_v(v2) : NULL,
-		ctx->ud);
+	if (ctx->cmpr)
+		return ctx->cmpr(_ucv_string_get(&e1->key), e1->value,
+		                 _ucv_string_get(&e2->key), e2->value, ctx->ud);
+
+	return ctx->cmp(e1, e2);
 });
 
 static void
 ucv_object_sort_common(uc_value_t *uv, object_sort_ctx_t *ctx)
 {
 	uc_object_t *object = ucv_as_object(uv);
-	struct lh_table *t;
-	struct lh_entry *e;
-	size_t i;
-
 	struct {
-		struct lh_entry **entries;
 		size_t count;
-	} keys = { 0 };
+		uc_object_entry_t *entries;
+	} entries;
 
-	if (ucv_type(uv) != UC_OBJECT || ucv_is_constant(uv) ||
-	    lh_table_length(object->table) <= 1)
+	if (ucv_type(uv) != UC_OBJECT || ucv_is_constant(uv) || object->count <= 1)
 		return;
 
-	for (t = object->table, e = t->head; e; e = e->next)
-		uc_vector_push(&keys, e);
+	ucv_object_compact(object);
+	entries.count = object->used;
+	entries.entries = object->entries;
 
-	if (!keys.entries)
-		return;
-
-	/* Keep the saved hash table entry pointers valid until relinking. */
+	/* comparators must not change the object while its entries move */
 	ucv_set_constant(uv, true);
-	uc_vector_sort(&keys,
-		ctx->cmpr ? ucv_object_sort_r_cb : ucv_object_sort_cb, ctx);
-
-	for (i = 0; i < keys.count; i++) {
-		e = keys.entries[i];
-
-		if (i == 0) {
-			t->head = t->tail = e;
-			e->next = e->prev = NULL;
-		}
-		else {
-			t->tail->next = e;
-			e->prev = t->tail;
-			e->next = NULL;
-			t->tail = e;
-		}
-	}
-
-	uc_vector_clear(&keys);
+	uc_vector_sort(&entries, ucv_object_sort_cb, ctx);
 	ucv_set_constant(uv, false);
+
+	if (object->index)
+		ucv_object_index_build(object);
+}
+
+void
+ucv_object_sort_entries(uc_value_t *uv,
+                        int (*cmp)(const uc_object_entry_t *, const uc_object_entry_t *, void *),
+                        void *ud)
+{
+	object_sort_ctx_t ctx = { .cmpe = cmp, .ud = ud };
+
+	ucv_object_sort_common(uv, &ctx);
 }
 
 void
@@ -1188,49 +1489,119 @@ ucv_object_sort_r(uc_value_t *uv,
                              const char *, uc_value_t *, void *),
                   void *ud)
 {
-	object_sort_ctx_t ctx = { .cmp = NULL, .cmpr = cmp, .ud = ud };
+	object_sort_ctx_t ctx = { .cmpr = cmp, .ud = ud };
 
 	ucv_object_sort_common(uv, &ctx);
 }
 
+/* `cmp` receives pointers to two uc_object_entry_t */
 void
 ucv_object_sort(uc_value_t *uv, int (*cmp)(const void *, const void *))
 {
-	object_sort_ctx_t ctx = { .cmp = cmp, .cmpr = NULL, .ud = NULL };
+	object_sort_ctx_t ctx = { .cmp = cmp };
 
 	ucv_object_sort_common(uv, &ctx);
 }
 
 bool
-ucv_object_delete(uc_value_t *uv, const char *key)
+ucv_object_remove(uc_value_t *uv, const char *key, size_t len)
 {
 	uc_object_t *object = ucv_as_object(uv);
+	uc_object_entry_t *e;
 
 	if (ucv_type(uv) != UC_OBJECT || uv->ext_flag)
 		return false;
 
-	return (lh_table_delete(object->table, key) == 0);
+	e = ucv_object_find(object, key, len, NULL);
+
+	if (!e)
+		return false;
+
+	ucv_put(e->key);
+	ucv_put(e->value);
+	e->key = NULL;
+	e->value = NULL;
+	object->count--;
+
+	return true;
+}
+
+bool
+ucv_object_delete(uc_value_t *uv, const char *key)
+{
+	return ucv_object_remove(uv, key, strlen(key));
+}
+
+/* Looks up the key `s` of `len` bytes, with its string value `kv` and its
+ * hash if given */
+static uc_value_t *
+ucv_object_lookup_key_hashed(uc_value_t *uv, const char *s, size_t len, uc_value_t *kv,
+                             const uint64_t *hash, bool *found)
+{
+	uc_object_entry_t *e = NULL;
+
+	if (ucv_type(uv) == UC_OBJECT)
+		e = ucv_object_find_hashed(ucv_as_object(uv), s, len, kv, hash);
+
+	if (found != NULL)
+		*found = (e != NULL);
+
+	return e ? e->value : NULL;
+}
+
+static uc_value_t *
+ucv_object_lookup_key(uc_value_t *uv, const char *s, size_t len, uc_value_t *kv, bool *found)
+{
+	return ucv_object_lookup_key_hashed(uv, s, len, kv, NULL, found);
+}
+
+uc_value_t *
+ucv_object_lookup(uc_value_t *uv, const char *key, size_t len, bool *found)
+{
+	return ucv_object_lookup_key(uv, key, len, NULL, found);
+}
+
+uc_value_t *
+ucv_object_lookup_string(uc_value_t *uv, uc_value_t *key, bool *found)
+{
+	return ucv_object_lookup_key(uv, ucv_string_get(key), ucv_string_length(key), key, found);
+}
+
+uc_value_t *
+ucv_object_lookup_hashed(uc_value_t *uv, uc_value_t *key, uint64_t hash, bool *found)
+{
+	return ucv_object_lookup_key_hashed(uv, ucv_string_get(key), ucv_string_length(key), key,
+	                                    &hash, found);
 }
 
 uc_value_t *
 ucv_object_get(uc_value_t *uv, const char *key, bool *found)
 {
-	uc_object_t *object = ucv_as_object(uv);
-	uc_value_t *val = NULL;
-	bool rv;
+	return ucv_object_lookup(uv, key, strlen(key), found);
+}
 
-	if (found != NULL)
-		*found = false;
+bool
+ucv_object_next(uc_value_t *uv, size_t *pos, char **key, uc_value_t **val)
+{
+	uc_object_t *object = ucv_as_object(uv);
+	uc_object_entry_t *e;
 
 	if (ucv_type(uv) != UC_OBJECT)
-		return NULL;
+		return false;
 
-	rv = lh_table_lookup_ex(object->table, (const void *)key, (void **)&val);
+	while (*pos < object->used) {
+		e = &object->entries[(*pos)++];
 
-	if (found != NULL)
-		*found = rv;
+		if (!e->key)
+			continue;
 
-	return val;
+		*key = _ucv_string_get(&e->key);
+		*val = e->value;
+
+		return true;
+	}
+
+	return false;
 }
 
 size_t
@@ -1241,7 +1612,7 @@ ucv_object_length(uc_value_t *uv)
 	if (ucv_type(uv) != UC_OBJECT)
 		return 0;
 
-	return lh_table_length(object->table);
+	return object->count;
 }
 
 
@@ -1671,157 +2042,6 @@ ucv_property_get(uc_value_t *uv, const char *key)
 }
 
 
-uc_value_t *
-ucv_from_json(uc_vm_t *vm, json_object *jso)
-{
-	//uc_array_t *arr;
-	uc_value_t *uv, *item;
-	int64_t n;
-	size_t i;
-
-	switch (json_object_get_type(jso)) {
-	case json_type_null:
-		return NULL;
-
-	case json_type_boolean:
-		return ucv_boolean_new(json_object_get_boolean(jso));
-
-	case json_type_double:
-		return ucv_double_new(json_object_get_double(jso));
-
-	case json_type_int:
-		n = json_object_get_int64(jso);
-
-		if (n == INT64_MAX)
-			return ucv_uint64_new(json_object_get_uint64(jso));
-
-		return ucv_int64_new(n);
-
-	case json_type_object:
-		uv = ucv_object_new(vm);
-
-		json_object_object_foreach(jso, key, val) {
-			item = ucv_from_json(vm, val);
-
-			if (!ucv_object_add(uv, key, item))
-				ucv_put(item);
-
-#ifdef __clang_analyzer__
-			/* Clang static analyzer does not understand that the object retains
-			 * our item so pretend to free it here to suppress the false positive
-			 * memory leak warning. */
-			ucv_put(item);
-#endif
-		}
-
-		return uv;
-
-	case json_type_array:
-		/* XXX
-		arr = (uc_array_t *)ucv_array_new_length(vm, json_object_array_length(jso));
-
-		for (i = 0; i < arr->count; i++)
-			arr->entries[i] = ucv_from_json(vm, json_object_array_get_idx(jso, i));
-
-		return &arr->header;
-		*/
-		uv = ucv_array_new(vm);
-
-		for (i = 0; i < json_object_array_length(jso); i++) {
-			item = ucv_from_json(vm, json_object_array_get_idx(jso, i));
-
-			if (!ucv_array_push(uv, item))
-				ucv_put(item);
-
-#ifdef __clang_analyzer__
-			/* Clang static analyzer does not understand that the array retains
-			 * our item so pretend to free it here to suppress the false positive
-			 * memory leak warning. */
-			ucv_put(item);
-#endif
-		}
-
-		return uv;
-
-	case json_type_string:
-		return ucv_string_new_length(json_object_get_string(jso), json_object_get_string_len(jso));
-	}
-
-	return NULL;
-}
-
-json_object *
-ucv_to_json(uc_value_t *uv)
-{
-	uc_regexp_t *regexp;
-	uc_array_t *array;
-	json_object *jso;
-	size_t i;
-	char *s;
-
-	switch (ucv_type(uv)) {
-	case UC_BOOLEAN:
-		return json_object_new_boolean(ucv_boolean_get(uv));
-
-	case UC_INTEGER:
-		if (ucv_is_u64(uv))
-			return json_object_new_uint64(ucv_uint64_get(uv));
-
-		return json_object_new_int64(ucv_int64_get(uv));
-
-	case UC_DOUBLE:
-		return json_object_new_double(ucv_double_get(uv));
-
-	case UC_STRING:
-		return json_object_new_string_len(ucv_string_get(uv), ucv_string_length(uv));
-
-	case UC_ARRAY:
-		array = ucv_as_array(uv);
-		jso = json_object_new_array_ext(array->count);
-
-		for (i = 0; i < array->count; i++)
-			json_object_array_put_idx(jso, i, ucv_to_json(array->entries[i]));
-
-		return jso;
-
-	case UC_OBJECT:
-		jso = json_object_new_object();
-
-		ucv_object_foreach(uv, key, val)
-			json_object_object_add(jso, key, ucv_to_json(val));
-
-		return jso;
-
-	case UC_REGEXP:
-		regexp = ucv_as_regexp(uv);
-		i = asprintf(&s, "/%s/%s%s%s",
-			regexp->source,
-			regexp->global ? "g" : "",
-			regexp->icase ? "i" : "",
-			regexp->newline ? "s" : "");
-
-		if (i <= 0)
-			return NULL;
-
-		jso = json_object_new_string_len(s, i);
-
-		free(s);
-
-		return jso;
-
-	case UC_CLOSURE:
-	case UC_CFUNCTION:
-	case UC_RESOURCE:
-	case UC_UPVALUE:
-	case UC_PROGRAM:
-	case UC_SOURCE:
-	case UC_NULL:
-		return NULL;
-	}
-
-	return NULL;
-}
-
 /*
  * Length of the UTF-8 sequence starting at s, or zero if the bytes there
  * do not form a valid RFC 3629 sequence: no overlong forms, no surrogates,
@@ -2004,18 +2224,12 @@ ucv_call_tostring(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, bool json)
 	return true;
 }
 
-void
-_ucv_stringbuf_append(uc_stringbuf_t *pb, const char *str, size_t len)
-{
-	printbuf_memappend_fast(pb, str, (int)len);
-}
-
 static void
 ucv_to_stringbuf_add_padding(uc_stringbuf_t *pb, char pad_char, size_t pad_size)
 {
 	if (pad_char != '\0' && pad_char != '\1') {
 		ucv_stringbuf_append(pb, "\n");
-		printbuf_memset(pb, -1, pad_char, pad_size);
+		uc_stringbuf_memset(pb, -1, pad_char, pad_size);
 	}
 	else {
 		ucv_stringbuf_append(pb, " ");
@@ -2163,15 +2377,20 @@ ucv_to_stringbuf_formatted(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, size
 	case UC_OBJECT:
 		ucv_stringbuf_append(pb, "{");
 
-		i = 0;
-		ucv_object_foreach(uv, key, val) {
-			if (i++)
+		/* by position, as conversions of values may change the object */
+		for (size_t pos = 0, n = 0; pos < ucv_as_object(uv)->used; pos++) {
+			uc_object_entry_t *e = &ucv_as_object(uv)->entries[pos];
+
+			if (!e->key)
+				continue;
+
+			if (n++)
 				ucv_stringbuf_append(pb, ",");
 
 			ucv_to_stringbuf_add_padding(pb, pad_char, (depth + 1) * pad_size);
-			ucv_to_string_json_encoded(pb, key, strlen(key), false);
+			ucv_to_string_json_encoded(pb, _ucv_string_get(&e->key), ucv_string_length(e->key), false);
 			ucv_stringbuf_append(pb, ": ");
-			ucv_to_stringbuf_formatted(vm, pb, val, depth + 1, pad_char ? pad_char : '\1', pad_size);
+			ucv_to_stringbuf_formatted(vm, pb, e->value, depth + 1, pad_char ? pad_char : '\1', pad_size);
 
 			if (vm != NULL && !pending && vm->exception.type != EXCEPTION_NONE)
 				break;
@@ -2321,7 +2540,7 @@ out:
 static char *
 ucv_to_string_any(uc_vm_t *vm, uc_value_t *uv, char pad_char, size_t pad_size)
 {
-	uc_stringbuf_t *pb = xprintbuf_new();
+	uc_stringbuf_t *pb = uc_stringbuf_new();
 	char *rv;
 
 	ucv_to_stringbuf_formatted(vm, pb, uv, 0, pad_char, pad_size);
@@ -2424,14 +2643,13 @@ ucv_is_equal(uc_value_t *uv1, uc_value_t *uv2)
 		if (u1 != u2)
 			return false;
 
-		ucv_object_foreach(uv1, key, val) {
-			if (!ucv_is_equal(val, ucv_object_get(uv2, key, NULL)))
+		ucv_object_foreach_entry(uv1, e) {
+			if (!ucv_is_equal(e->value, ucv_object_lookup_string(uv2, e->key, NULL)))
 				return false;
 		}
 
-		ucv_object_foreach(uv2, key2, val2) {
-			(void)val2;
-			ucv_object_get(uv1, key2, &b1);
+		ucv_object_foreach_entry(uv2, e) {
+			ucv_object_lookup_string(uv1, e->key, &b1);
 
 			if (!b1)
 				return false;
@@ -2660,13 +2878,24 @@ ucv_compare(int how, uc_value_t *v1, uc_value_t *v2, int *deltap)
 }
 
 
-static char *
-ucv_key_to_string(uc_vm_t *vm, uc_value_t *val)
+/* Returns the bytes of the key value `*val` and their number in `len`; a
+ * value that is no string is converted to a string in `copy`, which the
+ * caller releases. */
+static const char *
+ucv_key_bytes(uc_vm_t *vm, uc_value_t **val, size_t *len, char **copy)
 {
-	if (ucv_type(val) != UC_STRING)
-		return ucv_to_string(vm, val);
+	*copy = NULL;
 
-	return NULL;
+	if (ucv_type(*val) == UC_STRING) {
+		*len = ucv_string_length(*val);
+
+		return _ucv_string_get(val);
+	}
+
+	*copy = ucv_to_string(vm, *val);
+	*len = strlen(*copy);
+
+	return *copy;
 }
 
 static int64_t
@@ -2694,7 +2923,7 @@ ucv_key_to_index(uc_value_t *val)
 		k = ucv_string_get(val);
 		idx = strtoll(k, &e, 0);
 
-		if (errno != 0 || e == k || *e != 0)
+		if (errno != 0 || e == k || e != k + ucv_string_length(val))
 			return INT64_MIN;
 
 		return idx;
@@ -2712,9 +2941,11 @@ ucv_key_to_index(uc_value_t *val)
 static uc_value_t *
 ucv_key_get_raw(uc_vm_t *vm, uc_value_t *scope, uc_value_t *key, bool *found)
 {
-	uc_value_t *o, *v = NULL, *inst_proto;
+	uc_value_t *o, *v = NULL, *inst_proto, *kv;
+	const char *k;
+	char *copy;
 	int64_t idx;
-	char *k;
+	size_t len;
 
 	*found = false;
 
@@ -2731,7 +2962,8 @@ ucv_key_get_raw(uc_vm_t *vm, uc_value_t *scope, uc_value_t *key, bool *found)
 	}
 
 	if (!*found) {
-		k = ucv_key_to_string(vm, key);
+		k = ucv_key_bytes(vm, &key, &len, &copy);
+		kv = copy ? NULL : key;
 
 		/* Check resource type prototype first */
 		if (ucv_type(scope) == UC_RESOURCE) {
@@ -2744,17 +2976,17 @@ ucv_key_get_raw(uc_vm_t *vm, uc_value_t *scope, uc_value_t *key, bool *found)
 				 * ucv_resource_new_prototyped); returns NULL for resources
 				 * without an instance proto. */
 				if ((inst_proto = ucv_resource_proto_get(scope)) != NULL) {
-					v = ucv_object_get(inst_proto, k ? k : ucv_string_get(key), found);
+					v = ucv_object_lookup_key(inst_proto, k, len, kv, found);
 				}
 
 				/* Then fall back to type prototype */
 				if (!*found && ext->type && ext->type->proto) {
-					v = ucv_object_get(ext->type->proto, k ? k : ucv_string_get(key), found);
+					v = ucv_object_lookup_key(ext->type->proto, k, len, kv, found);
 				}
 			} else {
 				uc_resource_t *res = ucv_as_resource(scope);
 				if (res->type && res->type->proto) {
-					v = ucv_object_get(res->type->proto, k ? k : ucv_string_get(key), found);
+					v = ucv_object_lookup_key(res->type->proto, k, len, kv, found);
 				}
 			}
 		}
@@ -2765,14 +2997,14 @@ ucv_key_get_raw(uc_vm_t *vm, uc_value_t *scope, uc_value_t *key, bool *found)
 				if (ucv_type(o) != UC_OBJECT)
 					continue;
 
-				v = ucv_object_get(o, k ? k : ucv_string_get(key), found);
+				v = ucv_object_lookup_key(o, k, len, kv, found);
 
 				if (*found)
 					break;
 			}
 		}
 
-		free(k);
+		free(copy);
 	}
 
 	return v;
@@ -2897,11 +3129,14 @@ ucv_meta_invoke(uc_vm_t *vm, uc_value_t *scope, uc_value_t *meta,
 static bool
 ucv_object_has_key(uc_vm_t *vm, uc_value_t *obj, uc_value_t *key)
 {
-	char *s = ucv_key_to_string(vm, key);
 	bool found = false;
+	const char *k;
+	char *copy;
+	size_t len;
 
-	ucv_object_get(obj, s ? s : ucv_string_get(key), &found);
-	free(s);
+	k = ucv_key_bytes(vm, &key, &len, &copy);
+	ucv_object_lookup_key(obj, k, len, copy ? NULL : key, &found);
+	free(copy);
 
 	return found;
 }
@@ -2909,11 +3144,14 @@ ucv_object_has_key(uc_vm_t *vm, uc_value_t *obj, uc_value_t *key)
 static bool
 ucv_object_put_key(uc_vm_t *vm, uc_value_t *obj, uc_value_t *key, uc_value_t *val)
 {
-	char *s = ucv_key_to_string(vm, key);
+	const char *k;
+	char *copy;
+	size_t len;
 	bool rv;
 
-	rv = ucv_object_add(obj, s ? s : ucv_string_get(key), val);
-	free(s);
+	k = ucv_key_bytes(vm, &key, &len, &copy);
+	rv = ucv_object_store(obj, k, len, copy ? NULL : key, val);
+	free(copy);
 
 	if (!rv)
 		ucv_put(val);
@@ -2924,11 +3162,14 @@ ucv_object_put_key(uc_vm_t *vm, uc_value_t *obj, uc_value_t *key, uc_value_t *va
 static bool
 ucv_object_del_key(uc_vm_t *vm, uc_value_t *obj, uc_value_t *key)
 {
-	char *s = ucv_key_to_string(vm, key);
+	const char *k;
+	char *copy;
+	size_t len;
 	bool rv;
 
-	rv = ucv_object_delete(obj, s ? s : ucv_string_get(key));
-	free(s);
+	k = ucv_key_bytes(vm, &key, &len, &copy);
+	rv = ucv_object_remove(obj, k, len);
+	free(copy);
 
 	return rv;
 }
@@ -2955,14 +3196,45 @@ ucv_array_set_key(uc_value_t *arr, uc_value_t *key, uc_value_t *val)
 	return false;
 }
 
+bool
+ucv_key_get_hashed(uc_vm_t *vm, uc_value_t *obj, uc_value_t *key, uint64_t hash,
+                   uc_value_t **res)
+{
+	uc_object_entry_t *e;
+
+	if (ucv_type(obj) != UC_OBJECT)
+		return false;
+
+	e = ucv_object_find_hashed(ucv_as_object(obj), _ucv_string_get(&key),
+	                           ucv_string_length(key), key, &hash);
+
+	if (!e)
+		return false;
+
+	*res = ucv_key_resolve_upval(vm, e->value);
+
+	return true;
+}
+
 uc_value_t *
 ucv_key_get(uc_vm_t *vm, uc_value_t *scope, uc_value_t *key)
 {
 	uc_value_t *meta, *val;
+	uc_object_entry_t *e;
 	bool found;
 
 	if (!scope || !key)
 		return NULL;
+
+	/* a string key of the object itself, which the lookup below finds
+	 * first as well; a missing one may still be found there or by __get__ */
+	if (ucv_type(scope) == UC_OBJECT && ucv_type(key) == UC_STRING) {
+		e = ucv_object_find(ucv_as_object(scope), _ucv_string_get(&key),
+		                    ucv_string_length(key), key);
+
+		if (e)
+			return ucv_key_resolve_upval(vm, e->value);
+	}
 
 	val = ucv_key_get_raw(vm, scope, key, &found);
 
@@ -2994,7 +3266,8 @@ ucv_key_get(uc_vm_t *vm, uc_value_t *scope, uc_value_t *key)
 uc_value_t *
 ucv_key_set(uc_vm_t *vm, uc_value_t *scope, uc_value_t *key, uc_value_t *val)
 {
-	uc_value_t *meta = NULL;
+	uc_value_t *meta = NULL, *old;
+	uc_object_entry_t *e;
 	int64_t idx;
 
 	/* only a null key is invalid, a null value stores null */
@@ -3028,6 +3301,21 @@ ucv_key_set(uc_vm_t *vm, uc_value_t *scope, uc_value_t *key, uc_value_t *val)
 		break;
 
 	case UC_OBJECT:
+		/* replace the value of an own string key of an object that is not
+		 * frozen in place, as ucv_object_put_key() would */
+		if (ucv_type(key) == UC_STRING && !scope->ext_flag) {
+			e = ucv_object_find(ucv_as_object(scope), _ucv_string_get(&key),
+			                    ucv_string_length(key), key);
+
+			if (e) {
+				old = e->value;
+				e->value = ucv_get(val);
+				ucv_put(old);
+
+				return ucv_get(val);
+			}
+		}
+
 		if (ucv_object_has_key(vm, scope, key))
 			return ucv_object_put_key(vm, scope, key, ucv_get(val)) ? ucv_get(val) : NULL;
 
@@ -3253,6 +3541,9 @@ ucv_gc_common(uc_vm_t *vm, bool final)
 
 		for (i = 0; i < vm->stack.count; i++)
 			ucv_gc_mark(vm->stack.entries[i]);
+
+		if (uc_thread_context_get()->gc_roots_mark)
+			uc_thread_context_get()->gc_roots_mark(vm, ucv_gc_mark);
 
 		for (i = 0; i < vm->restypes.count; i++)
 			ucv_gc_mark(vm->restypes.entries[i]->proto);

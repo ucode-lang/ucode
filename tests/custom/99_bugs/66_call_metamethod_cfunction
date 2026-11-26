@@ -1,0 +1,17 @@
+When C code such as the signal dispatch called an object whose __call__
+metamethod is a C function, the VM ran the interpreter after the call as
+if a closure had been called, which continued the bytecode frame on top
+of the stack from the wrong position and corrupted the memory.
+
+-- Testcase --
+{%
+	signal("SIGUSR1", proto({}, { __call__: print }));
+	system("kill -USR1 $PPID");
+	print("\nafter\n");
+%}
+-- End --
+
+-- Expect stdout --
+10
+after
+-- End --

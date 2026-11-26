@@ -21,7 +21,6 @@
 #include <stdint.h>
 #include <regex.h>
 #include <signal.h>
-#include <json-c/json.h>
 
 #include <ucode/util.h>
 #include <ucode/platform.h>
@@ -126,13 +125,28 @@ typedef struct {
 	size_t count;
 	uc_value_t *proto;
 	uc_value_t **entries;
+	size_t capacity;
 } uc_array_t;
 
+/* `key` is a string value, NULL in place of a deleted entry */
+typedef struct {
+	uc_value_t *key;
+	uc_value_t *value;
+} uc_object_entry_t;
+
+/* The entries are in insertion order; `used` counts them with the deleted
+ * ones, `count` without. Objects with many keys also have a hash index of
+ * `mask` + 1 slots that hold entry positions plus one. */
 typedef struct {
 	uc_value_t header;
 	uc_weakref_t ref;
 	uc_value_t *proto;
-	struct lh_table *table;
+	uc_object_entry_t *entries;
+	uint32_t *index;
+	uint32_t count;
+	uint32_t used;
+	uint32_t size;
+	uint32_t mask;
 } uc_object_t;
 
 typedef struct {
@@ -239,8 +253,6 @@ uc_declare_vector(uc_callframes_t, uc_callframe_t);
 uc_declare_vector(uc_stack_t, uc_value_t *);
 uc_declare_vector(uc_breakpoints_t, uc_breakpoint_t *);
 
-typedef struct printbuf uc_stringbuf_t;
-
 typedef void (uc_exception_handler_t)(uc_vm_t *, uc_exception_t *);
 
 uc_declare_vector(uc_modexports_t, uc_upvalref_t *);
@@ -305,12 +317,9 @@ char *_ucv_string_get(uc_value_t **);
 uc_stringbuf_t *ucv_stringbuf_new(void);
 uc_value_t *ucv_stringbuf_finish(uc_stringbuf_t *);
 
-void _ucv_stringbuf_append(uc_stringbuf_t *, const char *, size_t);
-
-#define _ucv_is_literal(str) ("" str)
-#define ucv_stringbuf_append(buf, str) _ucv_stringbuf_append(buf, _ucv_is_literal(str), sizeof(str) - 1)
-#define ucv_stringbuf_addstr(buf, str, len) _ucv_stringbuf_append(buf, str, len)
-#define ucv_stringbuf_printf(buf, fmt, ...) sprintbuf(buf, fmt, __VA_ARGS__)
+#define ucv_stringbuf_append(buf, str) uc_stringbuf_append(buf, str)
+#define ucv_stringbuf_addstr(buf, str, len) uc_stringbuf_add(buf, str, len)
+#define ucv_stringbuf_printf(buf, fmt, ...) uc_stringbuf_printf(buf, fmt, __VA_ARGS__)
 
 uc_value_t *ucv_int64_new(int64_t);
 uc_value_t *ucv_uint64_new(uint64_t);
@@ -341,18 +350,12 @@ void ucv_object_sort(uc_value_t *, int (*)(const void *, const void *));
 void ucv_object_sort_r(uc_value_t *, int (*)(const char *, uc_value_t *, const char *, uc_value_t *, void *), void *);
 bool ucv_object_delete(uc_value_t *, const char *);
 size_t ucv_object_length(uc_value_t *);
+bool ucv_object_next(uc_value_t *, size_t *, char **, uc_value_t **);
 
-#define ucv_object_foreach(obj, key, val)														\
-	char *key = NULL;																			\
-	uc_value_t *val = NULL;																		\
-	struct lh_entry *entry##key;																\
-	struct lh_entry *entry_next##key = NULL;													\
-	for (entry##key = (ucv_type(obj) == UC_OBJECT) ? ((uc_object_t *)obj)->table->head : NULL;	\
-	     (entry##key ? (key = (char *)lh_entry_k(entry##key),									\
-	                    val = (uc_value_t *)lh_entry_v(entry##key),								\
-	                    entry_next##key = entry##key->next, entry##key)							\
-	                 : 0);																		\
-	     entry##key = entry_next##key)
+#define ucv_object_foreach(obj, key, val)							\
+	char *key = NULL;												\
+	uc_value_t *val = NULL;											\
+	for (size_t pos##key = 0; ucv_object_next((obj), &pos##key, &key, &val); )
 
 uc_value_t *ucv_cfunction_new(const char *, uc_cfn_ptr_t);
 
@@ -473,9 +476,6 @@ uc_value_t *ucv_prototype_get(uc_value_t *);
 bool ucv_prototype_set(uc_value_t *, uc_value_t *);
 
 uc_value_t *ucv_property_get(uc_value_t *, const char *);
-
-uc_value_t *ucv_from_json(uc_vm_t *, json_object *);
-json_object *ucv_to_json(uc_value_t *);
 
 char *ucv_to_string(uc_vm_t *, uc_value_t *);
 char *ucv_to_jsonstring_formatted(uc_vm_t *, uc_value_t *, char, size_t);

@@ -25,3 +25,25 @@ IF(CMAKE_C_COMPILER_ID STREQUAL "Clang")
 ELSE()
 	SET_PROPERTY(TEST cram APPEND PROPERTY ENVIRONMENT "UCODE_BIN=valgrind --quiet --leak-check=full $<TARGET_FILE:ucode>")
 ENDIF()
+
+IF(LLVM_SUPPORT)
+	FILE(GLOB native_test_cases "native_*.t")
+	FIND_PROGRAM(LLVM_OPT NAMES opt opt-21 opt-20 opt-19 opt-18 opt-17 opt-16)
+	FIND_PROGRAM(LLVM_LLC NAMES llc llc-21 llc-20 llc-19 llc-18 llc-17 llc-16)
+
+	IF(LLVM_OPT AND LLVM_LLC)
+		ADD_TEST(
+			NAME cram-native
+			COMMAND ${PYTHON_VENV_CRAM} ${native_test_cases}
+			WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+		)
+
+		SET_PROPERTY(TEST cram-native APPEND PROPERTY ENVIRONMENT
+			"BUILD_BIN_DIR=$<TARGET_FILE_DIR:ucode>"
+			"LLVM_LINK=${NATIVE_LLVM_LINK}"
+			"OPT=${LLVM_OPT}"
+			"LLC=${LLVM_LLC}"
+			"CC=${CMAKE_C_COMPILER}"
+		)
+	ENDIF()
+ENDIF()

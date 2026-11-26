@@ -50,7 +50,8 @@
 #include <inttypes.h>
 #include <stdbool.h>
 
-#include <json-c/json.h>
+#include "ucode/types.h"
+#include "ucode/json.h"
 
 #include "debug_highlight.h"
 #include "debug_lineedit.h"
@@ -74,21 +75,20 @@
 
 /* -- wire framing ----------------------------------------------------------
  *
- * Mirrors lib/debug_proto.c's framing without depending on it: this client
- * has no ucode VM of its own to hand `ucv_*` helpers, so it talks the wire
- * format directly in terms of json-c objects instead. */
+ * Mirrors lib/debug_proto.c's framing without depending on it; payloads are
+ * ucode values without a VM. */
 
 static void
-proto_write(int fd, const char *verb, struct json_object *payload)
+proto_write(int fd, const char *verb, uc_value_t *payload)
 {
-	const char *json;
+	char *json = NULL;
 	char *line;
 	size_t len;
 	ssize_t n;
 	const char *p;
 
 	if (payload) {
-		json = json_object_to_json_string_ext(payload, JSON_C_TO_STRING_PLAIN);
+		json = ucv_to_jsonstring(NULL, payload);
 		len = strlen(verb) + 1 + strlen(json) + 1;
 		line = malloc(len + 1);
 		snprintf(line, len + 1, "%s %s\n", verb, json);
@@ -116,6 +116,7 @@ proto_write(int fd, const char *verb, struct json_object *payload)
 	}
 
 	free(line);
+	free(json);
 }
 
 /* Growable line-buffered reader, one instance per connection. */
@@ -148,10 +149,27 @@ linebuf_append(linebuf_t *lb, const char *data, size_t n)
 	return true;
 }
 
+/* Parses one payload; NULL if it is no valid JSON */
+static uc_value_t *
+jparse(const char *s)
+{
+	uc_json_parser_t *parser = uc_json_parser_new(NULL);
+	uc_value_t *val = uc_json_parse(parser, s, strlen(s) + 1);
+
+	if (uc_json_parser_error(parser) != UC_JSON_SUCCESS) {
+		ucv_put(val);
+		val = NULL;
+	}
+
+	uc_json_parser_free(parser);
+
+	return val;
+}
+
 /* Extract one already-buffered "VERB [json]" line, if any, without touching
  * the fd. Returns false if no full line is buffered yet. */
 static bool
-linebuf_pop(linebuf_t *lb, char **verb_out, struct json_object **payload_out)
+linebuf_pop(linebuf_t *lb, char **verb_out, uc_value_t **payload_out)
 {
 	char *nl = memchr(lb->data, '\n', lb->len);
 	size_t linelen, verblen;
@@ -181,7 +199,7 @@ linebuf_pop(linebuf_t *lb, char **verb_out, struct json_object **payload_out)
 	*payload_out = NULL;
 
 	if (sp && *(sp + 1))
-		*payload_out = json_tokener_parse(sp + 1);
+		*payload_out = jparse(sp + 1);
 
 	free(line);
 
@@ -195,26 +213,84 @@ linebuf_pop(linebuf_t *lb, char **verb_out, struct json_object **payload_out)
  * ever answers strictly in request order while paused, so the first message
  * to arrive is the one we asked for, barring the rare case of an async
  * EVENT interleaving, which is not handled specially here. */
-static const char *
-jstr(struct json_object *obj, const char *key, const char *dflt)
+/* Returns the slot of the value of `key` in the object `obj`, or NULL. The
+ * strings of payloads are read from their slots, since a short string lives
+ * in the value pointer itself. */
+static uc_value_t **
+jslot(uc_value_t *obj, const char *key)
 {
-	struct json_object *v;
+	uc_object_t *object = (uc_object_t *)obj;
+	size_t len = strlen(key);
 
-	if (obj && json_object_object_get_ex(obj, key, &v) && json_object_is_type(v, json_type_string))
-		return json_object_get_string(v);
+	if (ucv_type(obj) != UC_OBJECT)
+		return NULL;
+
+	for (uint32_t i = 0; i < object->used; i++) {
+		uc_object_entry_t *e = &object->entries[i];
+
+		if (e->key && ucv_string_length(e->key) == len && !memcmp(ucv_string_get(e->key), key, len))
+			return &e->value;
+	}
+
+	return NULL;
+}
+
+/* Returns the slot of item `i` of the array `arr`, or NULL */
+static uc_value_t **
+jitem(uc_value_t *arr, size_t i)
+{
+	if (ucv_type(arr) != UC_ARRAY || i >= ucv_array_length(arr))
+		return NULL;
+
+	return &((uc_array_t *)arr)->entries[i];
+}
+
+static uc_value_t *
+jget(uc_value_t *obj, const char *key)
+{
+	uc_value_t **slot = jslot(obj, key);
+
+	return slot ? *slot : NULL;
+}
+
+static bool
+jhas(uc_value_t *obj, const char *key)
+{
+	return jslot(obj, key) != NULL;
+}
+
+static const char *
+jslot_str(uc_value_t **slot, const char *dflt)
+{
+	if (slot && ucv_type(*slot) == UC_STRING)
+		return _ucv_string_get(slot);
 
 	return dflt;
 }
 
-static int64_t
-jint(struct json_object *obj, const char *key, int64_t dflt)
+static const char *
+jstr(uc_value_t *obj, const char *key, const char *dflt)
 {
-	struct json_object *v;
+	return jslot_str(jslot(obj, key), dflt);
+}
 
-	if (obj && json_object_object_get_ex(obj, key, &v))
-		return json_object_get_int64(v);
+static int64_t
+jint(uc_value_t *obj, const char *key, int64_t dflt)
+{
+	uc_value_t **slot = jslot(obj, key);
 
-	return dflt;
+	return slot ? ucv_to_integer(*slot) : dflt;
+}
+
+/* Returns a new object with the string `value` under `key` */
+static uc_value_t *
+jobject_str(const char *key, const char *value)
+{
+	uc_value_t *obj = ucv_object_new(NULL);
+
+	ucv_object_add(obj, key, ucv_string_new(value));
+
+	return obj;
 }
 
 /* Every "col"/"from_col"/"to_col" field the protocol sends is 1-based (see
@@ -419,7 +495,7 @@ static void
 request_source(int fd, const char *file, int64_t from, int64_t to,
                 const debug_highlight_span_t *hl, size_t left_pad)
 {
-	struct json_object *payload;
+	uc_value_t *payload;
 
 	/* A fetch for this exact file is already in flight (e.g. the initial
 	 * PAUSED's own auto-context request hasn't resolved yet when a
@@ -440,10 +516,9 @@ request_source(int fd, const char *file, int64_t from, int64_t to,
 		return;
 	}
 
-	payload = json_object_new_object();
-	json_object_object_add(payload, "file", json_object_new_string(file));
+	payload = jobject_str("file", file);
 	proto_write(fd, "SOURCE", payload);
-	json_object_put(payload);
+	ucv_put(payload);
 
 	free(pending_source.file);
 	pending_source.active = true;
@@ -571,10 +646,10 @@ render_source_lines(int fd, const char *file, int64_t from, int64_t to,
 /* Join a JSON array of strings with " \xc2\xbb " (U+00BB, " » "), matching
  * format_context_breadcrumb()'s separator. Caller frees the result. */
 static char *
-join_breadcrumb(struct json_object *arr)
+join_breadcrumb(uc_value_t *arr)
 {
 	static const char sep[] = " \xc2\xbb "; /* U+00BB RIGHT-POINTING GUILLEMET */
-	size_t n = arr ? json_object_array_length(arr) : 0;
+	size_t n = ucv_array_length(arr);
 	size_t len = 0, i;
 	char *out, *p;
 
@@ -582,13 +657,13 @@ join_breadcrumb(struct json_object *arr)
 		return strdup("");
 
 	for (i = 0; i < n; i++)
-		len += strlen(json_object_get_string(json_object_array_get_idx(arr, i)));
+		len += strlen(jslot_str(jitem(arr, i), ""));
 
 	len += (n - 1) * (sizeof(sep) - 1);
 	out = p = malloc(len + 1);
 
 	for (i = 0; i < n; i++) {
-		const char *s = json_object_get_string(json_object_array_get_idx(arr, i));
+		const char *s = jslot_str(jitem(arr, i), "");
 		size_t l = strlen(s);
 
 		if (i > 0) {
@@ -606,7 +681,7 @@ join_breadcrumb(struct json_object *arr)
 }
 
 static void
-render_paused(int fd, struct json_object *p)
+render_paused(int fd, uc_value_t *p)
 {
 	int64_t line = jint(p, "line", 0);
 	const char *file = jstr(p, "file", NULL);
@@ -618,14 +693,14 @@ render_paused(int fd, struct json_object *p)
 		line,
 		jint(p, "col", 0));
 
-	if (json_object_object_get_ex(p, "breakpoint_id", NULL))
+	if (jhas(p, "breakpoint_id"))
 		printf("  " C_GREEN "breakpoint #%" PRId64 C_RESET "\n", jint(p, "breakpoint_id", 0));
 
-	if (json_object_object_get_ex(p, "exception_message", NULL))
+	if (jhas(p, "exception_message"))
 		printf("  " C_RED "exception: %s" C_RESET "\n", jstr(p, "exception_message", ""));
 
 	if (file && line > 0) {
-		struct json_object *breadcrumb_arr = json_object_object_get(p, "breadcrumb");
+		uc_value_t *breadcrumb_arr = jget(p, "breadcrumb");
 		char *breadcrumb = join_breadcrumb(breadcrumb_arr);
 		int64_t col = jint(p, "col", 0);
 		debug_highlight_span_t hl = {
@@ -642,13 +717,10 @@ render_paused(int fd, struct json_object *p)
 }
 
 static void
-render_breakpoints(struct json_object *p)
+render_breakpoints(uc_value_t *p)
 {
-	struct json_object *items = NULL;
-	size_t i, n;
-
-	json_object_object_get_ex(p, "items", &items);
-	n = items ? json_object_array_length(items) : 0;
+	uc_value_t *items = jget(p, "items");
+	size_t i, n = ucv_array_length(items);
 
 	if (n == 0) {
 		printf("No breakpoints set\n");
@@ -656,15 +728,14 @@ render_breakpoints(struct json_object *p)
 	}
 
 	for (i = 0; i < n; i++) {
-		struct json_object *it = json_object_array_get_idx(items, i);
-		struct json_object *idv = NULL;
+		uc_value_t *it = ucv_array_get(items, i);
 
-		if (json_object_object_get_ex(it, "id", &idv))
-			printf(C_BOLD "#%-4" PRId64 C_RESET " ", json_object_get_int64(idv));
+		if (jhas(it, "id"))
+			printf(C_BOLD "#%-4" PRId64 C_RESET " ", jint(it, "id", 0));
 		else
 			printf(C_DIM "(%-4s)" C_RESET " ", jstr(it, "kind", "?"));
 
-		if (json_object_object_get_ex(it, "file", NULL))
+		if (jhas(it, "file"))
 			printf("%s:%" PRId64 ":%" PRId64 " - %s\n",
 				jstr(it, "file", "?"), jint(it, "line", 0),
 				jint(it, "col", 0), jstr(it, "function", "?"));
@@ -674,19 +745,19 @@ render_breakpoints(struct json_object *p)
 }
 
 static void
-render_variables_array(struct json_object *items, const char *indent)
+render_variables_array(uc_value_t *items, const char *indent)
 {
-	size_t i, n = items ? json_object_array_length(items) : 0;
+	size_t i, n = ucv_array_length(items);
 	debug_variable_t *vars = calloc(n ? n : 1, sizeof(*vars));
 
 	for (i = 0; i < n; i++) {
-		struct json_object *it = json_object_array_get_idx(items, i);
-		struct json_object *shadowed_j = json_object_object_get(it, "shadowed");
+		uc_value_t *it = ucv_array_get(items, i);
+		uc_value_t *shadowed_j = jget(it, "shadowed");
 
 		vars[i].name = jstr(it, "name", "?");
 		vars[i].kind = jstr(it, "kind", "");
 		vars[i].value_repr = jstr(it, "value_repr", "");
-		vars[i].shadowed = shadowed_j && json_object_get_boolean(shadowed_j);
+		vars[i].shadowed = ucv_is_truish(shadowed_j);
 	}
 
 	debug_highlight_print_variables(stdout, vars, n, indent, term_columns());
@@ -700,7 +771,7 @@ render_variables_array(struct json_object *items, const char *indent)
  * one at a time, and only actually prints once all of them have arrived. */
 typedef struct {
 	bool active;
-	struct json_object *payload;
+	uc_value_t *payload;
 	char **files;
 	size_t nfiles, next;
 } pending_backtrace_t;
@@ -710,25 +781,20 @@ static pending_backtrace_t pending_backtrace = { 0 };
 static void
 request_backtrace_file(int fd, const char *file)
 {
-	struct json_object *payload = json_object_new_object();
+	uc_value_t *payload = jobject_str("file", file);
 
-	json_object_object_add(payload, "file", json_object_new_string(file));
 	proto_write(fd, "SOURCE", payload);
-	json_object_put(payload);
+	ucv_put(payload);
 }
 
 static void
-render_backtrace_final(int fd, struct json_object *p)
+render_backtrace_final(int fd, uc_value_t *p)
 {
-	struct json_object *frames = NULL;
-	size_t i, n;
-
-	json_object_object_get_ex(p, "frames", &frames);
-	n = frames ? json_object_array_length(frames) : 0;
+	uc_value_t *frames = jget(p, "frames");
+	size_t i, n = ucv_array_length(frames);
 
 	for (i = 0; i < n; i++) {
-		struct json_object *fr = json_object_array_get_idx(frames, i);
-		struct json_object *vars = NULL;
+		uc_value_t *fr = ucv_array_get(frames, i);
 		const char *file = jstr(fr, "file", NULL);
 		int64_t line = jint(fr, "line", 0);
 		int64_t col = jint(fr, "col", 0);
@@ -769,34 +835,27 @@ render_backtrace_final(int fd, struct json_object *p)
 		/* tail call optimization reuses this frame for the callee, so the
 		 * intermediate frames of the tail calls are absent from the stack -
 		 * show the gap (see uc_vm_frame_reinit() in vm.c). */
-		{
-			struct json_object *tco_j = json_object_object_get(fr, "tco");
+		if (jint(fr, "tco", 0) > 0)
+			printf(C_DIM "  (%" PRId64 " tail call frames omitted)" C_RESET "\n",
+				jint(fr, "tco", 0));
 
-			if (tco_j && json_object_get_int64(tco_j) > 0)
-				printf(C_DIM "  (%" PRId64 " tail call frames omitted)" C_RESET "\n",
-					json_object_get_int64(tco_j));
-		}
-
-		if (json_object_object_get_ex(fr, "variables", &vars))
-			render_variables_array(vars, "     - ");
+		if (jhas(fr, "variables"))
+			render_variables_array(jget(fr, "variables"), "     - ");
 
 		printf("\n");
 	}
 }
 
 static void
-render_backtrace(int fd, struct json_object *p)
+render_backtrace(int fd, uc_value_t *p)
 {
-	struct json_object *frames = NULL;
-	size_t i, n;
+	uc_value_t *frames = jget(p, "frames");
+	size_t i, n = ucv_array_length(frames);
 	char **missing = NULL;
 	size_t n_missing = 0, cap = 0;
 
-	json_object_object_get_ex(p, "frames", &frames);
-	n = frames ? json_object_array_length(frames) : 0;
-
 	for (i = 0; i < n; i++) {
-		struct json_object *fr = json_object_array_get_idx(frames, i);
+		uc_value_t *fr = ucv_array_get(frames, i);
 		const char *file = jstr(fr, "file", NULL);
 		size_t dummy;
 		size_t j;
@@ -833,7 +892,7 @@ render_backtrace(int fd, struct json_object *p)
 	}
 
 	pending_backtrace.active = true;
-	pending_backtrace.payload = json_object_get(p);
+	pending_backtrace.payload = ucv_get(p);
 	pending_backtrace.files = missing;
 	pending_backtrace.nfiles = n_missing;
 	pending_backtrace.next = 0;
@@ -842,10 +901,10 @@ render_backtrace(int fd, struct json_object *p)
 }
 
 static void
-render_source_range(int fd, struct json_object *p)
+render_source_range(int fd, uc_value_t *p)
 {
 	const char *file = jstr(p, "file", NULL);
-	struct json_object *cursor = json_object_object_get(p, "cursor");
+	uc_value_t *cursor = jget(p, "cursor");
 	int64_t from = jint(p, "from", 0);
 	int64_t to = jint(p, "to", 0);
 	debug_highlight_span_t hl;
@@ -881,36 +940,33 @@ render_source_range(int fd, struct json_object *p)
  * already point at storage for at least `cap` bytes; only the first
  * min(array length, cap) entries are filled. */
 static void
-jbytes(struct json_object *arr, unsigned char *dst, size_t cap)
+jbytes(uc_value_t *arr, unsigned char *dst, size_t cap)
 {
-	size_t n = arr ? json_object_array_length(arr) : 0;
+	size_t n = ucv_array_length(arr);
 
 	if (n > cap)
 		n = cap;
 
 	for (size_t i = 0; i < n; i++)
-		dst[i] = (unsigned char)json_object_get_int64(json_object_array_get_idx(arr, i));
+		dst[i] = (unsigned char)ucv_to_integer(ucv_array_get(arr, i));
 }
 
 static void
-render_disassembly(struct json_object *p)
+render_disassembly(uc_value_t *p)
 {
-	struct json_object *insns_j = NULL;
+	uc_value_t *insns_j = jget(p, "instructions");
+	size_t n = ucv_array_length(insns_j);
 	debug_disasm_insn_t *insns;
-	size_t n;
 
-	json_object_object_get_ex(p, "instructions", &insns_j);
-	n = insns_j ? json_object_array_length(insns_j) : 0;
 	insns = calloc(n, sizeof(*insns));
 
 	for (size_t i = 0; i < n; i++) {
-		struct json_object *ins = json_object_array_get_idx(insns_j, i);
-		struct json_object *bytes_j = json_object_object_get(ins, "bytes");
-		struct json_object *constant_j = NULL;
-		struct json_object *captures_j = json_object_object_get(ins, "captures");
-		struct json_object *unpacks_j = json_object_object_get(ins, "unpacks");
+		uc_value_t *ins = ucv_array_get(insns_j, i);
+		uc_value_t *bytes_j = jget(ins, "bytes");
+		uc_value_t *captures_j = jget(ins, "captures");
+		uc_value_t *unpacks_j = jget(ins, "unpacks");
 		debug_disasm_insn_t *d = &insns[i];
-		size_t nbytes = bytes_j ? json_object_array_length(bytes_j) : 0;
+		size_t nbytes = ucv_array_length(bytes_j);
 		unsigned char *bytes = malloc(nbytes ? nbytes : 1);
 
 		jbytes(bytes_j, bytes, nbytes);
@@ -922,60 +978,54 @@ render_disassembly(struct json_object *p)
 		d->nbytes = nbytes;
 		d->operand = jint(ins, "operand", 0);
 
-		if (json_object_object_get_ex(ins, "constant", &constant_j)) {
+		if (jhas(ins, "constant")) {
 			d->have_constant = true;
-			d->constant_repr = json_object_to_json_string(constant_j);
-			d->constant_is_string = (json_object_get_type(constant_j) == json_type_string);
+			d->constant_repr = ucv_to_jsonstring(NULL, jget(ins, "constant"));
+			d->constant_is_string = (ucv_type(jget(ins, "constant")) == UC_STRING);
 		}
 
-		if (json_object_object_get_ex(ins, "variable_kind", NULL)) {
+		if (jhas(ins, "variable_kind")) {
 			d->variable_kind = jstr(ins, "variable_kind", NULL);
 			d->variable_name = jstr(ins, "variable_name", NULL);
 		}
 
-		if (json_object_object_get_ex(ins, "closure_index", NULL)) {
+		if (jhas(ins, "closure_index")) {
 			d->have_closure = true;
 			d->closure_kind = jstr(ins, "closure_kind", "closure");
 			d->closure_index = (uint32_t)jint(ins, "closure_index", 0);
 		}
 
-		if (json_object_object_get_ex(ins, "call_nargs", NULL)) {
-			struct json_object *mcall_j = json_object_object_get(ins, "call_mcall");
-			struct json_object *tail_j = json_object_object_get(ins, "call_tail");
-			struct json_object *stdlib_j = json_object_object_get(ins, "stdlib_name");
-
+		if (jhas(ins, "call_nargs")) {
 			d->have_call = true;
-			d->call_mcall = mcall_j && json_object_get_boolean(mcall_j);
+			d->call_mcall = ucv_is_truish(jget(ins, "call_mcall"));
 			d->call_nargs = (uint32_t)jint(ins, "call_nargs", 0);
-			d->call_tail = tail_j && json_object_get_boolean(tail_j);
-
-			if (stdlib_j && json_object_get_type(stdlib_j) == json_type_string)
-				d->stdlib_name = json_object_get_string(stdlib_j);
+			d->call_tail = ucv_is_truish(jget(ins, "call_tail"));
+			d->stdlib_name = jstr(ins, "stdlib_name", NULL);
 		}
 
-		if (json_object_object_get_ex(ins, "return_tailcall", NULL))
+		if (jhas(ins, "return_tailcall"))
 			d->return_tailcall = true;
 
-		d->ncaptures = captures_j ? json_object_array_length(captures_j) : 0;
+		d->ncaptures = ucv_array_length(captures_j);
 		d->captures = calloc(d->ncaptures ? d->ncaptures : 1, sizeof(*d->captures));
 
 		for (size_t j = 0; j < d->ncaptures; j++) {
-			struct json_object *cap = json_object_array_get_idx(captures_j, j);
+			uc_value_t *cap = ucv_array_get(captures_j, j);
 
 			d->captures[j].slot = jint(cap, "slot", 0);
 			d->captures[j].upval = !strcmp(jstr(cap, "kind", ""), "upval");
 			d->captures[j].name = jstr(cap, "name", "(unknown)");
-			jbytes(json_object_object_get(cap, "bytes"), d->captures[j].bytes, 4);
+			jbytes(jget(cap, "bytes"), d->captures[j].bytes, 4);
 		}
 
-		d->nunpacks = unpacks_j ? json_object_array_length(unpacks_j) : 0;
+		d->nunpacks = ucv_array_length(unpacks_j);
 		d->unpacks = calloc(d->nunpacks ? d->nunpacks : 1, sizeof(*d->unpacks));
 
 		for (size_t j = 0; j < d->nunpacks; j++) {
-			struct json_object *u = json_object_array_get_idx(unpacks_j, j);
+			uc_value_t *u = ucv_array_get(unpacks_j, j);
 
 			d->unpacks[j].slot = (uint16_t)jint(u, "slot", 0);
-			jbytes(json_object_object_get(u, "bytes"), d->unpacks[j].bytes, 2);
+			jbytes(jget(u, "bytes"), d->unpacks[j].bytes, 2);
 		}
 	}
 
@@ -983,6 +1033,7 @@ render_disassembly(struct json_object *p)
 
 	for (size_t i = 0; i < n; i++) {
 		free((void *)insns[i].bytes);
+		free((void *)insns[i].constant_repr);
 		free(insns[i].captures);
 		free(insns[i].unpacks);
 	}
@@ -994,14 +1045,14 @@ render_disassembly(struct json_object *p)
  * time, unprompted by anything the user typed - set in a faint italic
  * style to visually set them apart from direct command responses. */
 static void
-render_event(struct json_object *p)
+render_event(uc_value_t *p)
 {
 	const char *event = jstr(p, "event", "?");
 
 	printf(C_EVENT);
 
 	if (!strcmp(event, "exception")) {
-		struct json_object *exc = json_object_object_get(p, "exception");
+		uc_value_t *exc = jget(p, "exception");
 
 		printf("*** exception: %s: %s ***", jstr(exc, "type", "Error"),
 			jstr(exc, "message", "?"));
@@ -1016,7 +1067,7 @@ render_event(struct json_object *p)
 			printf("*** program exited (code %" PRId64 ") ***", jint(p, "code", 0));
 		}
 		else {
-			struct json_object *exc = json_object_object_get(p, "exception");
+			uc_value_t *exc = jget(p, "exception");
 
 			if (exc)
 				printf("*** program terminated: %s: %s ***",
@@ -1026,22 +1077,24 @@ render_event(struct json_object *p)
 		}
 	}
 	else {
-		printf("*** event: %s %s ***", event,
-			json_object_to_json_string_ext(p, JSON_C_TO_STRING_SPACED));
+		char *json = ucv_to_jsonstring(NULL, p);
+
+		printf("*** event: %s %s ***", event, json);
+		free(json);
 	}
 
 	printf(C_RESET "\n");
 }
 
 static void
-render_response(int fd, const char *verb, struct json_object *payload)
+render_response(int fd, const char *verb, uc_value_t *payload)
 {
 	if (!strcmp(verb, "PAUSED"))
 		render_paused(fd, payload);
 	else if (!strcmp(verb, "BREAKPOINTS"))
 		render_breakpoints(payload);
 	else if (!strcmp(verb, "VARIABLES"))
-		render_variables_array(json_object_object_get(payload, "vars"), "");
+		render_variables_array(jget(payload, "vars"), "");
 	else if (!strcmp(verb, "BACKTRACE"))
 		render_backtrace(fd, payload);
 	else if (!strcmp(verb, "SOURCE_RANGE"))
@@ -1079,7 +1132,7 @@ render_response(int fd, const char *verb, struct json_object *payload)
 					size_t i;
 
 					render_backtrace_final(fd, pending_backtrace.payload);
-					json_object_put(pending_backtrace.payload);
+					ucv_put(pending_backtrace.payload);
 
 					for (i = 0; i < pending_backtrace.nfiles; i++)
 						free(pending_backtrace.files[i]);
@@ -1119,7 +1172,7 @@ render_response(int fd, const char *verb, struct json_object *payload)
 				 * rest - just print what we have (unavailable files will
 				 * fall back to "no snippet" for that frame). */
 				render_backtrace_final(fd, pending_backtrace.payload);
-				json_object_put(pending_backtrace.payload);
+				ucv_put(pending_backtrace.payload);
 
 				for (i = 0; i < pending_backtrace.nfiles; i++)
 					free(pending_backtrace.files[i]);
@@ -1130,21 +1183,21 @@ render_response(int fd, const char *verb, struct json_object *payload)
 		}
 	}
 	else if (!strcmp(verb, "HELP")) {
-		struct json_object *cmds = json_object_object_get(payload, "commands");
-		size_t i, n = cmds ? json_object_array_length(cmds) : 0;
+		uc_value_t *cmds = jget(payload, "commands");
+		size_t i, n = ucv_array_length(cmds);
 
 		for (i = 0; i < n; i++) {
-			struct json_object *c = json_object_array_get_idx(cmds, i);
+			uc_value_t *c = ucv_array_get(cmds, i);
 
 			printf("%-16s %s\n", jstr(c, "verb", "?"), jstr(c, "help", ""));
 		}
 	}
 	else if (!strcmp(verb, "SOURCES")) {
-		struct json_object *items = json_object_object_get(payload, "items");
-		size_t i, n = items ? json_object_array_length(items) : 0;
+		uc_value_t *items = jget(payload, "items");
+		size_t i, n = ucv_array_length(items);
 
 		for (i = 0; i < n; i++) {
-			struct json_object *it = json_object_array_get_idx(items, i);
+			uc_value_t *it = ucv_array_get(items, i);
 
 			printf("#%-2" PRId64 " %s\n", jint(it, "index", 0), jstr(it, "file", "?"));
 		}
@@ -1156,7 +1209,10 @@ render_response(int fd, const char *verb, struct json_object *payload)
 		printf("(resumed)\n");
 	}
 	else if (payload) {
-		printf("%s %s\n", verb, json_object_to_json_string_ext(payload, JSON_C_TO_STRING_SPACED));
+		char *json = ucv_to_jsonstring(NULL, payload);
+
+		printf("%s %s\n", verb, json);
+		free(json);
 	}
 	else {
 		printf("%s\n", verb);
@@ -1448,7 +1504,7 @@ static bool
 send_command(int fd, char *line, bool *resuming, bool *sent)
 {
 	char *cmd = shift_word(&line);
-	struct json_object *payload = NULL;
+	uc_value_t *payload = NULL;
 
 	*resuming = false;
 	*sent = true;
@@ -1463,14 +1519,13 @@ send_command(int fd, char *line, bool *resuming, bool *sent)
 		*sent = false;
 	}
 	else if (match_cmd("break\0b\0", cmd)) {
-		payload = json_object_new_object();
-		json_object_object_add(payload, "spec", json_object_new_string(line));
+		payload = jobject_str("spec", line);
 		proto_write(fd, "BREAK", payload);
 	}
 	else if (match_cmd("delete\0d\0", cmd)) {
 		if (*line) {
-			payload = json_object_new_object();
-			json_object_object_add(payload, "id", json_object_new_int64(strtoll(line, NULL, 10)));
+			payload = ucv_object_new(NULL);
+			ucv_object_add(payload, "id", ucv_int64_new(strtoll(line, NULL, 10)));
 		}
 
 		proto_write(fd, "DELETE", payload);
@@ -1495,9 +1550,8 @@ send_command(int fd, char *line, bool *resuming, bool *sent)
 		*resuming = true;
 	}
 	else if (match_cmd("backtrace\0bt\0", cmd)) {
-		payload = json_object_new_object();
-		json_object_object_add(payload, "full",
-			json_object_new_boolean(!strcmp(trim(line), "full")));
+		payload = ucv_object_new(NULL);
+		ucv_object_add(payload, "full", ucv_boolean_new(!strcmp(trim(line), "full")));
 		proto_write(fd, "BACKTRACE", payload);
 	}
 	else if (match_cmd("variables\0vars\0", cmd)) {
@@ -1507,13 +1561,11 @@ send_command(int fd, char *line, bool *resuming, bool *sent)
 		proto_write(fd, "SOURCES", NULL);
 	}
 	else if (match_cmd("print\0p\0", cmd)) {
-		payload = json_object_new_object();
-		json_object_object_add(payload, "expr", json_object_new_string(line));
+		payload = jobject_str("expr", line);
 		proto_write(fd, "PRINT", payload);
 	}
 	else if (match_cmd("eval\0e\0", cmd)) {
-		payload = json_object_new_object();
-		json_object_object_add(payload, "expr", json_object_new_string(line));
+		payload = jobject_str("expr", line);
 		proto_write(fd, "EVAL", payload);
 	}
 	else if (match_cmd("lines\0ln\0", cmd)) {
@@ -1521,16 +1573,16 @@ send_command(int fd, char *line, bool *resuming, bool *sent)
 		char *before = shift_word(&line);
 		char *after = shift_word(&line);
 
-		payload = json_object_new_object();
+		payload = ucv_object_new(NULL);
 
 		if (*spec)
-			json_object_object_add(payload, "spec", json_object_new_string(spec));
+			ucv_object_add(payload, "spec", ucv_string_new(spec));
 
 		if (*before)
-			json_object_object_add(payload, "before", json_object_new_int64(strtoll(before, NULL, 10)));
+			ucv_object_add(payload, "before", ucv_int64_new(strtoll(before, NULL, 10)));
 
 		if (*after)
-			json_object_object_add(payload, "after", json_object_new_int64(strtoll(after, NULL, 10)));
+			ucv_object_add(payload, "after", ucv_int64_new(strtoll(after, NULL, 10)));
 
 		proto_write(fd, "LINES", payload);
 	}
@@ -1549,31 +1601,29 @@ send_command(int fd, char *line, bool *resuming, bool *sent)
 			}
 		}
 
-		payload = json_object_new_object();
+		payload = ucv_object_new(NULL);
 
 		if (is_type && *line) {
-			json_object_object_add(payload, "type", json_object_new_string(first));
-			json_object_object_add(payload, "message", json_object_new_string(line));
+			ucv_object_add(payload, "type", ucv_string_new(first));
+			ucv_object_add(payload, "message", ucv_string_new(line));
 		}
 		else {
 			char *msg = *line ? line : first;
 
-			json_object_object_add(payload, "message", json_object_new_string(msg));
+			ucv_object_add(payload, "message", ucv_string_new(msg));
 		}
 
 		proto_write(fd, "THROW", payload);
 	}
 	else if (match_cmd("disassemble\0disasm\0", cmd)) {
 		if (*line) {
-			payload = json_object_new_object();
-			json_object_object_add(payload, "spec", json_object_new_string(line));
+			payload = jobject_str("spec", line);
 		}
 
 		proto_write(fd, "DISASSEMBLE", payload);
 	}
 	else if (match_cmd("source\0", cmd)) {
-		payload = json_object_new_object();
-		json_object_object_add(payload, "file", json_object_new_string(line));
+		payload = jobject_str("file", line);
 		proto_write(fd, "SOURCE", payload);
 	}
 	else if (match_cmd("quit\0q\0", cmd)) {
@@ -1856,7 +1906,7 @@ main(int argc, char **argv)
 
 	for (;;) {
 		char *verb;
-		struct json_object *payload;
+		uc_value_t *payload;
 
 		while (linebuf_pop(&lb, &verb, &payload)) {
 			render_response(fd, verb, payload);
@@ -1868,7 +1918,7 @@ main(int argc, char **argv)
 				paused = false;
 
 			free(verb);
-			json_object_put(payload);
+			ucv_put(payload);
 		}
 
 		/* Only accept (and select on) stdin for actual command input while

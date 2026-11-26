@@ -21,11 +21,11 @@
 
 #include <stdio.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdarg.h> /* va_start(), va_end(), va_list */
 #include <string.h> /* strdup() */
-#include <json-c/json.h>
 
 
 /* alignment & array size */
@@ -78,17 +78,6 @@ static inline char *xstrdup(const char *s) {
 	return ptr;
 }
 
-static inline struct json_tokener *xjs_new_tokener(void) {
-	struct json_tokener *tok = json_tokener_new();
-
-	if (!tok) {
-		fprintf(stderr, "Out of memory\n");
-		abort();
-	}
-
-	return tok;
-}
-
 __attribute__((format(printf, 2, 0)))
 static inline int xasprintf(char **strp, const char *fmt, ...) {
 	va_list ap;
@@ -118,16 +107,34 @@ static inline int xvasprintf(char **strp, const char *fmt, va_list ap) {
 	return len;
 }
 
-static inline struct printbuf *xprintbuf_new(void) {
-	struct printbuf *pb = printbuf_new();
+/* string buffers; `buf` is NUL-terminated after `bpos` bytes */
 
-	if (!pb) {
-		fprintf(stderr, "Out of memory\n");
-		abort();
-	}
+typedef struct {
+	char *buf;
+	int bpos;
+	int size;
+} uc_stringbuf_t;
 
-	return pb;
+uc_stringbuf_t *uc_stringbuf_new(void);
+void uc_stringbuf_free(uc_stringbuf_t *sb);
+void uc_stringbuf_grow(uc_stringbuf_t *sb, size_t size);
+int uc_stringbuf_memset(uc_stringbuf_t *sb, int offset, int c, size_t len);
+void uc_stringbuf_reset(uc_stringbuf_t *sb);
+int uc_stringbuf_printf(uc_stringbuf_t *sb, const char *fmt, ...);
+
+static inline void
+uc_stringbuf_add(uc_stringbuf_t *sb, const char *s, size_t len)
+{
+	if ((size_t)sb->bpos + len + 1 > (size_t)sb->size)
+		uc_stringbuf_grow(sb, (size_t)sb->bpos + len + 1);
+
+	memcpy(sb->buf + sb->bpos, s, len);
+	sb->bpos += len;
+	sb->buf[sb->bpos] = 0;
 }
+
+#define uc_stringbuf_length(sb) ((sb)->bpos)
+#define uc_stringbuf_append(sb, str) uc_stringbuf_add((sb), "" str, sizeof(str) - 1)
 
 
 /* linked lists */
@@ -156,14 +163,100 @@ static inline void uc_list_remove(uc_list_t *item)
 	for (uc_list_t *item = (list)->next; item != (list); item = item->next)
 
 
+/* sets of pointers, kept in insertion order in `entries`; items are equal
+ * by `equal`, or as pointers if it is NULL, and `hash` must agree with it */
+
+typedef struct {
+	size_t count;
+	void **entries;
+	size_t *index;
+	size_t mask;
+	unsigned long (*hash)(const void *);
+	int (*equal)(const void *, const void *);
+} uc_set_t;
+
+static inline unsigned long
+uc_set_hash(uc_set_t *set, const void *item)
+{
+	return set->hash ? set->hash(item) : (unsigned long)((uintptr_t)item * 2654435761u);
+}
+
+static inline bool
+uc_set_has(uc_set_t *set, const void *item)
+{
+	if (!set->index)
+		return false;
+
+	for (size_t i = uc_set_hash(set, item) & set->mask; set->index[i]; i = (i + 1) & set->mask) {
+		void *e = set->entries[set->index[i] - 1];
+
+		if (set->equal ? set->equal(e, item) : (e == item))
+			return true;
+	}
+
+	return false;
+}
+
+static inline void
+uc_set_index_add(uc_set_t *set, size_t pos)
+{
+	size_t i = uc_set_hash(set, set->entries[pos]) & set->mask;
+
+	while (set->index[i])
+		i = (i + 1) & set->mask;
+
+	set->index[i] = pos + 1;
+}
+
+/* Adds `item` unless the set has it; returns whether it was added */
+static inline bool
+uc_set_add(uc_set_t *set, void *item)
+{
+	size_t slots = set->index ? set->mask + 1 : 0;
+
+	if (uc_set_has(set, item))
+		return false;
+
+	if ((set->count + 1) * 4 > slots * 3) {
+		slots = slots ? slots * 2 : 16;
+		free(set->index);
+		set->index = xcalloc(slots, sizeof(*set->index));
+		set->mask = slots - 1;
+		set->entries = xrealloc(set->entries, slots * sizeof(*set->entries));
+
+		for (size_t pos = 0; pos < set->count; pos++)
+			uc_set_index_add(set, pos);
+	}
+
+	set->entries[set->count] = item;
+	uc_set_index_add(set, set->count++);
+
+	return true;
+}
+
+static inline void
+uc_set_free(uc_set_t *set)
+{
+	free(set->entries);
+	free(set->index);
+	set->entries = NULL;
+	set->index = NULL;
+	set->count = 0;
+}
+
+
 /* vector macros */
 
 #define UC_VECTOR_INIT_SIZE 8
 
+/* `capacity` is the number of entries allocated. Code that sets `entries`
+ * itself leaves it as it is: NULL entries are allocated anew, and a capacity
+ * of 0 next to allocated entries causes a reallocation at the next extend. */
 #define uc_declare_vector(name, type) \
 	typedef struct { \
 		size_t count; \
 		type *entries; \
+		size_t capacity; \
 	} name
 
 static inline size_t
@@ -181,7 +274,8 @@ uc_vector_capacity(size_t init, size_t count)
 }
 
 static inline void
-uc_vector_reduce_init_(char **base, size_t itemsize, size_t init, size_t count, size_t remove)
+uc_vector_reduce_init_(char **base, size_t *capacity, size_t itemsize, size_t init,
+                       size_t count, size_t remove)
 {
 	if (*base == NULL)
 		return;
@@ -191,19 +285,23 @@ uc_vector_reduce_init_(char **base, size_t itemsize, size_t init, size_t count, 
 
 	size_t next_capacity = uc_vector_capacity(init, count - remove);
 
-	if (uc_vector_capacity(next_capacity, count) != next_capacity)
-		*base = (__typeof__(*base))xrealloc(*base, itemsize * next_capacity);
+	if (*capacity && next_capacity >= *capacity)
+		return;
+
+	*base = (__typeof__(*base))xrealloc(*base, itemsize * next_capacity);
+	*capacity = next_capacity;
 }
 
 static inline void *
-uc_vector_extend_init_(char **base, size_t itemsize, size_t init, size_t count, size_t add)
+uc_vector_extend_init_(char **base, size_t *capacity, size_t itemsize, size_t init,
+                       size_t count, size_t add)
 {
-	size_t curr_capacity = uc_vector_capacity(init, count);
-
-	if (*base == NULL || count + add >= curr_capacity) {
-		size_t next_capacity = uc_vector_capacity(curr_capacity, count + add);
+	if (*base == NULL || count + add >= *capacity) {
+		size_t next_capacity = uc_vector_capacity((*base && *capacity) ? *capacity : init,
+		                                          count + add);
 
 		*base = (__typeof__(*base))xrealloc(*base, itemsize * next_capacity);
+		*capacity = next_capacity;
 
 		memset(*base + itemsize * count, 0,
 			itemsize * (next_capacity - count));
@@ -213,24 +311,24 @@ uc_vector_extend_init_(char **base, size_t itemsize, size_t init, size_t count, 
 }
 
 static inline void
-uc_vector_reduce_(char **base, size_t itemsize, size_t count, size_t remove)
+uc_vector_reduce_(char **base, size_t *capacity, size_t itemsize, size_t count, size_t remove)
 {
-	uc_vector_reduce_init_(base, itemsize, UC_VECTOR_INIT_SIZE, count, remove);
+	uc_vector_reduce_init_(base, capacity, itemsize, UC_VECTOR_INIT_SIZE, count, remove);
 }
 
 static inline void *
-uc_vector_extend_(char **base, size_t itemsize, size_t count, size_t add)
+uc_vector_extend_(char **base, size_t *capacity, size_t itemsize, size_t count, size_t add)
 {
-	return uc_vector_extend_init_(base, itemsize, UC_VECTOR_INIT_SIZE, count, add);
+	return uc_vector_extend_init_(base, capacity, itemsize, UC_VECTOR_INIT_SIZE, count, add);
 }
 
 #define uc_vector_reduce_init(vec, init, remove) \
-	uc_vector_reduce_init_((char **)&(vec)->entries, \
+	uc_vector_reduce_init_((char **)&(vec)->entries, &(vec)->capacity, \
 		sizeof((vec)->entries[0]), (init), (vec)->count, (remove))
 
 #define uc_vector_extend_init(vec, init, add) \
 	(__typeof__((vec)->entries + 0)) uc_vector_extend_init_( \
-		(char **)&(vec)->entries, \
+		(char **)&(vec)->entries, &(vec)->capacity, \
 		sizeof((vec)->entries[0]), \
 		(init), (vec)->count, (add))
 
@@ -248,6 +346,7 @@ uc_vector_extend_(char **base, size_t itemsize, size_t count, size_t add)
 		free((vec)->entries); \
 		(vec)->entries = NULL; \
 		(vec)->count = 0; \
+		(vec)->capacity = 0; \
 	} while(0)
 
 #define uc_vector_first(vec) \

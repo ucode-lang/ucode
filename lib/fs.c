@@ -3053,15 +3053,15 @@ uc_fs_readfile(uc_vm_t *vm, size_t nargs)
 		if (limit > 0 && blen > (size_t)limit)
 			blen = (size_t)limit;
 
-		if (printbuf_length(buf) > INT_MAX - (ssize_t)blen) {
+		if (uc_stringbuf_length(buf) > INT_MAX - (ssize_t)blen) {
 			fclose(fp);
-			printbuf_free(buf);
+			uc_stringbuf_free(buf);
 			err_return(EFBIG);
 		}
 
-		if (printbuf_memset(buf, printbuf_length(buf) + blen - 1, 0, 1)) {
+		if (uc_stringbuf_memset(buf, uc_stringbuf_length(buf) + blen - 1, 0, 1)) {
 			fclose(fp);
-			printbuf_free(buf);
+			uc_stringbuf_free(buf);
 			err_return(ENOMEM);
 		}
 
@@ -3078,14 +3078,14 @@ uc_fs_readfile(uc_vm_t *vm, size_t nargs)
 
 	if (ferror(fp)) {
 		fclose(fp);
-		printbuf_free(buf);
+		uc_stringbuf_free(buf);
 		err_return(errno);
 	}
 
 	fclose(fp);
 
 	/* add sentinel null byte but don't count it towards the string length */
-	printbuf_memappend_fast(buf, "\0", 1);
+	uc_stringbuf_add(buf, "\0", 1);
 	res = ucv_stringbuf_finish(buf);
 	((uc_string_t *)res)->length--;
 
@@ -3167,18 +3167,18 @@ uc_fs_writefile(uc_vm_t *vm, size_t nargs)
 		err_return(errno);
 
 	if (data && ucv_type(data) != UC_STRING) {
-		buf = xprintbuf_new();
+		buf = uc_stringbuf_new();
 		ucv_to_stringbuf_formatted(vm, buf, data, 0, '\0', 0);
 
-		if (limit < 0 || limit > printbuf_length(buf))
-			limit = printbuf_length(buf);
+		if (limit < 0 || limit > uc_stringbuf_length(buf))
+			limit = uc_stringbuf_length(buf);
 
 		wlen = fwrite(buf->buf, 1, limit, fp);
 
 		if (wlen < (size_t)limit)
 			err = errno;
 
-		printbuf_free(buf);
+		uc_stringbuf_free(buf);
 	}
 	else if (data) {
 		if (limit < 0 || (size_t)limit > ucv_string_length(data))

@@ -1,0 +1,410 @@
+Builtin override.
+
+-- Testcase --
+regexp=function(){die("overridden");};
+        print(match("hello",/HELLO/i));
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ "hello" ]
+-- End (no-eol) --
+
+
+Bundled errors and retry.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+modules.count=0;
+            for(let i=0;i<2;i++)try{require("bad");}catch(e){print(e.type," ");}
+            try{include("bad-include.uc");}catch(e){print(e.type," ");}
+            print(modules.count," ",exists(modules,"bad")," ",match("x",/x/));
+-- End (no-eol) --
+
+-- File bad.uc --
+modules.count++;return /(/;
+-- End (no-eol) --
+
+-- File bad-include.uc --
+let re=/(/;
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+Syntax error Syntax error Syntax error 2 false [ "x" ]
+-- End (no-eol) --
+
+
+Bundled sources.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+import {re} from './static.uc';
+            print(match("AAA",re)," ");let r=require("outer");
+            print(match("bbb",r)," ");include("included.uc");
+-- End (no-eol) --
+
+-- File static.uc --
+export let re=/a+/i;
+-- End (no-eol) --
+
+-- File outer.uc --
+let marker="separate constant table";return require("inner");
+-- End (no-eol) --
+
+-- File inner.uc --
+return /b+/;
+-- End (no-eol) --
+
+-- File included.uc --
+print(match("c1 c2",/c[0-9]/g));
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+[ "AAA" ] [ "bbb" ] [ [ "c1" ], [ "c2" ] ]
+-- End (no-eol) --
+
+
+Closure and tail lifetime.
+
+-- Testcase --
+function make(){let re=/a+/g;return ()=>re;}
+        function again(n){if(n)return again(n-1);return /b+/;}
+        let f=make();gc();print(match("aa ba",f())," ",match("bb",again(1000)));
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ [ "aa" ], [ "a" ] ] [ "bb" ]
+-- End (no-eol) --
+
+
+Embedded nul.
+
+-- Testcase --
+print([/ab\u0000cd/,/\u0000/]);
+        print(match("abXX",/ab\u0000cd/)," ",match("",/\u0000/)," ",
+              match("ab\u0000cd",/cd/));
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ "/ab/", "//" ][ "ab" ] [ "" ] 
+-- End (no-eol) --
+
+
+Errors in callback.
+
+-- Testcase --
+try{replace("ab",/a/,function(){gc();return /(/;});}
+        catch(e){print(e.type,":",e.message," ");}print(match("ab",/ab/));
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+Syntax error:Unmatched ( or \( [ "ab" ]
+-- End (no-eol) --
+
+
+Escaping and macros.
+
+-- Testcase --
+print([/test1 \/ test2/,/\x31\n\.\a\b\c\u2600\\/,
+        / \b \B [\b \B] /,/ \< \> [\< \>] /,/ \d \D [\d \D] /,
+        / \s \S [\s \S] /,/ \w \W [\w \W] /]);
+        print(match("x_12",/\w+/)," ",match("123",/\d+/)," ",match("☀",/\u2600/));
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ "/test1 / test2/", "/1\n\\.\u0007\\bc☀\\\\/", "/ \\b \\B [\b B] /", "/ \\< \\> [< >] /", "/ [[:digit:]] [^[:digit:]] [d D] /", "/ [[:space:]] [^[:space:]] [s S] /", "/ [[:alnum:]_] [^[:alnum:]_] [w W] /" ][ "x_12" ] [ "123" ] [ "☀" ]
+-- End (no-eol) --
+
+
+Exit cleanup.
+
+-- Testcase --
+let re=/ok/;let o={re};o.self=o;gc();print(re);exit(7);
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+/ok/
+-- End (no-eol) --
+
+-- Expect exitcode --
+7
+-- End --
+
+
+Flags.
+
+-- Testcase --
+print(/a.b/," ",
+                match("A\nb aXb",/a.b/)," ",
+                match("x\na\ny",/^a$/)," ",
+                replace("a A a",/a/,"x"),"\n");print(/a.b/g," ",
+                match("A\nb aXb",/a.b/g)," ",
+                match("x\na\ny",/^a$/g)," ",
+                replace("a A a",/a/g,"x"),"\n");print(/a.b/i," ",
+                match("A\nb aXb",/a.b/i)," ",
+                match("x\na\ny",/^a$/i)," ",
+                replace("a A a",/a/i,"x"),"\n");print(/a.b/s," ",
+                match("A\nb aXb",/a.b/s)," ",
+                match("x\na\ny",/^a$/s)," ",
+                replace("a A a",/a/s,"x"),"\n");print(/a.b/gi," ",
+                match("A\nb aXb",/a.b/gi)," ",
+                match("x\na\ny",/^a$/gi)," ",
+                replace("a A a",/a/gi,"x"),"\n");print(/a.b/gs," ",
+                match("A\nb aXb",/a.b/gs)," ",
+                match("x\na\ny",/^a$/gs)," ",
+                replace("a A a",/a/gs,"x"),"\n");print(/a.b/is," ",
+                match("A\nb aXb",/a.b/is)," ",
+                match("x\na\ny",/^a$/is)," ",
+                replace("a A a",/a/is,"x"),"\n");print(/a.b/gis," ",
+                match("A\nb aXb",/a.b/gis)," ",
+                match("x\na\ny",/^a$/gis)," ",
+                replace("a A a",/a/gis,"x"),"\n");print(/a.b/ssggii," ",
+                match("A\nb aXb",/a.b/ssggii)," ",
+                match("x\na\ny",/^a$/ssggii)," ",
+                replace("a A a",/a/ssggii,"x"),"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+/a.b/ [ "aXb" ] [ "a" ] x A a
+/a.b/g [ [ "aXb" ] ] [ [ "a" ] ] x A x
+/a.b/i [ "aXb" ] [ "a" ] x A a
+/a.b/s [ "aXb" ]  x A a
+/a.b/gi [ [ "aXb" ] ] [ [ "a" ] ] x x x
+/a.b/gs [ [ "aXb" ] ]  x A x
+/a.b/is [ "A\nb" ]  x A a
+/a.b/gis [ [ "A\nb" ], [ "aXb" ] ]  x x x
+/a.b/gis [ [ "A\nb" ], [ "aXb" ] ]  x x x
+-- End --
+
+
+Lazy evaluation.
+
+-- Testcase --
+function unused(){return /(/;}
+        let a=false && /(/,b=true || /(/,c=true ? /ok/ : /(/;
+        print(a," ",b," ",match("ok",c));
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+false true [ "ok" ]
+-- End (no-eol) --
+
+
+Loop cleanup.
+
+-- Testcase --
+gc("start",1);let kept=[];
+        for(let i=0;i<100;i++){let re=/[a-z]+/i;let o={re};o.self=o;
+            if(i%3==0){push(kept,re);continue;}if(i==98)break;}
+        gc();print(length(kept)," ",match("ABC",kept[0])," ",kept[0]===kept[1]);
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+33 [ "ABC" ] false
+-- End (no-eol) --
+
+
+Matching and captures.
+
+-- Testcase --
+print([
+        match("abc123",/([a-z]+)([0-9]+)/),match("abc",/z/),
+        match("b",/(a)?(b)/),match("abc",/^/),match("a b c",/[a-z]+/g),
+        match("abc",/a*/g),match("",/^$/)]);
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ [ "abc123", "abc", "123" ], null, [ "b", null, "b" ], [ "" ], [ [ "a" ], [ "b" ], [ "c" ] ], [ [ "a" ], [ "" ], [ "" ], [ "" ] ], [ "" ] ]
+-- End (no-eol) --
+
+
+Replace callback gc.
+
+-- Testcase --
+gc("start",1);let held=[];
+        print(replace("a1 b22",/([a-z])([0-9]+)/g,function(all,letter,digits){
+            let re=/[0-9]+/;let cycle={re};cycle.self=cycle;push(held,()=>re);
+            gc();return letter+":"+match(digits,re)[0];}));
+        gc();print(" ",held[0]()===held[1]()," ",match("42",held[1]()));
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+a:1 b:22 false [ "42" ]
+-- End (no-eol) --
+
+
+Replace strings and limits.
+
+-- Testcase --
+print([
+        replace("ab12 ab34",/([a-z]+)([0-9]+)/g,"$2:$1:$&:$$"),
+        replace("aaaa",/a/g,"x",2),replace("aaaa",/a/,"x"),
+        replace("abc",/^|$/g,"!"),replace("abc",/q/g,"x"),
+        replace("aaaa",/a/g,"x",0),replace("aaaa",/a/g,"x",-1)]);
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ "12:ab:ab12:$ 34:ab:ab34:$", "xxaa", "xaaa", "!abc!bc!c!", "abc", "aaaa", "aaaa" ]
+-- End (no-eol) --
+
+
+Runtime errors caught.
+
+-- Testcase --
+for(let i=0;i<5;i++){
+        try{let cycle={re:/ok/};cycle.self=cycle;gc();let invalid=/foo(/;}
+        catch(e){print(e.type,":",e.message,";");}}
+        try{let invalid=/[z-a]/;}catch(e){print(e.type,":",e.message);}
+        gc();print(" ",match("ok",/ok/));
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+Syntax error:Unmatched ( or \(;Syntax error:Unmatched ( or \(;Syntax error:Unmatched ( or \(;Syntax error:Unmatched ( or \(;Syntax error:Unmatched ( or \(;Syntax error:Invalid range end [ "ok" ]
+-- End (no-eol) --
+
+
+Slash character classes.
+
+-- Testcase --
+print([/[/]/,/[[./.]/]/,/[[:alpha:]/]/,/[[=/=]/]/]);
+        print(match("a/b",/[/]/)," ",match("/",/[[:alpha:]/]/));
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ "/[/]/", "/[[./.]/]/", "/[[:alpha:]/]/", "/[[=/=]/]/" ][ "/" ] [ "/" ]
+-- End (no-eol) --
+
+
+Split and empty matches.
+
+-- Testcase --
+print([
+        split("a,b; c",/[,; ]+/),split("a,b,c",/,/,2),split("abc",/x*/),
+        split("Axa",/a/i),split("a\nb",/./s),split("a,b",/,/,0)]);
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ [ "a", "b", "c" ], [ "a", "b,c" ], [ "a", "b", "c" ], [ "", "x", "" ], [ "", "", "", "" ], [ ] ]
+-- End (no-eol) --
+
+
+Types and identity.
+
+-- Testcase --
+function make(){return /abc/;}
+        let a=make(),b=make();print(type(a)," ",a," ",a===a," ",a===b," ",
+            a in [a]," ",b in [a]," ",[/abc/g,/abc/i,/abc/s]);
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+regexp /abc/ true false true false [ "/abc/g", "/abc/i", "/abc/s" ]
+-- End (no-eol) --
+
+
+Uncaught error cleanup.
+
+-- Testcase --
+let re=/ok/;let o={re};o.self=o;gc();let bad=/(/;
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+-- End --
+
+-- Expect stderr --
+Syntax error: Unmatched ( or \(
+In line 1, byte 46:
+
+ `let re=/ok/;let o={re};o.self=o;gc();let bad=/(/;`
+                                       ~~~~~~~~^~~~
+
+
+-- End --
+
+-- Expect exitcode --
+254
+-- End --

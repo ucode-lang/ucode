@@ -30,7 +30,8 @@
 #include "ucode/source.h"
 #include "ucode/program.h"
 
-#include "ucode/internal/json-c-compat.h"
+#include "ucode/internal/cli.h"
+#include "ucode/internal/native.h"
 
 #ifdef __GLIBC__
 # define POSIXLY_CORRECT_FLAG "+"
@@ -104,7 +105,15 @@ print_usage(const char *app)
 	"  Supported flags: no-interp (omit interpreter line), interp=... (over-\n"
 	"  ride interpreter line with ...), dynlink=... (force import from ... to\n"
 	"  be treated as shared extensions loaded at runtime), module (build load-\n"
-	"  able library).\n\n"
+	"  able library), llvm (write LLVM IR of a native program, if built with\n"
+	"  LLVM support; the IR must be compiled for the CPU and float ABI that\n"
+	"  NATIVE_TARGET_FLAGS of the runtime name, as clang with these flags\n"
+	"  does), target=... (LLVM target triple of the native program),\n"
+	"  embed=[path=]file (also embed `file` or the scripts below it, which the\n"
+	"  program loads as `path` by computed names), embed-template=[path=]file\n"
+	"  (the same for templates), debug (embed debug information and source\n"
+	"  text for complete stack traces), map=... (write the program with debug\n"
+	"  information to ..., for ucode-trace to resolve its stack traces).\n\n"
 
 	"-o path\n"
 	"  Output file path when compiling. If omitted, the compiled byte code\n"
@@ -127,9 +136,6 @@ print_usage(const char *app)
 	"  debugger to attach, the same way the SIGUSR1 break does.\n\n",
 		app);
 }
-
-static bool
-parse_library_load(char *opt, uc_vm_t *vm);
 
 static uc_value_t *
 debug_lookup_fn(uc_vm_t *vm, const char *name)
@@ -158,7 +164,34 @@ typedef struct {
 	bool autoprint;
 	debug_mode_t debug;
 	char *breakpoint;
+	bool llvm;
+	uc_llvm_options_t *native;
 } compile_opts_t;
+
+static int
+write_llvm(uc_vm_t *vm, uc_program_t *program, FILE *out, const compile_opts_t *opts)
+{
+#ifdef HAVE_LLVM_SUPPORT
+	uc_parse_config_t *config = vm->config;
+	char *err = NULL;
+	bool ok;
+
+	opts->native->config = config;
+
+	ok = uc_program_write_llvm(program, out, opts->native, &err);
+
+	if (!ok) {
+		fprintf(stderr, "%s", err ? err : "Unable to write LLVM IR\n");
+		free(err);
+	}
+
+	return ok ? 0 : -1;
+#else
+	fprintf(stderr, "This ucode was built without LLVM support\n");
+
+	return -1;
+#endif
+}
 
 static int
 compile(uc_vm_t *vm, uc_source_t *src, FILE *precompile, const compile_opts_t *opts)
@@ -180,6 +213,12 @@ compile(uc_vm_t *vm, uc_source_t *src, FILE *precompile, const compile_opts_t *o
 		goto out;
 	}
 
+	if (precompile && opts->llvm) {
+		rc = write_llvm(vm, program, precompile, opts);
+		fclose(precompile);
+		goto out;
+	}
+
 	if (precompile) {
 		if (interp)
 			fprintf(precompile, "#!%s\n", interp);
@@ -195,7 +234,7 @@ compile(uc_vm_t *vm, uc_source_t *src, FILE *precompile, const compile_opts_t *o
 	if (debug != DEBUG_MODE_NONE) {
 		uc_value_t *entryfn;
 
-		if (!parse_library_load("debug", vm)) {
+		if (!uc_cli_library_load("debug", vm)) {
 			fprintf(stderr, "Unable to load debug module\n");
 			rc = -2;
 			goto out;
@@ -294,11 +333,11 @@ compile(uc_vm_t *vm, uc_source_t *src, FILE *precompile, const compile_opts_t *o
 				fwrite(ucv_string_get(res), ucv_string_length(res), 1, stdout);
 			}
 			else {
-				uc_stringbuf_t *pb = xprintbuf_new();
+				uc_stringbuf_t *pb = uc_stringbuf_new();
 
 				ucv_to_stringbuf_formatted(vm, pb, res, 0, '\t', 1);
 				fwrite(pb->buf, pb->bpos, 1, stdout);
-				printbuf_free(pb);
+				uc_stringbuf_free(pb);
 			}
 		}
 
@@ -412,7 +451,7 @@ parse_template_modeflags(char *opt, uc_parse_config_t *config)
 
 static void
 parse_compile_flags(char *opt, char **interp, uc_search_path_t *dynlink_list,
-                    bool *module)
+                    bool *module, bool *llvm, uc_llvm_options_t *native)
 {
 	char *p, *k, *v;
 
@@ -450,216 +489,52 @@ parse_compile_flags(char *opt, char **interp, uc_search_path_t *dynlink_list,
 
 			*module = true;
 		}
+		else if (!strcmp(k, "llvm")) {
+			if (v)
+				fprintf(stderr, "Compile flag \"%s\" takes no value, ignoring\n", k);
+
+			*llvm = true;
+		}
+		else if (!strcmp(k, "target")) {
+			if (!v)
+				fprintf(stderr, "Compile flag \"%s\" requires a value, ignoring\n", k);
+			else
+				native->triple = v;
+		}
+		else if (!strcmp(k, "debug")) {
+			if (v)
+				fprintf(stderr, "Compile flag \"%s\" takes no value, ignoring\n", k);
+
+			native->debug = true;
+		}
+		else if (!strcmp(k, "map")) {
+			if (!v)
+				fprintf(stderr, "Compile flag \"%s\" requires a value, ignoring\n", k);
+			else
+				native->map = v;
+		}
+		else if (!strcmp(k, "embed") || !strcmp(k, "embed-template")) {
+			if (!v) {
+				fprintf(stderr, "Compile flag \"%s\" requires a value, ignoring\n", k);
+				continue;
+			}
+
+			/* [logical=]path */
+			char *path = strchr(v, '=');
+
+			if (path)
+				*path++ = 0;
+
+			uc_vector_push(native->embeds, {
+				.path = path ? path : v,
+				.logical = path ? v : NULL,
+				.template = !strcmp(k, "embed-template")
+			});
+		}
 		else {
 			fprintf(stderr, "Unrecognized -c flag \"%s\", ignoring\n", k);
 		}
 	}
-}
-
-static bool
-parse_define_file(char *opt, uc_value_t *globals)
-{
-	enum json_tokener_error err = json_tokener_continue;
-	char buf[128], *name = NULL, *p;
-	struct json_tokener *tok;
-	json_object *jso = NULL;
-	size_t rlen;
-	FILE *fp;
-
-	p = strchr(opt, '=');
-
-	if (p) {
-		name = opt;
-		*p++ = 0;
-	}
-	else {
-		p = opt;
-	}
-
-	if (!strcmp(p, "-")) {
-		if (!stdin_unused) {
-			fprintf(stderr, "The stdin can only be read once\n");
-
-			return false;
-		}
-
-		fp = stdin_unused;
-		stdin_unused = NULL;
-	}
-	else
-		fp = fopen(p, "r");
-
-	if (!fp) {
-		fprintf(stderr, "Unable to open definition file \"%s\": %s\n",
-		        p, strerror(errno));
-
-		return true;
-	}
-
-	tok = xjs_new_tokener();
-
-	while (true) {
-		rlen = fread(buf, 1, sizeof(buf), fp);
-
-		if (rlen == 0)
-			break;
-
-		jso = json_tokener_parse_ex(tok, buf, rlen);
-		err = json_tokener_get_error(tok);
-
-		if (err != json_tokener_continue)
-			break;
-	}
-
-	json_tokener_free(tok);
-	fclose(fp);
-
-	if (err != json_tokener_success || !json_object_is_type(jso, json_type_object)) {
-		json_object_put(jso);
-
-		fprintf(stderr, "Invalid definition file \"%s\": %s\n",
-		        p, (err != json_tokener_success)
-		             ? "JSON parse failure" : "Not a valid JSON object");
-
-		return false;
-	}
-
-	if (name && *name) {
-		ucv_object_add(globals, name, ucv_from_json(NULL, jso));
-	}
-	else {
-		json_object_object_foreach(jso, key, val)
-			ucv_object_add(globals, key, ucv_from_json(NULL, val));
-	}
-
-	json_object_put(jso);
-
-	return true;
-}
-
-static bool
-parse_define_string(char *opt, uc_value_t *globals)
-{
-	enum json_tokener_error err;
-	struct json_tokener *tok;
-	json_object *jso = NULL;
-	char *name = NULL, *p;
-	bool rv = false;
-	size_t len;
-
-	p = strchr(opt, '=');
-
-	if (p) {
-		name = opt;
-		*p++ = 0;
-	}
-	else {
-		p = opt;
-	}
-
-	len = strlen(p);
-	tok = xjs_new_tokener();
-
-	/* NB: the len + 1 here is intentional to pass the terminating \0 byte
-	 * to the json-c parser. This is required to work-around upstream
-	 * issue #681 <https://github.com/json-c/json-c/issues/681> */
-	jso = json_tokener_parse_ex(tok, p, len + 1);
-
-	err = json_tokener_get_error(tok);
-
-	/* Treat trailing bytes after a parsed value as error */
-	if (err == json_tokener_success && json_tokener_get_parse_end(tok) < len)
-		err = json_tokener_error_parse_unexpected;
-
-	json_tokener_free(tok);
-
-	if (err != json_tokener_success) {
-		json_object_put(jso);
-
-		if (!name || !*name) {
-			fprintf(stderr, "Invalid -D option value \"%s\": %s\n",
-			        p, json_tokener_error_desc(err));
-
-			return false;
-		}
-
-		ucv_object_add(globals, name, ucv_string_new(p));
-
-		return true;
-	}
-
-	if (name && *name) {
-		ucv_object_add(globals, name, ucv_from_json(NULL, jso));
-		rv = true;
-	}
-	else if (json_object_is_type(jso, json_type_object)) {
-		json_object_object_foreach(jso, key, val)
-			ucv_object_add(globals, key, ucv_from_json(NULL, val));
-		rv = true;
-	}
-	else {
-		fprintf(stderr, "Invalid -D option value \"%s\": Not a valid JSON object\n", p);
-	}
-
-	json_object_put(jso);
-
-	return rv;
-}
-
-static void
-parse_search_path(char *pattern, uc_parse_config_t *config)
-{
-	size_t len;
-	char *p;
-
-	if (strchr(pattern, '*')) {
-		uc_search_path_add(&config->module_search_path, pattern);
-		return;
-	}
-
-	len = strlen(pattern);
-
-	if (!len)
-		return;
-
-	while (pattern[len-1] == '/')
-		pattern[--len] = 0;
-
-	xasprintf(&p, "%s/*.so", pattern);
-	uc_search_path_add(&config->module_search_path, p);
-	free(p);
-
-	xasprintf(&p, "%s/*.uc", pattern);
-	uc_search_path_add(&config->module_search_path, p);
-	free(p);
-}
-
-static bool
-parse_library_load(char *opt, uc_vm_t *vm)
-{
-	char *name = NULL, *p;
-	uc_value_t *lib, *ctx;
-
-	p = strchr(opt, '=');
-
-	if (p) {
-		name = opt;
-		*p++ = 0;
-	}
-	else {
-		p = opt;
-	}
-
-	lib = ucv_string_new(p);
-	ctx = uc_vm_invoke(vm, "require", 1, lib);
-	ucv_put(lib);
-
-	if (!ctx)
-		return vm->exception.type == EXCEPTION_NONE;
-
-	ucv_object_add(uc_vm_scope_get(vm), name ? name : p, ctx);
-
-	return true;
 }
 
 static const char *
@@ -682,7 +557,9 @@ int
 main(int argc, char **argv)
 {
 	const char *optspec = POSIXLY_CORRECT_FLAG "he:p:tg:ST::RD:F:U:l:L:c::o:sx::X::";
-	bool strip = false, print_result = false;
+	bool strip = false, print_result = false, llvm = false;
+	uc_llvm_embeds_t embeds = { 0 };
+	uc_llvm_options_t native = { .embeds = &embeds };
 	debug_mode_t debug = DEBUG_MODE_NONE;
 	char *breakpoint = NULL;
 	char *interp = "/usr/bin/env ucode";
@@ -723,7 +600,7 @@ main(int argc, char **argv)
 	{
 		switch (opt) {
 		case 'L':
-			parse_search_path(optarg, &config);
+			uc_cli_search_path(optarg, &config);
 			break;
 
 		case 'S':
@@ -744,6 +621,7 @@ main(int argc, char **argv)
 	uc_search_path_init(&config.module_search_path);
 
 	argv0 = argv[optind];
+	native.script_name = argv0;
 	optind = 1;
 
 	uc_vm_init(&vm, &config);
@@ -784,7 +662,7 @@ main(int argc, char **argv)
 			break;
 
 		case 'D':
-			if (!parse_define_string(optarg, uc_vm_scope_get(&vm))) {
+			if (!uc_cli_define_string(optarg, uc_vm_scope_get(&vm))) {
 				rv = 1;
 				goto out;
 			}
@@ -792,7 +670,7 @@ main(int argc, char **argv)
 			break;
 
 		case 'F':
-			if (!parse_define_file(optarg, uc_vm_scope_get(&vm))) {
+			if (!uc_cli_define_file(optarg, uc_vm_scope_get(&vm), &stdin_unused)) {
 				rv = 1;
 				goto out;
 			}
@@ -804,7 +682,7 @@ main(int argc, char **argv)
 			break;
 
 		case 'l':
-			if (!parse_library_load(optarg, &vm)) {
+			if (!uc_cli_library_load(optarg, &vm)) {
 				rv = 1;
 				goto out;
 			}
@@ -814,7 +692,7 @@ main(int argc, char **argv)
 		case 'c':
 			outfile = "./uc.out";
 			parse_compile_flags(optarg, &interp, &config.force_dynlink_list,
-			                    &config.compile_module);
+			                    &config.compile_module, &llvm, &native);
 			break;
 
 		case 's':
@@ -889,11 +767,14 @@ main(int argc, char **argv)
 		.autoprint = print_result,
 		.debug = debug,
 		.breakpoint = breakpoint,
+		.llvm = llvm,
+		.native = &native,
 	}));
 
 out:
 	uc_search_path_free(&config.module_search_path);
 	uc_vector_clear(&config.force_dynlink_list);
+	uc_vector_clear(&embeds);
 
 	uc_source_put(source);
 

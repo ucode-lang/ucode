@@ -171,10 +171,12 @@ typedef struct {
 	struct {
 		size_t count;
 		size_t *entries;
+		size_t capacity;
 	} templates;
 	struct {
 		size_t count;
 		char *entries;
+		size_t capacity;
 	} buffer;
 	const uint8_t *rbuf;
 	size_t rlen, rpos, off;

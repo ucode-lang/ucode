@@ -57,6 +57,7 @@
  */
 
 #include <assert.h>
+#include <inttypes.h>
 #include <unistd.h>
 #include <signal.h>
 #include <sys/ioctl.h>
@@ -90,13 +91,13 @@ extern bool debug_remote_has_active_connection(void);
 #include "ucode/compiler.h"
 #include "ucode/vm.h"
 
-/* Append a NUL-terminated string; like printbuf_strappend() but for
- * non-literal strings (printbuf_memappend_fast() compares its size
+/* Append a NUL-terminated string; like uc_stringbuf_append() but for
+ * non-literal strings (uc_stringbuf_add() compares its size
  * argument against the buffer's int fields, hence the cast). */
 static void
 printbuf_strcat(uc_stringbuf_t *sb, const char *s)
 {
-	printbuf_memappend_fast(sb, s, (int)strlen(s));
+	uc_stringbuf_add(sb, s, (int)strlen(s));
 }
 
 static char *memdump_signal = "USR2";
@@ -105,7 +106,7 @@ static char *memdump_directory = "/tmp";
 struct memdump_walk_ctx {
 	FILE *out;
 	uc_closure_t *current_closure;
-	struct lh_table *seen;
+	uc_set_t seen;
 };
 
 static uc_callframe_t *
@@ -127,10 +128,10 @@ debuginfo_stackslot_to_callframe(uc_vm_t *vm, size_t slot)
 }
 
 static void
-uc_debug_discover_ucv(uc_value_t *uv, struct lh_table *seen);
+uc_debug_discover_ucv(uc_value_t *uv, uc_set_t *seen);
 
 static void
-uc_debug_discover_ucv(uc_value_t *uv, struct lh_table *seen)
+uc_debug_discover_ucv(uc_value_t *uv, uc_set_t *seen)
 {
 	uc_function_t *function;
 	uc_closure_t *closure;
@@ -139,19 +140,13 @@ uc_debug_discover_ucv(uc_value_t *uv, struct lh_table *seen)
 	uc_array_t *array;
 	uc_resource_type_t *restype;
 	uc_program_t *program;
-	struct lh_entry *entry;
-	unsigned long hash;
 	size_t i;
-
-	hash = lh_get_hash(seen, uv);
 
 	if (ucv_is_scalar(uv))
 		return;
 
-	if (lh_table_lookup_entry_w_hash(seen, uv, hash))
+	if (!uc_set_add(seen, uv))
 		return;
-
-	lh_table_insert_w_hash(seen, uv, NULL, hash, 0);
 
 	switch (ucv_type(uv)) {
 	case UC_ARRAY:
@@ -169,8 +164,8 @@ uc_debug_discover_ucv(uc_value_t *uv, struct lh_table *seen)
 
 		uc_debug_discover_ucv(object->proto, seen);
 
-		lh_foreach(object->table, entry)
-			uc_debug_discover_ucv((uc_value_t *)lh_entry_v(entry), seen);
+		for (i = 0; i < object->used; i++)
+			uc_debug_discover_ucv(object->entries[i].value, seen);
 
 		break;
 
@@ -216,11 +211,11 @@ uc_debug_discover_ucv(uc_value_t *uv, struct lh_table *seen)
 }
 
 static void
-print_value(FILE *out, size_t pad, struct lh_table *seen,
+print_value(FILE *out, size_t pad, uc_set_t *seen,
             uc_vm_t *vm, uc_value_t *uv);
 
 static void
-print_value(FILE *out, size_t pad, struct lh_table *seen,
+print_value(FILE *out, size_t pad, uc_set_t *seen,
             uc_vm_t *vm, uc_value_t *uv)
 {
 	uc_resource_type_t *restype;
@@ -241,7 +236,7 @@ print_value(FILE *out, size_t pad, struct lh_table *seen,
 	if (!ucv_is_scalar(uv))
 		fprintf(out, "; %" PRIu32 " refs", uv->refcount);
 
-	if (!lh_table_lookup_entry(seen, uv))
+	if (!uc_set_has(seen, uv))
 		fprintf(out, "; unreachable");
 
 	if (ucv_is_constant(uv))
@@ -406,13 +401,6 @@ print_memdump(uc_vm_t *vm, FILE *out)
 	char *s;
 
 	ctx.out = out;
-	ctx.seen = lh_kptr_table_new(16, NULL);
-
-	if (!ctx.seen) {
-		fprintf(stderr, "Unable to allocate lookup table: %m\n");
-
-		return;
-	}
 
 	fprintf(ctx.out, "STACK\n");
 
@@ -471,7 +459,7 @@ print_memdump(uc_vm_t *vm, FILE *out)
 
 		fprintf(ctx.out, "\n");
 
-		uc_debug_discover_ucv(vm->stack.entries[i], ctx.seen);
+		uc_debug_discover_ucv(vm->stack.entries[i], &ctx.seen);
 
 		s = ucv_to_string(NULL, vm->stack.entries[i]);
 		fprintf(ctx.out, "  #value = %s\n", s);
@@ -488,13 +476,13 @@ print_memdump(uc_vm_t *vm, FILE *out)
 		fprintf(ctx.out, "\n");
 
 		uc_debug_discover_ucv(vm->callframes.entries[i].ctx,
-			ctx.seen);
+			&ctx.seen);
 
 		uc_debug_discover_ucv(&vm->callframes.entries[i].closure->header,
-			ctx.seen);
+			&ctx.seen);
 
 		uc_debug_discover_ucv(&vm->callframes.entries[i].cfunction->header,
-			ctx.seen);
+			&ctx.seen);
 
 		s = ucv_to_string(NULL, vm->callframes.entries[i].ctx);
 		fprintf(ctx.out, "  #context = %s\n", s);
@@ -519,7 +507,7 @@ print_memdump(uc_vm_t *vm, FILE *out)
 	fprintf(ctx.out, "---\n\n");
 
 	fprintf(ctx.out, "GLOBALS\n");
-	uc_debug_discover_ucv(vm->globals, ctx.seen);
+	uc_debug_discover_ucv(vm->globals, &ctx.seen);
 	i = 0;
 	ucv_object_foreach(vm->globals, gk, gv) {
 		s = ucv_to_string(NULL, gv);
@@ -530,7 +518,7 @@ print_memdump(uc_vm_t *vm, FILE *out)
 	fprintf(ctx.out, "---\n\n");
 
 	fprintf(ctx.out, "REGISTRY\n");
-	uc_debug_discover_ucv(vm->registry, ctx.seen);
+	uc_debug_discover_ucv(vm->registry, &ctx.seen);
 	i = 0;
 	ucv_object_foreach(vm->registry, rk, rv) {
 		s = ucv_to_string(NULL, rv);
@@ -541,7 +529,7 @@ print_memdump(uc_vm_t *vm, FILE *out)
 	fprintf(ctx.out, "---\n\n");
 
 	fprintf(ctx.out, "EXCEPTION\n");
-	uc_debug_discover_ucv(vm->exception.stacktrace, ctx.seen);
+	uc_debug_discover_ucv(vm->exception.stacktrace, &ctx.seen);
 	s = ucv_to_string(NULL, vm->exception.stacktrace);
 	fprintf(ctx.out, "%s\n", s);
 	free(s);
@@ -553,7 +541,7 @@ print_memdump(uc_vm_t *vm, FILE *out)
 		fprintf(ctx.out, "[%zu] %s\n", i,
 			vm->restypes.entries[i]->name);
 
-		uc_debug_discover_ucv(vm->restypes.entries[i]->proto, ctx.seen);
+		uc_debug_discover_ucv(vm->restypes.entries[i]->proto, &ctx.seen);
 
 		s = ucv_to_string(NULL, vm->restypes.entries[i]->proto);
 		fprintf(ctx.out, "  #prototype = %s\n", s);
@@ -571,10 +559,10 @@ print_memdump(uc_vm_t *vm, FILE *out)
 		uv = (uc_value_t *)((uintptr_t)ref - offsetof(uc_array_t, ref));
 
 		fprintf(ctx.out, "[%zu] ", i);
-		print_value(ctx.out, 0, ctx.seen, vm, uv);
+		print_value(ctx.out, 0, &ctx.seen, vm, uv);
 	}
 
-	lh_table_free(ctx.seen);
+	uc_set_free(&ctx.seen);
 }
 
 static uc_value_t *
@@ -1412,10 +1400,9 @@ uc_getinfo(uc_vm_t *vm, size_t nargs)
 		uvobj = ucv_as_object(uv);
 
 		ucv_object_add(rv, "address",
-			ucv_uint64_new((uintptr_t)uvobj->table));
+			ucv_uint64_new((uintptr_t)uvobj->entries));
 
-		ucv_object_add(rv, "count",
-			ucv_uint64_new(lh_table_length(uvobj->table)));
+		ucv_object_add(rv, "count", ucv_uint64_new(uvobj->count));
 
 		ucv_object_add(rv, "constant", ucv_boolean_new(uv->ext_flag));
 		ucv_object_add(rv, "prototype", ucv_get(uvobj->proto));
@@ -2076,7 +2063,7 @@ printbuf_truncate(uc_stringbuf_t *sb, size_t off, size_t maxcols, bool tail)
 
 		/* Reserve enough additional space for ellipsis mb sequence. */
 		if (trunclen < elliplen)
-			printbuf_memset(sb, -1, ' ', elliplen - trunclen);
+			uc_stringbuf_memset(sb, -1, ' ', elliplen - trunclen);
 
 		memmove(sb->buf + off + elliplen, s, keeplen);
 		memcpy(sb->buf + off, "…", elliplen);
@@ -2095,7 +2082,7 @@ printbuf_truncate(uc_stringbuf_t *sb, size_t off, size_t maxcols, bool tail)
 		}
 
 		sb->bpos = s - sb->buf;
-		printbuf_strappend(sb, "…");
+		uc_stringbuf_append(sb, "…");
 
 		return maxcols;
 	}
@@ -2152,7 +2139,7 @@ printbuf_append_funcname(uc_stringbuf_t *sb, uc_vm_t *vm, uc_value_t *val,
 
 			if (v == val) {
 				printbuf_strcat(sb, rt->name);
-				printbuf_strappend(sb, "#");
+				uc_stringbuf_append(sb, "#");
 				goto name;
 			}
 		}
@@ -2166,7 +2153,7 @@ printbuf_append_funcname(uc_stringbuf_t *sb, uc_vm_t *vm, uc_value_t *val,
 
 			if (symval == val) {
 				printbuf_strcat(sb, modname);
-				printbuf_strappend(sb, ".");
+				uc_stringbuf_append(sb, ".");
 				goto name;
 			}
 		}
@@ -2211,7 +2198,7 @@ name:
 		ucv_object_foreach(&obj->header, k, v) {
 			if (v == val) {
 				printbuf_strcat(sb, k);
-				printbuf_strappend(sb, ":");
+				uc_stringbuf_append(sb, ":");
 				break;
 			}
 		}
@@ -2232,7 +2219,7 @@ printbuf_append_function(uc_stringbuf_t *sb, uc_vm_t *vm, uc_value_t *val,
 
 	if (t == UC_CFUNCTION) {
 		printbuf_append_funcname(sb, vm, val, SIZE_MAX);
-		printbuf_strappend(sb, "(");
+		uc_stringbuf_append(sb, "(");
 
 		if (frame) {
 			size_t prev_frame = vm->stack.count;
@@ -2246,7 +2233,7 @@ printbuf_append_function(uc_stringbuf_t *sb, uc_vm_t *vm, uc_value_t *val,
 
 			for (size_t j = 1; j < prev_frame - frame->stackframe; j++) {
 				if (j > 1)
-					printbuf_strappend(sb, ", ");
+					uc_stringbuf_append(sb, ", ");
 
 				uc_value_t *argval =
 					(frame->stackframe + j < vm->stack.count)
@@ -2257,7 +2244,7 @@ printbuf_append_function(uc_stringbuf_t *sb, uc_vm_t *vm, uc_value_t *val,
 			}
 		}
 
-		printbuf_strappend(sb, ")");
+		uc_stringbuf_append(sb, ")");
 	}
 	else if (t == UC_CLOSURE) {
 		uc_closure_t *cl = ucv_as_closure(val);
@@ -2265,12 +2252,12 @@ printbuf_append_function(uc_stringbuf_t *sb, uc_vm_t *vm, uc_value_t *val,
 
 		if (cl->function->module) {
 			char *s = filename_to_modulename(vm, source->filename);
-			sprintbuf(sb, "module(%s)", s ? s : "");
+			uc_stringbuf_printf(sb, "module(%s)", s ? s : "");
 			free(s);
 		}
 		else {
 			printbuf_append_funcname(sb, vm, val, SIZE_MAX);
-			printbuf_strappend(sb, "(");
+			uc_stringbuf_append(sb, "(");
 
 			if (frame) {
 				for (size_t i = 0; i < cl->function->nargs; i++) {
@@ -2278,19 +2265,19 @@ printbuf_append_function(uc_stringbuf_t *sb, uc_vm_t *vm, uc_value_t *val,
 						&cl->function->chunk, i, i + 1, false);
 
 					if (i > 0)
-						printbuf_strappend(sb, ", ");
+						uc_stringbuf_append(sb, ", ");
 
 					if (i + 1 == cl->function->nargs && cl->function->vararg)
-						printbuf_strappend(sb, "...");
+						uc_stringbuf_append(sb, "...");
 
 					if (argname) {
 						printbuf_strcat(sb, ucv_string_get(argname));
 
-						printbuf_strappend(sb, "=");
+						uc_stringbuf_append(sb, "=");
 						ucv_put(argname);
 					}
 					else {
-						sprintbuf(sb, "$%zu=", i + 1);
+						uc_stringbuf_printf(sb, "$%zu=", i + 1);
 					}
 
 					uc_value_t *argval =
@@ -2302,7 +2289,7 @@ printbuf_append_function(uc_stringbuf_t *sb, uc_vm_t *vm, uc_value_t *val,
 				}
 			}
 
-			printbuf_strappend(sb, ")");
+			uc_stringbuf_append(sb, ")");
 		}
 	}
 
@@ -2314,7 +2301,7 @@ printbuf_append_srcpath(uc_stringbuf_t *sb, uc_source_t *source, size_t maxcols)
 {
 	int off = sb->bpos;
 
-	printbuf_memset(sb, off + PATH_MAX, 0, 1);
+	uc_stringbuf_memset(sb, off + PATH_MAX, 0, 1);
 
 	if (realpath(source->filename, sb->buf + off)) {
 		size_t pathlen = strlen(sb->buf + off);
@@ -2609,7 +2596,7 @@ lookup_source(uc_vm_t *vm, location_t *loc)
 				}
 			}
 
-			printbuf_reset(&filename);
+			uc_stringbuf_reset(&filename);
 		}
 	}
 
@@ -2683,7 +2670,7 @@ lookup_stmt_boundary(uc_vm_t *vm, location_t *loc, insn_span_t *sp)
 	if (!lookup_function(vm, loc))
 		return false;
 
-	struct { insn_span_t *entries; size_t count; } sp_stack = { 0 };
+	struct { insn_span_t *entries; size_t count, capacity; } sp_stack = { 0 };
 	uc_chunk_t *chunk = &loc->function->chunk;
 	uc_offsetinfo_t *offsets = &chunk->debuginfo.offsets;
 	size_t bytes = loc->function->srcpos;
@@ -2775,7 +2762,7 @@ next_parent(uc_vm_t *vm, uc_function_t **fnp)
 static bool
 find_statement_boundaries(uc_function_t *fn, uint8_t *ip, size_t depth, insn_span_t *sp)
 {
-	struct { insn_span_t *entries; size_t count; } sp_stack = { 0 };
+	struct { insn_span_t *entries; size_t count, capacity; } sp_stack = { 0 };
 	uc_offsetinfo_t *offsets = &fn->chunk.debuginfo.offsets;
 	size_t off = ip - fn->chunk.entries;
 	size_t i = 0, bytes = 0, insns = 0;
@@ -4301,11 +4288,10 @@ proto_cmd_variables(uc_vm_t *vm, debug_breakpoint_t *dbk, uc_value_t *payload, i
 static void
 proto_cmd_sources(uc_vm_t *vm, debug_breakpoint_t *dbk, uc_value_t *payload, int fd, bool *proceed)
 {
-	struct lh_table *sources = lh_kptr_table_new(16, NULL);
 	uc_value_t *items = ucv_array_new(vm);
-	struct lh_entry *e;
+	uc_set_t sources = { 0 };
 	uc_weakref_t *ref;
-	size_t i = 0;
+	size_t i;
 
 	for (ref = vm->values.next; ref != &vm->values; ref = ref->next) {
 		uc_closure_t *uc =
@@ -4317,25 +4303,20 @@ proto_cmd_sources(uc_vm_t *vm, debug_breakpoint_t *dbk, uc_value_t *payload, int
 		if (!uc->function || !uc->function->program)
 			continue;
 
-		for (size_t j = 0; j < uc->function->program->sources.count; j++) {
-			uc_source_t *source = uc->function->program->sources.entries[j];
-			unsigned long hash = lh_get_hash(sources, source);
-
-			if (!lh_table_lookup_entry_w_hash(sources, source, hash))
-				lh_table_insert_w_hash(sources, source, NULL, hash, 0);
-		}
+		for (size_t j = 0; j < uc->function->program->sources.count; j++)
+			uc_set_add(&sources, uc->function->program->sources.entries[j]);
 	}
 
-	lh_foreach(sources, e) {
-		uc_source_t *source = lh_entry_k(e);
+	for (i = 0; i < sources.count; i++) {
+		uc_source_t *source = sources.entries[i];
 		uc_value_t *item = ucv_object_new(vm);
 
-		ucv_object_add(item, "index", ucv_uint64_new(i++));
+		ucv_object_add(item, "index", ucv_uint64_new(i));
 		ucv_object_add(item, "file", ucv_string_new(source->filename));
 		ucv_array_push(items, item);
 	}
 
-	lh_table_free(sources);
+	uc_set_free(&sources);
 
 	uc_value_t *obj = ucv_object_new(vm);
 	ucv_object_add(obj, "items", items);

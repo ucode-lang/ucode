@@ -527,7 +527,7 @@ parse_reply(uc_vm_t *vm, uc_value_t *res_obj, const unsigned char *msg, size_t l
 
 					if (n > rdlen) {
 						set_error(EBADMSG, "TXT string exceeds record length");
-						printbuf_free(buf);
+						uc_stringbuf_free(buf);
 
 						return -1;
 					}

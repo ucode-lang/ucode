@@ -10,6 +10,22 @@ let ucode_bin = getenv('UCODE_BIN') || `${topdir}/build/ucode`;
 let ucode_lib = getenv('UCODE_LIB') || `${topdir}/build`;
 let platform = trim(fs.popen('uname -s', 'r').read('all'));
 
+/* UCODE_TEST_SKIP names a file of test cases to skip, one per line in the form
+ * `category/test case-number reason`, for runs against a UCODE_BIN that does
+ * not provide every feature of the ucode CLI */
+let skip_cases = {};
+
+if (getenv('UCODE_TEST_SKIP')) {
+	let skip_list = fs.readfile(getenv('UCODE_TEST_SKIP')) ?? die(`Unable to read UCODE_TEST_SKIP: ${fs.error()}\n`);
+
+	for (let entry in split(skip_list, '\n')) {
+		let m = match(entry, /^([^ #]+) ([0-9]+) /);
+
+		if (m)
+			skip_cases[`${m[1]} ${m[2]}`] = true;
+	}
+}
+
 function mkdir_p(path) {
 	let parts = split(rtrim(path, '/') || '/', /\/+/);
 	let current = '';
@@ -204,6 +220,7 @@ function run_testcase(num, dir, testcase) {
 
 function run_test(file) {
 	let name = fs.basename(file);
+	let id = `${fs.basename(fs.dirname(file))}/${name}`;
 	printf('%s %s ', name, substr(line, length(name)));
 
 	let tmpdir = sprintf('/tmp/test.%d', getpid());
@@ -214,7 +231,8 @@ function run_test(file) {
 
 	try {
 		for (let i, testcase in testcases) {
-			if (testcase.platform && index(testcase.platform, platform) < 0) {
+			if (skip_cases[`${id} ${i + 1}`] ||
+			    (testcase.platform && index(testcase.platform, platform) < 0)) {
 				skipped++;
 				continue;
 			}

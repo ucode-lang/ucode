@@ -1,0 +1,50 @@
+Object keys were C strings, so a key with a NUL byte addressed the key
+before the NUL: a script that copied keys from its input into an object
+could replace other properties.
+
+-- Testcase --
+{%
+	let o = { admin: false };
+
+	o["admin\u0000x"] = true;
+	print(o.admin, " ", length(o), " ", exists(o, "admin\u0000x"), " ", "admin\u0000y" in o, "\n");
+
+	for (let k, v in o)
+		print(length(k), " ", v, "\n");
+
+	print(map(sort(keys(o)), length), " ", sprintf("%J", o), "\n");
+
+	delete o["admin\u0000x"];
+	print(o, "\n");
+
+	let p = { ...{ "a\u0000b": 1 }, a: 2 };
+	print(length(p), " ", p["a\u0000b"], " ", p.a, "\n");
+
+	print([ 10, 11 ]["1\u0000x"], "\n");
+%}
+-- End --
+
+-- Expect stdout --
+false 2 true false
+5 false
+7 true
+[ 5, 7 ] { "admin": false, "admin\u0000x": true }
+{ "admin": false }
+2 1 2
+
+-- End --
+
+
+The same applied to keys that json() parsed: "a\u0000b" replaced the
+key "a".
+
+-- Testcase --
+{%
+	let v = json('{ "a\\u0000b": 1, "a": 2 }');
+	print(length(v), " ", v["a\u0000b"], " ", v.a, "\n");
+%}
+-- End --
+
+-- Expect stdout --
+2 1 2
+-- End --

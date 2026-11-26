@@ -1,0 +1,375 @@
+Binary output.
+
+-- Testcase --
+let s=render(function(){print("a\u0000b");});print(length(s)," ",hexenc(s));
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+3 610062
+-- End (no-eol) --
+
+
+Error restores output.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+try{render("fail.ut");}catch(e){print(e.message," ");}
+            try{render(function(){print("hidden");die("fn");});}catch(e){print(e.message," ");}
+            print(render(function(){print("ok");}));
+-- End (no-eol) --
+
+-- File fail.ut --
+hidden{% gc();die("template"); %}
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+template fn ok
+-- End (no-eol) --
+
+
+Invalid arguments.
+
+-- Testcase --
+for(let v in [null,42,{}])try{render(v);}catch(e){print(e.type,e.message);}
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+Type errorPassed filename is not a stringType errorPassed filename is not a stringType errorPassed filename is not a string
+-- End (no-eol) --
+
+
+Nested render.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+print(render("outer.uc",{n:3}));
+-- End (no-eol) --
+
+-- File outer.uc --
+A{{ render("inner.ut",{n:n+1}) }}B
+-- End (no-eol) --
+
+-- File inner.ut --
+{% gc(); %}{{ n }}
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+A4B
+-- End (no-eol) --
+
+
+Raw include inside render.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+print(render("page.ut"));
+-- End (no-eol) --
+
+-- File page.ut --
+A{% include("raw.uc"); %}Z
+-- End (no-eol) --
+
+-- File raw.uc --
+print("B");
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+Aprint("B");Z
+-- End (no-eol) --
+
+
+Render callable.
+
+-- Testcase --
+let o={};proto(o,{__call__(x){gc();print(x);}});print(render(o,"hello"));
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+hello
+-- End (no-eol) --
+
+
+Render file.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+print(render("part.uc",{items:[1,2,3]}));
+-- End (no-eol) --
+
+-- File part.uc --
+{% for(let v in items) { %}[{{ v }}]{% gc(); } %}
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+[1][2][3]
+-- End (no-eol) --
+
+
+Render function.
+
+-- Testcase --
+let s=render(function(a,b){gc();print(a);printf("%s",b);return "ignored";},"a","b");print("[",s,"]");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ab]
+-- End (no-eol) --
+
+
+Scoped globals.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+global.n=1;let s={n:9};print(render("part.ut",s)," ",n," ",s.n);
+-- End (no-eol) --
+
+-- File part.ut --
+{% n++; %}{{ n }}
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+10 1 9
+-- End (no-eol) --
+
+
+Exit restores capture.
+
+-- Testcase --
+render(function(){print("hidden");exit(7);});print("wrong");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+-- End --
+
+-- Expect exitcode --
+7
+-- End --
+
+
+Entry output.
+
+-- Testcase --
+Hello {{ "world" }}!
+{% for(let v in [1,2]) { %}[{{ v }}]{% } %}
+-- End --
+
+-- Args --
+-T
+-- End --
+
+-- Expect stdout --
+Hello world!
+[1][2]
+-- End (no-eol) --
+
+
+Expression values.
+
+-- Testcase --
+[{{ null }}] {{ {a:1,b:null} }} {{ [1,2,null] }} {{ false }}
+-- End (no-eol) --
+
+-- Args --
+-T
+-- End --
+
+-- Expect stdout --
+[] { "a": 1, "b": null } [ 1, 2, null ] false
+-- End (no-eol) --
+
+
+Whitespace default.
+
+-- Testcase --
+before
+  {% let x=1; %}
+{{ x }}
+after
+-- End --
+
+-- Args --
+-T
+-- End --
+
+-- Expect stdout --
+before
+1
+after
+-- End --
+
+
+Whitespace no lstrip.
+
+-- Testcase --
+before
+  {% let x=1; %}
+{{ x }}
+after
+-- End --
+
+-- Args --
+-Tno-lstrip
+-- End --
+
+-- Expect stdout --
+before
+  1
+after
+-- End --
+
+
+Whitespace no rtrim.
+
+-- Testcase --
+before
+  {% let x=1; %}
+{{ x }}
+after
+-- End --
+
+-- Args --
+-Tno-rtrim
+-- End --
+
+-- Expect stdout --
+before
+
+1
+after
+-- End --
+
+
+Whitespace no lstrip no rtrim.
+
+-- Testcase --
+before
+  {% let x=1; %}
+{{ x }}
+after
+-- End --
+
+-- Args --
+-Tno-lstrip,no-rtrim
+-- End --
+
+-- Expect stdout --
+before
+  
+1
+after
+-- End --
+
+
+Include in template mode.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+A{% include("part.uc",{n:7}); %}Z
+-- End (no-eol) --
+
+-- File part.uc --
+P{{ n }}{% print("Q"); %}
+-- End (no-eol) --
+
+-- Args --
+-T
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+AP7QZ
+-- End (no-eol) --
+
+
+Explicit computed template.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+let n="page";print(render(n+".ut"));
+-- End (no-eol) --
+
+-- File page.ut --
+{{ 42 }}
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+42
+-- End (no-eol) --

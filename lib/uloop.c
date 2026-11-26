@@ -73,6 +73,7 @@
 #include <libubox/uloop.h>
 
 #include "ucode/module.h"
+#include "ucode/json.h"
 #include "ucode/internal/platform.h"
 
 #define ok_return(expr) do { last_error = 0; return (expr); } while(0)
@@ -1220,7 +1221,7 @@ uc_uloop_process_envp(uc_vm_t *vm, uc_value_t *env_arg)
 		return NULL;
 
 	ucv_object_foreach(env_arg, envk, envv) {
-		buf = xprintbuf_new();
+		buf = uc_stringbuf_new();
 
 		ucv_stringbuf_printf(buf, "%s=", envk);
 		ucv_to_stringbuf(vm, buf, envv, false);
@@ -1455,17 +1456,17 @@ uc_uloop_pipe_send_common(uc_vm_t *vm, uc_value_t *msg, int fd)
 	size_t len;
 	bool rv;
 
-	buf = xprintbuf_new();
+	buf = uc_stringbuf_new();
 
-	printbuf_memset(buf, 0, 0, sizeof(len));
+	uc_stringbuf_memset(buf, 0, 0, sizeof(len));
 	ucv_to_stringbuf(vm, buf, msg, true);
 
-	len = printbuf_length(buf);
+	len = uc_stringbuf_length(buf);
 	memcpy(buf->buf, &len, sizeof(len));
 
 	rv = writeall(fd, buf->buf, len);
 
-	printbuf_free(buf);
+	uc_stringbuf_free(buf);
 
 	if (!rv)
 		err_return(errno);
@@ -1516,57 +1517,56 @@ uc_uloop_pipe_send(uc_vm_t *vm, size_t nargs)
 }
 
 typedef struct {
-	json_tokener *tok;
-	json_object *jso;
-	enum json_tokener_error err;
+	uc_json_parser_t *json;
+	uc_value_t *val;
+	uc_json_error_t err;
 } uc_uloop_pipe_parser_t;
 
 static void
-uc_uloop_pipe_parser_init(uc_uloop_pipe_parser_t *parser)
+uc_uloop_pipe_parser_init(uc_uloop_pipe_parser_t *parser, uc_vm_t *vm)
 {
-	parser->tok = xjs_new_tokener();
-	parser->jso = NULL;
-	parser->err = json_tokener_continue;
+	parser->json = uc_json_parser_new(vm);
+	parser->val = NULL;
+	parser->err = UC_JSON_CONTINUE;
 }
 
 static void
 uc_uloop_pipe_parser_feed(uc_uloop_pipe_parser_t *parser, const char *buf,
                           size_t len)
 {
-	if (!parser->tok || parser->err != json_tokener_continue)
+	if (!parser->json || parser->err != UC_JSON_CONTINUE)
 		return;
 
-	parser->jso = json_tokener_parse_ex(parser->tok, buf, len);
-	parser->err = json_tokener_get_error(parser->tok);
+	parser->val = uc_json_parse(parser->json, buf, len);
+	parser->err = uc_json_parser_error(parser->json);
 }
 
 static void
 uc_uloop_pipe_parser_free(uc_uloop_pipe_parser_t *parser)
 {
-	if (parser->tok)
-		json_tokener_free(parser->tok);
-
-	json_object_put(parser->jso);
-	parser->tok = NULL;
-	parser->jso = NULL;
+	uc_json_parser_free(parser->json);
+	ucv_put(parser->val);
+	parser->json = NULL;
+	parser->val = NULL;
 }
 
 static bool
-uc_uloop_pipe_parser_finish(uc_vm_t *vm, uc_uloop_pipe_parser_t *parser,
-                            uc_value_t **res)
+uc_uloop_pipe_parser_finish(uc_uloop_pipe_parser_t *parser, uc_value_t **res)
 {
 	bool rv;
 
 	*res = NULL;
 
-	if (!parser->tok)
+	if (!parser->json)
 		return false;
 
 	uc_uloop_pipe_parser_feed(parser, "\0", 1);
-	rv = (parser->err == json_tokener_success);
+	rv = (parser->err == UC_JSON_SUCCESS);
 
-	if (rv)
-		*res = ucv_from_json(vm, parser->jso);
+	if (rv) {
+		*res = parser->val;
+		parser->val = NULL;
+	}
 
 	uc_uloop_pipe_parser_free(parser);
 
@@ -1596,7 +1596,7 @@ uc_uloop_pipe_receive_common(uc_vm_t *vm, int fd, uc_value_t **res)
 		err_return(EINVAL);
 
 	len -= sizeof(len);
-	uc_uloop_pipe_parser_init(&parser);
+	uc_uloop_pipe_parser_init(&parser, vm);
 
 	while (len > 0) {
 		rlen = read(fd, buf, len < sizeof(buf) ? len : sizeof(buf));
@@ -1614,7 +1614,7 @@ uc_uloop_pipe_receive_common(uc_vm_t *vm, int fd, uc_value_t **res)
 		len -= rlen;
 	}
 
-	if (!uc_uloop_pipe_parser_finish(vm, &parser, res))
+	if (!uc_uloop_pipe_parser_finish(&parser, res))
 		err_return(EINVAL);
 
 	return true;
@@ -1970,7 +1970,7 @@ uc_uloop_task_header(uc_uloop_task_t *task)
 	task->rx.left = len - sizeof(len);
 
 	if (task->output_cb)
-		uc_uloop_pipe_parser_init(&task->rx.parser);
+		uc_uloop_pipe_parser_init(&task->rx.parser, task->cb.vm);
 
 	return true;
 }
@@ -1984,7 +1984,7 @@ uc_uloop_task_payload(uc_uloop_task_t *task, const char *buf, size_t len)
 	task->rx.left -= len;
 
 	if (task->rx.left == 0 &&
-	    uc_uloop_pipe_parser_finish(task->cb.vm, &task->rx.parser, &msg))
+	    uc_uloop_pipe_parser_finish(&task->rx.parser, &msg))
 		uc_uloop_task_output(task, msg);
 }
 

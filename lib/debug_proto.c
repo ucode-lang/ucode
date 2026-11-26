@@ -20,17 +20,18 @@
 #include <errno.h>
 
 #include "ucode/util.h"
+#include "ucode/json.h"
 #include "debug_proto.h"
 
 #define DEBUG_PROTO_READ_CHUNK 1024
 
-/* Append a NUL-terminated string; like printbuf_strappend() but for
- * non-literal strings (printbuf_memappend_fast() compares its size
+/* Append a NUL-terminated string; like uc_stringbuf_append() but for
+ * non-literal strings (uc_stringbuf_add() compares its size
  * argument against the buffer's int fields, hence the cast). */
 static void
 printbuf_strcat(uc_stringbuf_t *sb, const char *s)
 {
-	printbuf_memappend_fast(sb, s, (int)strlen(s));
+	uc_stringbuf_add(sb, s, (int)strlen(s));
 }
 
 void
@@ -53,7 +54,7 @@ debug_proto_buf_free(debug_proto_buf_t *buf)
 void
 debug_proto_write(int fd, uc_vm_t *vm, const char *verb, uc_value_t *payload)
 {
-	uc_stringbuf_t *sb = xprintbuf_new();
+	uc_stringbuf_t *sb = uc_stringbuf_new();
 	const char *p;
 	size_t remaining;
 	ssize_t n;
@@ -65,16 +66,16 @@ debug_proto_write(int fd, uc_vm_t *vm, const char *verb, uc_value_t *payload)
 		json = ucv_to_jsonstring(vm, payload);
 
 		if (json) {
-			printbuf_memappend_fast(sb, " ", 1);
+			uc_stringbuf_add(sb, " ", 1);
 			printbuf_strcat(sb, json);
 			free(json);
 		}
 	}
 
-	printbuf_memappend_fast(sb, "\n", 1);
+	uc_stringbuf_add(sb, "\n", 1);
 
 	p = sb->buf;
-	remaining = (size_t)printbuf_length(sb);
+	remaining = (size_t)uc_stringbuf_length(sb);
 
 	while (remaining > 0) {
 		n = write(fd, p, remaining);
@@ -90,7 +91,7 @@ debug_proto_write(int fd, uc_vm_t *vm, const char *verb, uc_value_t *payload)
 		remaining -= (size_t)n;
 	}
 
-	printbuf_free(sb);
+	uc_stringbuf_free(sb);
 }
 
 /* Append `len` bytes to the tail of buf, growing its backing storage as
@@ -137,8 +138,8 @@ debug_proto_read(int fd, debug_proto_buf_t *buf, uc_vm_t *vm,
 {
 	char chunk[DEBUG_PROTO_READ_CHUNK];
 	char *line, *sp, *verb;
-	struct json_tokener *tok;
-	json_object *jso;
+	uc_json_parser_t *parser;
+	uc_value_t *val;
 	size_t line_len, verb_len, json_len;
 	ssize_t n;
 
@@ -199,26 +200,24 @@ debug_proto_read(int fd, debug_proto_buf_t *buf, uc_vm_t *vm,
 	json_len = sp ? line_len - verb_len - 1 : 0;
 
 	if (json_len > 0) {
-		tok = xjs_new_tokener();
+		parser = uc_json_parser_new(vm);
 
-		/* len + 1 to include the trailing NUL: works around json-c
-		 * treating a lone atomic value (e.g. `true`) as incomplete
-		 * without a following delimiter, see json-c issue #681. */
-		jso = json_tokener_parse_ex(tok, sp + 1, (int)json_len + 1);
+		/* len + 1 to include the trailing NUL, which ends the input, so
+		 * that a lone atomic value (e.g. `true`) completes */
+		val = uc_json_parse(parser, sp + 1, json_len + 1);
 
-		if (json_tokener_get_error(tok) != json_tokener_success) {
-			json_tokener_free(tok);
-			json_object_put(jso);
+		if (uc_json_parser_error(parser) != UC_JSON_SUCCESS) {
+			uc_json_parser_free(parser);
+			ucv_put(val);
 			free(verb);
 			free(line);
 
 			return -2;
 		}
 
-		*payload_out = ucv_from_json(vm, jso);
+		*payload_out = val;
 
-		json_tokener_free(tok);
-		json_object_put(jso);
+		uc_json_parser_free(parser);
 	}
 
 	free(line);

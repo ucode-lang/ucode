@@ -1,0 +1,588 @@
+Alias and shadowed include.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+let f=include;f("part.uc");function g(include){include("trap.uc");}g(x=>print(x));
+-- End (no-eol) --
+
+-- File part.uc --
+print("part ");
+-- End (no-eol) --
+
+-- File trap.uc --
+syntax error!
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+part trap.uc
+-- End (no-eol) --
+
+
+Argument errors.
+
+-- Testcase --
+try {include(1);}catch(e){print(e.type," ",e.message,"\n");}
+            try {include("missing.uc",false);}catch(e){print(e.type," ",e.message,"\n");}
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+Type error Passed filename is not a string
+Type error Passed scope value is not an object
+-- End --
+
+
+Dynamic global scope of escaped functions.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+value="outside";let kept=[];include("part.uc",{value:"inside",kept});
+            print(kept[0]()," ",call(kept[0],null,{value:"call"}),"\n");
+-- End (no-eol) --
+
+-- File part.uc --
+push(kept,function(){gc();return value;});print(kept[0]()," ");
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+inside outside call
+-- End --
+
+
+Error restores scope and retries.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+value="outer";let state={n:0};let s={value:"inner",state};
+            for(let i=0;i<2;i++) try {include("part.uc",s);} catch(e){gc();print(e.message," ",value," ");}
+            print(state.n,"\n");
+-- End (no-eol) --
+
+-- File part.uc --
+state.n++;let o={};o.self=o;gc();die(value);
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+inner outer inner outer 2
+-- End --
+
+
+Global operations and scope restoration.
+
+-- Testcase --
+n=2;n*=3;print(n++," ",++n," ",n," ");
+            let saved=print;print=x=>"wrapped:"+x;saved(print(3)," ");global.print=saved;
+            call(function(){n+=10;gc();print(n," ");},null,{n:1});print(n,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+6 8 8 wrapped:3 11 8
+-- End --
+
+
+Isolated scope and builtin overrides.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+let realprint=print, collect=push, sweep=gc, lines=[];
+            let s=proto({print(...args){sweep();collect(lines,args);},NaN:7,Infinity:8},{});
+            include("part.uc",s);gc();realprint(lines," ",s.value,"\n");
+-- End (no-eol) --
+
+-- File part.uc --
+value=3;print(value,NaN,Infinity,require,modules,global,REQUIRE_SEARCH_PATH);
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+[ [ 3, 7, 8, null, null, null, null ] ] 3
+-- End --
+
+
+Nested import require and callback origins.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+import {run} from './lib/module.uc';
+            run();let cb=require("lib.required");cb();include("inc/outer.uc");
+-- End (no-eol) --
+
+-- File lib/module.uc --
+export function run(){return include("leaf.uc");}
+-- End (no-eol) --
+
+-- File lib/required.uc --
+return function(){include("leaf.uc");};
+-- End (no-eol) --
+
+-- File lib/leaf.uc --
+print("lib\n");
+-- End (no-eol) --
+
+-- File inc/outer.uc --
+include("nested/../leaf.uc");
+-- End (no-eol) --
+
+-- File inc/leaf.uc --
+print("inc\n");
+-- End (no-eol) --
+
+-- File inc/nested/empty.uc --
+-- End --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+lib
+lib
+inc
+-- End --
+
+
+No lexical scope inheritance.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+let local=7;include("part.uc");include("part.uc",{local});
+-- End (no-eol) --
+
+-- File part.uc --
+print(local,"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+
+7
+-- End --
+
+
+Nonfunction builtin override.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+try {include("part.uc",{length:null});}catch(e){print(e.type,"\n");}
+            include("part.uc",{length(x){gc();return 99;}});
+-- End (no-eol) --
+
+-- File part.uc --
+print(length([1,2]),"\n");
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+Type error
+99
+-- End --
+
+
+Prototype scope updated in place.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+let parent={n:4,print:print},s=proto({own:1},parent);
+            include("part.uc",s);print(s.own," ",parent.n," ",parent.added,"\n");
+-- End (no-eol) --
+
+-- File part.uc --
+own+=2;n++;added=9;print(own," ",n," ");
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+3 5 3 5 9
+-- End --
+
+
+Recursive include is repeated execution.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+state={n:0};include("part.uc",{level:5});print(state.n);
+-- End (no-eol) --
+
+-- File part.uc --
+state.n++;gc();if(level)include("part.uc",{level:level-1});
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+6
+-- End (no-eol) --
+
+
+Repeated lazy and no return.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+function unused(){include("unused.uc");}
+            count=0;print(include("part.uc")," ");include("./part.uc");print(count,"\n");
+-- End (no-eol) --
+
+-- File part.uc --
+print("part ");count++;return 42;
+-- End (no-eol) --
+
+-- File unused.uc --
+die("must not run");
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+part  part 0
+-- End --
+
+
+Repeated static imports and escaped closures.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+import {value} from './base.uc';let callbacks=[];
+            include("part.uc",{callbacks});include("part.uc",{callbacks});gc();
+            print(value," ",callbacks[0]()," ",callbacks[0]()," ",callbacks[1](),"\n");
+-- End (no-eol) --
+
+-- File base.uc --
+export let value=10;export function next(){gc();return ++value;}
+-- End (no-eol) --
+
+-- File part.uc --
+import {next} from "./base.uc";push(callbacks,next);include("nested.uc");
+-- End (no-eol) --
+
+-- File nested.uc --
+import * as b from "./base.uc";gc();print(b.next()," ");
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+11 11 10 11 12 11
+-- End --
+
+
+Replaced module cache.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+count=0;require("dep");modules={};require("dep");print(count);
+-- End (no-eol) --
+
+-- File dep.uc --
+count++;return null;
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+2
+-- End (no-eol) --
+
+
+Require and include same file.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+count=0;require("part");include("part.uc");require("part");include("part.uc");print(count);
+-- End (no-eol) --
+
+-- File part.uc --
+count++;return count;
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+1
+-- End (no-eol) --
+
+
+Scope copy and shared objects.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+count=0;let s={name:"original",box:{n:0}};
+            include("part.uc",s);include("part.uc",s);gc();print(s.name," ",s.box.n," ",count," ",created,"\n");
+-- End (no-eol) --
+
+-- File part.uc --
+print(name," ");name="changed";box.n++;count++;created=9;gc();
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+original original original 2 2 9
+-- End --
+
+
+Scoped require cache.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+let s={modules:{},state:{n:0}};
+            include("part.uc",s);include("part.uc",s);print(s.state.n," ",exists(modules,"dep"),"\n");
+-- End (no-eol) --
+
+-- File part.uc --
+print(require("dep")," ");
+-- End (no-eol) --
+
+-- File dep.uc --
+state.n++;return state.n;
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+1 1 1 false
+-- End --
+
+
+Strict globals.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+import {read,write,update} from './strict.uc';
+            try{read();}catch(e){print(e.type," ");}try{write();}catch(e){print(e.type," ");}
+            try{update();}catch(e){print(e.type," ");}print(call(read,null,{missing:42}),"\n");
+-- End (no-eol) --
+
+-- File strict.uc --
+export function read(){return missing;}export function write(){missing=1;}export function update(){missing++;}
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+Reference error Reference error Reference error 42
+-- End --
+
+
+Exit unwinds scope.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+try {include("part.uc",{value:7});} catch(e){print("caught");}
+-- End (no-eol) --
+
+-- File part.uc --
+let o={};o.self=o;gc();print(value);exit(value);
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+7
+-- End (no-eol) --
+
+-- Expect exitcode --
+7
+-- End --
+
+
+Nul in path.
+
+-- Testcase --
+try {include("bad\u0000name");}catch(e){print(e.message,"\n");}
+-- End (no-eol) --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+Include file not found
+-- End --
+
+
+Global loader override.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+include=x=>print(x);include("trap.uc");
+-- End (no-eol) --
+
+-- File trap.uc --
+syntax error!
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+trap.uc
+-- End (no-eol) --
+
+
+Computed directory and path normalization.
+
+-- Testcase --
+-- End --
+
+-- File main.uc --
+let name="one";include("plugins/./"+name+".uc");
+-- End (no-eol) --
+
+-- File plugins/one.uc --
+print("one");
+-- End (no-eol) --
+
+-- File plugins/unused.uc --
+die("unused");
+-- End (no-eol) --
+
+-- Args --
+-R
+-L
+files/*.uc
+files/main.uc
+-- End --
+
+-- Expect stdout --
+one
+-- End (no-eol) --

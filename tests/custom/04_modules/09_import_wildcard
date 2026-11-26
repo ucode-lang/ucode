@@ -71,3 +71,53 @@ export default a + b + c;
 -- Expect stdout --
 [ 6, { "a": 1, "b": 2, "c": 3, "default": 6 } ]
 -- End --
+
+
+All wildcard imports of a module refer to the same object.
+
+-- Testcase --
+import * as mod from "./files/test4.uc";
+import { other } from "./files/test5.uc";
+
+print([mod === other, mod], "\n");
+-- End --
+
+-- File test4.uc --
+export const a = 1;
+-- End --
+
+-- File test5.uc --
+import * as m from "./test4.uc";
+export const other = m;
+-- End --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ true, { "a": 1 } ]
+-- End --
+
+
+This also applies to the wildcard imports of a C module.
+
+-- Testcase --
+import * as math from 'math';
+import { other } from "./files/test6.uc";
+
+print([math === other, type(math.abs)], "\n");
+-- End --
+
+-- File test6.uc --
+import * as m from 'math';
+export const other = m;
+-- End --
+
+-- Args --
+-R
+-- End --
+
+-- Expect stdout --
+[ true, "function" ]
+-- End --

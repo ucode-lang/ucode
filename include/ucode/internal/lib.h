@@ -135,4 +135,35 @@ __hidden void uc_error_message_indent(char **msg);
 
 __hidden uc_value_t *uc_require_library(uc_vm_t *vm, uc_value_t *nameval, bool module_mode);
 
+/* Appends the path that the search path entry `path_template` gives for module
+ * `name` to `buf`, as require() looks it up. Returns the file extension of the
+ * entry, or NULL if the entry or the name are not usable. */
+__hidden const char *uc_require_path_expand(const char *path_template, const char *name,
+                                            uc_stringbuf_t *buf);
+
+__hidden char *uc_include_path(const char *curpath, const char *incpath);
+
+/* Normalises `path` lexically to an absolute path, without resolving links,
+ * so that it also names a file which does not exist. */
+__hidden char *uc_path_normalize(const char *path);
+
+/* The compiler registers itself through uc_loader_compile_set(), so that a
+ * runtime linking this file without the compiler has no compiler. */
+typedef uc_program_t *(*uc_loader_compile_t)(uc_parse_config_t *, uc_source_t *, char **);
+
+__hidden void uc_loader_compile_set(uc_loader_compile_t compile);
+
+/* Scripts that a native program contains: the loaders find them by path
+ * before they look at the file system. unit_closure() returns the closure of
+ * a script, or sets *errp to the compile error of a script that the program
+ * contains as failed to compile. */
+typedef struct {
+	uc_value_t *(*unit_closure)(uc_vm_t *vm, const char *path, bool raw_mode, bool module_mode,
+	                            char **errp);
+	char *(*unit_path)(const char *path);
+	char *(*source_path)(const char *runpath);
+} uc_loader_units_t;
+
+__hidden void uc_loader_units_set(const uc_loader_units_t *units);
+
 #endif /* UCODE_INTERNAL_LIB_H */
