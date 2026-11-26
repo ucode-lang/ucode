@@ -1,0 +1,97 @@
+Test that `sendmsg()` sends the items of its data array as it read them,
+also if the `tostring` method of a later item changes the array. The method
+is script code: it can add items, which moves the storage of the array, and
+it can replace or remove the items that the function read before.
+
+-- Testcase --
+{%
+	import * as socket from 'socket';
+
+	let sk = socket.pair(socket.SOCK_DGRAM);
+
+	// take the block that the array released
+	function clobber() {
+		let strings = [];
+
+		for (let i = 0; i < 64; i++)
+			push(strings, sprintf("%044d", i));
+
+		return strings;
+	}
+
+	let grown = [ "short", "abc", "x" ];
+
+	push(grown, proto({}, {
+		tostring: function() {
+			for (let i = 0; i < 4000; i++)
+				push(grown, "grow");
+
+			clobber();
+
+			return "E";
+		}
+	}));
+
+	printf("%d %s\n", sk[0].sendmsg(grown), sk[1].recv(128));
+
+	let replaced = [ sprintf("%044d", 1), "abc" ];
+
+	push(replaced, proto({}, {
+		tostring: function() {
+			replaced[0] = null;
+			replaced[1] = "xyz";
+			clobber();
+
+			return "E";
+		}
+	}));
+
+	printf("%d %s\n", sk[0].sendmsg(replaced), sk[1].recv(128));
+
+	let shrunk = [ sprintf("%044d", 2) ];
+
+	push(shrunk, proto({}, {
+		tostring: function() {
+			splice(shrunk, 0);
+			clobber();
+
+			return "E";
+		}
+	}), "removed");
+
+	printf("%d %s\n", sk[0].sendmsg(shrunk), sk[1].recv(128));
+%}
+-- End --
+
+-- Expect stdout --
+10 shortabcxE
+48 00000000000000000000000000000000000000000001abcE
+45 00000000000000000000000000000000000000000002E
+-- End --
+
+
+Test that `sendmsg()` converts each kind of data value.
+
+-- Testcase --
+{%
+	import * as socket from 'socket';
+
+	let sk = socket.pair(socket.SOCK_DGRAM);
+	let obj = proto({}, { tostring: () => "object" });
+
+	for (let data in [ "string", 123, obj, [ "a", null, 5, obj, "b" ], [ "one" ], [] ])
+		printf("%d %J\n", sk[0].sendmsg(data), sk[1].recv(128));
+
+	printf("%d\n", sk[0].sendmsg());
+%}
+-- End --
+
+-- Expect stdout --
+6 "string"
+3 "123"
+6 "object"
+9 "a5objectb"
+3 "one"
+0 ""
+0
+-- End --

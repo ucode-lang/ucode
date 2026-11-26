@@ -1,0 +1,66 @@
+The send() method of a socket sends nothing if the conversion of the data
+raised an exception.
+
+-- Testcase --
+{%
+	import * as socket from 'socket';
+
+	let failing = proto({}, { tostring: function() { die("failed"); } });
+	let pair = socket.pair();
+
+	try {
+		pair[0].send([ "x", failing ]);
+		print("not reached\n");
+	}
+	catch (e) {
+		print("socket: ", e.message, "\n");
+	}
+
+	printf("%J\n", pair[1].recv(100, socket.MSG_DONTWAIT));
+
+	pair[0].close();
+	pair[1].close();
+%}
+-- End --
+
+-- Expect stdout --
+socket: failed
+null
+-- End --
+
+
+The same applies to sendmsg(), for a single value and for an item of an
+array.
+
+-- Testcase --
+{%
+	import * as socket from 'socket';
+
+	let failing = proto({}, { tostring: function() { die("failed"); } });
+	let pair = socket.pair();
+
+	for (let data in [ [ "x", failing ], [ [ "y", failing ] ], failing ]) {
+		try {
+			pair[0].sendmsg(data);
+			print("not reached\n");
+		}
+		catch (e) {
+			print("socket: ", e.message, "\n");
+		}
+
+		printf("%J\n", pair[1].recv(100, socket.MSG_DONTWAIT));
+	}
+
+	pair[0].close();
+	pair[1].close();
+%}
+-- End --
+
+-- Expect stdout --
+socket: failed
+null
+socket: failed
+null
+socket: failed
+null
+-- End --

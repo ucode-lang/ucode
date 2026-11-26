@@ -1,0 +1,26 @@
+Test that `recvmsg()` fails for a buffer size that the module rejects, for
+a single size and for a size in a list, and that the socket works after
+that. The size is rejected before any buffer of that size is allocated.
+
+-- Testcase --
+{%
+	import * as socket from 'socket';
+
+	let sk = socket.pair(socket.SOCK_DGRAM);
+
+	sk[0].send("hello");
+
+	for (let sizes in [ 3000000000, [ 3000000000 ], [ 4, 3000000000, 4 ], [ 4, 4, 3000000000 ] ])
+		printf("%J %s\n", sk[1].recvmsg(sizes, 64), split(socket.error(), ":")[0]);
+
+	printf("%J\n", sk[1].recvmsg([ 2, 8 ]).data);
+%}
+-- End --
+
+-- Expect stdout --
+null Requested size too large
+null Requested size too large
+null Requested size too large
+null Requested size too large
+[ "he", "llo" ]
+-- End --

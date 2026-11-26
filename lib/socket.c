@@ -1054,7 +1054,7 @@ typedef struct {
 	} u1;
 	union {
 		size_t size;
-		uc_value_t *(*to_uv)(void *);
+		uc_value_t *(*to_uv)(uc_vm_t *, void *);
 	} u2;
 } member_t;
 
@@ -1250,7 +1250,7 @@ static struct_t st_in6_flowlabel_req = {
 
 #if defined(__linux__)
 static uc_value_t *
-in6_ifindex_to_uv(void *st)
+in6_ifindex_to_uv(uc_vm_t *vm, void *st)
 {
 	char ifname[IF_NAMESIZE] = { 0 };
 	struct ipv6_mreq *mr = st;
@@ -1323,10 +1323,10 @@ struct ipv6_recv_error_local {
 };
 
 static uc_value_t *
-offender_to_uv(void *st)
+offender_to_uv(uc_vm_t *vm, void *st)
 {
 	struct ipv6_recv_error_local *e = st;
-	uc_value_t *addr = ucv_object_new(NULL);
+	uc_value_t *addr = ucv_object_new(vm);
 
 	if (sockaddr_to_uv((struct sockaddr_storage *)&e->offender, addr))
 		return addr;
@@ -1353,10 +1353,10 @@ static struct_t st_ip_recv_error = {
 };
 
 static uc_value_t *
-ip6m_addr_to_uv(void *st)
+ip6m_addr_to_uv(uc_vm_t *vm, void *st)
 {
 	struct ip6_mtuinfo *mi = st;
-	uc_value_t *addr = ucv_object_new(NULL);
+	uc_value_t *addr = ucv_object_new(vm);
 
 	if (sockaddr_to_uv((struct sockaddr_storage *)&mi->ip6m_addr, addr))
 		return addr;
@@ -1388,13 +1388,13 @@ static struct_t st_ip_msfilter = {
 };
 
 static uc_value_t *
-snd_wscale_to_uv(void *st)
+snd_wscale_to_uv(uc_vm_t *vm, void *st)
 {
 	return ucv_uint64_new(((struct tcp_info *)st)->tcpi_snd_wscale);
 }
 
 static uc_value_t *
-rcv_wscale_to_uv(void *st)
+rcv_wscale_to_uv(uc_vm_t *vm, void *st)
 {
 	return ucv_uint64_new(((struct tcp_info *)st)->tcpi_rcv_wscale);
 }
@@ -1466,9 +1466,9 @@ static struct_t st_tcp_info = {
 #endif
 
 static uc_value_t *
-ai_addr_to_uv(void *st)
+ai_addr_to_uv(uc_vm_t *vm, void *st)
 {
-	uc_value_t *rv = ucv_object_new(NULL);
+	uc_value_t *rv = ucv_object_new(vm);
 	struct sockaddr_storage ss = { 0 };
 	struct addrinfo *ai = st;
 
@@ -1483,7 +1483,7 @@ ai_addr_to_uv(void *st)
 }
 
 static uc_value_t *
-ai_canonname_to_uv(void *st)
+ai_canonname_to_uv(uc_vm_t *vm, void *st)
 {
 	struct addrinfo *ai = st;
 	return ai->ai_canonname ? ucv_string_new(ai->ai_canonname) : NULL;
@@ -1517,7 +1517,7 @@ static struct_t st_addrinfo = {
 
 #if defined(__linux__)
 static uc_value_t *
-mr_ifindex_to_uv(void *st)
+mr_ifindex_to_uv(uc_vm_t *vm, void *st)
 {
 	char ifname[IF_NAMESIZE] = { 0 };
 	struct packet_mreq *mr = st;
@@ -1551,7 +1551,7 @@ mr_ifindex_to_c(void *st, uc_value_t *uv)
 }
 
 static uc_value_t *
-mr_address_to_uv(void *st)
+mr_address_to_uv(uc_vm_t *vm, void *st)
 {
 	struct packet_mreq *mr = st;
 
@@ -1720,8 +1720,10 @@ static struct_t st_timespec_new = {
 #define SV_INT		(struct_t *)1
 #define SV_INT_RO	(struct_t *)2
 #define SV_BOOL		(struct_t *)3
-#define SV_STRING	(struct_t *)4
+#define SV_BINARY	(struct_t *)4
 #define SV_IFNAME	(struct_t *)5
+/* a string whose value ends at its first NUL byte */
+#define SV_STRING	(struct_t *)6
 
 #define CV_INT		(struct_t *)0
 #define CV_UINT		(struct_t *)1
@@ -1752,7 +1754,7 @@ static sockopt_t sockopts[] = {
 #if defined(__linux__)
     { SOL_SOCKET, SO_ATTACH_FILTER, &st_sock_fprog },
     { SOL_SOCKET, SO_ATTACH_BPF, SV_INT },
-    { SOL_SOCKET, SO_ATTACH_REUSEPORT_CBPF, SV_STRING },
+    { SOL_SOCKET, SO_ATTACH_REUSEPORT_CBPF, SV_BINARY },
     { SOL_SOCKET, SO_ATTACH_REUSEPORT_EBPF, SV_INT },
     { SOL_SOCKET, SO_BINDTODEVICE, SV_STRING },
     { SOL_SOCKET, SO_DETACH_FILTER, SV_VOID },
@@ -1785,7 +1787,7 @@ static sockopt_t sockopts[] = {
     { IPPROTO_IP, IP_MULTICAST_IF, &st_ip_mreqn },
     { IPPROTO_IP, IP_MULTICAST_LOOP, SV_BOOL },
     { IPPROTO_IP, IP_MULTICAST_TTL, SV_INT },
-    { IPPROTO_IP, IP_OPTIONS, SV_STRING },
+    { IPPROTO_IP, IP_OPTIONS, SV_BINARY },
     { IPPROTO_IP, IP_PKTINFO, SV_BOOL },
     { IPPROTO_IP, IP_RECVOPTS, SV_BOOL },
     { IPPROTO_IP, IP_RECVTOS, SV_BOOL },
@@ -1827,10 +1829,10 @@ static sockopt_t sockopts[] = {
 	{ IPPROTO_IPV6, IPV6_AUTOFLOWLABEL, SV_BOOL },
 	{ IPPROTO_IPV6, IPV6_DONTFRAG, SV_BOOL },
 	{ IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP, &st_ipv6_mreq },
-	{ IPPROTO_IPV6, IPV6_DSTOPTS, SV_STRING },
+	{ IPPROTO_IPV6, IPV6_DSTOPTS, SV_BINARY },
 	{ IPPROTO_IPV6, IPV6_FREEBIND, SV_BOOL },
 	{ IPPROTO_IPV6, IPV6_HOPLIMIT, SV_BOOL },
-	{ IPPROTO_IPV6, IPV6_HOPOPTS, SV_STRING },
+	{ IPPROTO_IPV6, IPV6_HOPOPTS, SV_BINARY },
 	{ IPPROTO_IPV6, IPV6_JOIN_ANYCAST, &st_ipv6_mreq },
 	{ IPPROTO_IPV6, IPV6_LEAVE_ANYCAST, &st_ipv6_mreq },
 	{ IPPROTO_IPV6, IPV6_MINHOPCOUNT, SV_INT },
@@ -1849,8 +1851,8 @@ static sockopt_t sockopts[] = {
 	{ IPPROTO_IPV6, IPV6_RECVRTHDR, SV_BOOL },
 	{ IPPROTO_IPV6, IPV6_ROUTER_ALERT_ISOLATE, SV_BOOL },
 	{ IPPROTO_IPV6, IPV6_ROUTER_ALERT, SV_BOOL },
-	{ IPPROTO_IPV6, IPV6_RTHDR, SV_STRING },
-	{ IPPROTO_IPV6, IPV6_RTHDRDSTOPTS, SV_STRING },
+	{ IPPROTO_IPV6, IPV6_RTHDR, SV_BINARY },
+	{ IPPROTO_IPV6, IPV6_RTHDRDSTOPTS, SV_BINARY },
 	{ IPPROTO_IPV6, IPV6_TRANSPARENT, SV_BOOL },
 	{ IPPROTO_IPV6, IPV6_UNICAST_IF, SV_IFNAME },
 #endif
@@ -1894,7 +1896,7 @@ static sockopt_t sockopts[] = {
 #endif
 
 #if defined(__linux__)
-	{ SOL_CAN_RAW, CAN_RAW_FILTER, SV_STRING },
+	{ SOL_CAN_RAW, CAN_RAW_FILTER, SV_BINARY },
 	{ SOL_CAN_RAW, CAN_RAW_ERR_FILTER, SV_INT },
 	{ SOL_CAN_RAW, CAN_RAW_LOOPBACK, SV_BOOL },
 	{ SOL_CAN_RAW, CAN_RAW_RECV_OWN_MSGS, SV_BOOL },
@@ -1923,8 +1925,8 @@ static cmsgtype_t cmsgtypes[] = {
 	{ SOL_SOCKET, SCM_RIGHTS, CV_FDS },
 #endif
 
-	{ IPPROTO_IP, IP_RECVOPTS, SV_STRING },
-	{ IPPROTO_IP, IP_RETOPTS, SV_STRING },
+	{ IPPROTO_IP, IP_RECVOPTS, SV_BINARY },
+	{ IPPROTO_IP, IP_RETOPTS, SV_BINARY },
 	{ IPPROTO_IP, IP_TOS, CV_INT },
 	{ IPPROTO_IP, IP_TTL, CV_INT },
 #if defined(__linux__)
@@ -2078,13 +2080,13 @@ uv_to_struct(uc_vm_t *vm, uc_value_t *uv, struct_t *spec)
 }
 
 static uc_value_t *
-struct_to_uv(char *st, struct_t *spec)
+struct_to_uv(uc_vm_t *vm, char *st, struct_t *spec)
 {
 	char s[sizeof("ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255")];
 	uc_value_t *uv, *fv;
 	member_t *m;
 
-	uv = ucv_object_new(NULL);
+	uv = ucv_object_new(vm);
 
 	for (size_t i = 0; spec->members[i].name; i++) {
 		m = &spec->members[i];
@@ -2146,7 +2148,7 @@ struct_to_uv(char *st, struct_t *spec)
 			break;
 
 		case DT_CALLBACK:
-			fv = m->u2.to_uv ? m->u2.to_uv(st) : NULL;
+			fv = m->u2.to_uv ? m->u2.to_uv(vm, st) : NULL;
 			break;
 		}
 
@@ -2235,6 +2237,7 @@ uc_socket_inst_setopt(uc_vm_t *vm, size_t nargs)
 			vallen = sizeof(int);
 			break;
 
+		case (uintptr_t)SV_BINARY:
 		case (uintptr_t)SV_STRING:
 			valptr = ucv_string_get(value);
 			vallen = ucv_string_length(value);
@@ -2325,56 +2328,57 @@ uc_socket_inst_getopt(uc_vm_t *vm, size_t nargs)
 	solvl = ucv_int64_get(level);
 	soopt = ucv_int64_get(option);
 
-	for (i = 0; i < ARRAY_SIZE(sockopts); i++) {
-		if (sockopts[i].level != solvl || sockopts[i].option != soopt)
-			continue;
-
-		switch ((uintptr_t)sockopts[i].ctype) {
-		case (uintptr_t)SV_VOID:
-			err_return(EOPNOTSUPP, "Socket option is write only");
-
-		case (uintptr_t)SV_INT:
-		case (uintptr_t)SV_INT_RO:
-		case (uintptr_t)SV_BOOL:
-		case (uintptr_t)SV_IFNAME:
-			valptr = ival;
-			vallen = sizeof(ival);
+	for (i = 0; i < ARRAY_SIZE(sockopts); i++)
+		if (sockopts[i].level == solvl && sockopts[i].option == soopt)
 			break;
-
-		case (uintptr_t)SV_STRING:
-			sb = strbuf_alloc(64);
-			valptr = strbuf_data(sb);
-			vallen = strbuf_size(sb);
-			break;
-
-		default:
-			st = xalloc(sockopts[i].ctype->size);
-			valptr = st;
-			vallen = sockopts[i].ctype->size;
-			break;
-		}
-
-		break;
-	}
 
 	if (i == ARRAY_SIZE(sockopts))
 		err_return(EINVAL, "Unknown socket level or option");
 
+	switch ((uintptr_t)sockopts[i].ctype) {
+	case (uintptr_t)SV_VOID:
+		err_return(EOPNOTSUPP, "Socket option is write only");
+
+	case (uintptr_t)SV_INT:
+	case (uintptr_t)SV_INT_RO:
+	case (uintptr_t)SV_BOOL:
+	case (uintptr_t)SV_IFNAME:
+		valptr = ival;
+		vallen = sizeof(ival);
+		break;
+
+	case (uintptr_t)SV_BINARY:
+	case (uintptr_t)SV_STRING:
+		sb = strbuf_alloc(64);
+
+		if (!sb)
+			return NULL;
+
+		valptr = strbuf_data(sb);
+		vallen = strbuf_size(sb);
+		break;
+
+	default:
+		st = xalloc(sockopts[i].ctype->size);
+		valptr = st;
+		vallen = sockopts[i].ctype->size;
+		break;
+	}
+
 	while (true) {
 		ret = getsockopt(sockfd, solvl, soopt, valptr, &vallen);
 
-		if (sockopts[i].ctype == SV_STRING &&
-		    (ret == 0 || (ret == -1 && errno == ERANGE)) &&
-		    vallen > strbuf_size(sb)) {
+		if (!sb || vallen <= strbuf_size(sb) ||
+		    (ret == -1 && errno != ERANGE))
+			break;
 
-			if (!strbuf_grow(sb, vallen))
-				return NULL;
+		if (!strbuf_grow(sb, vallen)) {
+			strbuf_free(sb);
 
-			valptr = strbuf_data(sb);
-			continue;
+			return NULL;
 		}
 
-		break;
+		valptr = strbuf_data(sb);
 	}
 
 	if (ret == 0) {
@@ -2394,8 +2398,12 @@ uc_socket_inst_getopt(uc_vm_t *vm, size_t nargs)
 			value = ucv_boolean_new(parse_integer(ival, vallen) != 0);
 			break;
 
-		case (uintptr_t)SV_STRING:
+		case (uintptr_t)SV_BINARY:
 			value = strbuf_finish(&sb, vallen);
+			break;
+
+		case (uintptr_t)SV_STRING:
+			value = strbuf_finish(&sb, strnlen(strbuf_data(sb), vallen));
 			break;
 
 		case (uintptr_t)SV_IFNAME:
@@ -2407,7 +2415,7 @@ uc_socket_inst_getopt(uc_vm_t *vm, size_t nargs)
 			break;
 
 		default:
-			value = struct_to_uv(st, sockopts[i].ctype);
+			value = struct_to_uv(vm, st, sockopts[i].ctype);
 			break;
 		}
 	}
@@ -2797,7 +2805,7 @@ uc_socket_addrinfo(uc_vm_t *vm, size_t nargs)
 	rv = ucv_array_new(vm);
 
 	for (struct addrinfo *ai = ai_res; ai; ai = ai->ai_next) {
-		uc_value_t *item = struct_to_uv((char *)ai, &st_addrinfo);
+		uc_value_t *item = struct_to_uv(vm, (char *)ai, &st_addrinfo);
 
 		if (item)
 			ucv_array_push(rv, item);
@@ -2895,6 +2903,15 @@ uc_socket_poll(uc_vm_t *vm, size_t nargs)
 
 		if (item)
 			ucv_array_set(rv, pfds.count++, item);
+
+		/* the next fileno call would clear the exception of this one */
+		if (vm->exception.type != EXCEPTION_NONE) {
+			ucv_put(uc_vm_stack_pop(vm));
+			ucv_put(rv);
+			uc_vector_clear(&pfds);
+
+			return NULL;
+		}
 	}
 
 	ret = poll(pfds.entries, pfds.count, timeout);
@@ -3718,6 +3735,12 @@ uc_socket_inst_send(uc_vm_t *vm, size_t nargs)
 	if (ucv_type(data) != UC_STRING)
 		buf = ucv_to_string(vm, data);
 
+	if (vm->exception.type != EXCEPTION_NONE) {
+		free(buf);
+
+		return NULL;
+	}
+
 	ret = sendto(sockfd,
 		buf ? buf : ucv_string_get(data),
 		buf ? strlen(buf) : ucv_string_length(data),
@@ -3957,7 +3980,7 @@ decode_cmsg(uc_vm_t *vm, struct cmsghdr *cmsg)
 
 		default:
 			if (sz >= cmsgtypes[i].ctype->size)
-				return struct_to_uv(s, cmsgtypes[i].ctype);
+				return struct_to_uv(vm, s, cmsgtypes[i].ctype);
 		}
 
 		break;
@@ -3999,13 +4022,30 @@ estimate_cmsg_size(uc_value_t *uv)
 	}
 }
 
-static bool
-encode_cmsg(uc_vm_t *vm, uc_value_t *uv, struct cmsghdr *cmsg)
+uc_declare_vector(fd_array_t, int);
+
+static void
+uv_to_fds(uc_vm_t *vm, uc_value_t *list, fd_array_t *fds)
 {
-	struct { int *entries; size_t count; } fds = { 0 };
+	for (size_t i = 0; i < ucv_array_length(list); i++) {
+		int fd;
+
+		/* the next fileno call would clear the exception of this one */
+		if (uv_to_fileno(vm, ucv_array_get(list, i), &fd))
+			uc_vector_push(fds, fd);
+		else if (vm->exception.type != EXCEPTION_NONE)
+			break;
+	}
+}
+
+static bool
+encode_cmsg(uc_vm_t *vm, uc_value_t *uv, struct cmsghdr *cmsg, size_t maxlen)
+{
+	fd_array_t fds = { 0 };
 	void *dataptr = NULL;
 	socklen_t datasz = 0;
 	char *st = NULL;
+	bool fits;
 	size_t i;
 	union {
 		int i;
@@ -4018,6 +4058,10 @@ encode_cmsg(uc_vm_t *vm, uc_value_t *uv, struct cmsghdr *cmsg)
 	cmsg->cmsg_type = ucv_to_integer(ucv_object_get(uv, "type", NULL));
 
 	uc_value_t *data = ucv_object_get(uv, "data", NULL);
+
+	/* a fileno or tostring method that the conversion calls can remove the
+	 * data from the message object */
+	uc_vm_stack_push(vm, ucv_get(data));
 
 	for (i = 0; i < ARRAY_SIZE(cmsgtypes); i++) {
 		if (cmsgtypes[i].level != cmsg->cmsg_level)
@@ -4053,14 +4097,8 @@ encode_cmsg(uc_vm_t *vm, uc_value_t *uv, struct cmsghdr *cmsg)
 			break;
 
 		case (uintptr_t)CV_FDS:
-			if (ucv_type(data) == UC_ARRAY) {
-				for (size_t i = 0; i < ucv_array_length(data); i++) {
-					int fd;
-
-					if (uv_to_fileno(vm, ucv_array_get(data, i), &fd))
-						uc_vector_push(&fds, fd);
-				}
-			}
+			if (ucv_type(data) == UC_ARRAY)
+				uv_to_fds(vm, data, &fds);
 
 			datasz = sizeof(fds.entries[0]) * fds.count;
 			dataptr = fds.entries;
@@ -4116,15 +4154,43 @@ encode_cmsg(uc_vm_t *vm, uc_value_t *uv, struct cmsghdr *cmsg)
 		}
 	}
 
-	cmsg->cmsg_len = CMSG_LEN(datasz);
+	/* the buffer has the size that the data had before the conversion */
+	fits = (datasz <= maxlen);
 
-	if (dataptr)
-		memcpy(CMSG_DATA(cmsg), dataptr, datasz);
+	if (fits) {
+		cmsg->cmsg_len = CMSG_LEN(datasz);
 
+		if (dataptr)
+			memcpy(CMSG_DATA(cmsg), dataptr, datasz);
+	}
+
+	ucv_put(uc_vm_stack_pop(vm));
 	uc_vector_clear(&fds);
 	free(st);
 
+	if (vm->exception.type != EXCEPTION_NONE)
+		return false;
+
+	if (!fits)
+		err_return(ENOBUFS, "Not enough CMSG buffer space");
+
 	return true;
+}
+
+uc_declare_vector(strval_array_t, uc_value_t *);
+
+static uc_value_t *
+uv_to_strval(uc_vm_t *vm, uc_value_t *uv)
+{
+	uc_stringbuf_t *buf;
+
+	if (!uv || ucv_type(uv) == UC_STRING)
+		return ucv_get(uv);
+
+	buf = ucv_stringbuf_new();
+	ucv_to_stringbuf(vm, buf, uv, false);
+
+	return ucv_stringbuf_finish(buf);
 }
 
 /**
@@ -4182,13 +4248,13 @@ uc_socket_inst_sendmsg(uc_vm_t *vm, size_t nargs)
 {
 	uc_value_t *data, *ancdata, *addr, *flags;
 	struct sockaddr_storage ss = { 0 };
-	strbuf_array_t sbarr = { 0 };
+	strval_array_t strs = { 0 };
 	struct msghdr msg = { 0 };
 	struct iovec vec = { 0 };
 	bool ctl_allocated = false;
 	int flagval, sockfd;
+	ssize_t ret = -1;
 	socklen_t slen;
-	ssize_t ret;
 
 	args_get(vm, nargs, &sockfd,
 		"data", UC_NULL, true, &data,
@@ -4235,7 +4301,10 @@ uc_socket_inst_sendmsg(uc_vm_t *vm, size_t nargs)
 					err_return(ENOBUFS, "Not enough CMSG buffer space");
 				}
 
-				if (!encode_cmsg(vm, ucv_array_get(ancdata, i), cmsg)) {
+				size_t maxlen = (char *)msg.msg_control + msg.msg_controllen -
+					(char *)CMSG_DATA(cmsg);
+
+				if (!encode_cmsg(vm, ucv_array_get(ancdata, i), cmsg, maxlen)) {
 					free(msg.msg_control);
 					return NULL;
 				}
@@ -4250,42 +4319,27 @@ uc_socket_inst_sendmsg(uc_vm_t *vm, size_t nargs)
 		err_return(EINVAL, "Ancillary data must be string or array value");
 	}
 
-	/* prepare iov array */
+	/* The conversion of an item can run code that changes the array, so the
+	 * iov array refers to own references that are all taken first. */
 	if (ucv_type(data) == UC_ARRAY) {
-		msg.msg_iovlen = ucv_array_length(data);
-		msg.msg_iov = (msg.msg_iovlen > 1)
-			? xalloc(sizeof(vec) * msg.msg_iovlen) : &vec;
+		size_t len = ucv_array_length(data);
 
-		for (size_t i = 0; i < (size_t)msg.msg_iovlen; i++) {
-			uc_value_t *item = ucv_array_get(data, i);
-
-			if (ucv_type(item) == UC_STRING) {
-				msg.msg_iov[i].iov_base = _ucv_string_get(&((uc_array_t *)data)->entries[i]);
-				msg.msg_iov[i].iov_len = ucv_string_length(item);
-			}
-			else if (item) {
-				struct printbuf *pb = xprintbuf_new();
-				uc_vector_push(&sbarr, pb);
-				ucv_to_stringbuf(vm, pb, item, false);
-				msg.msg_iov[i].iov_base = pb->buf;
-				msg.msg_iov[i].iov_len = pb->bpos;
-			}
-		}
-	}
-	else if (ucv_type(data) == UC_STRING) {
-		msg.msg_iovlen = 1;
-		msg.msg_iov = &vec;
-		vec.iov_base = ucv_string_get(data);
-		vec.iov_len = ucv_string_length(data);
+		for (size_t i = 0; i < len; i++)
+			uc_vector_push(&strs, uv_to_strval(vm, ucv_array_get(data, i)));
 	}
 	else if (data) {
-		struct printbuf *pb = xprintbuf_new();
-		uc_vector_push(&sbarr, pb);
-		ucv_to_stringbuf(vm, pb, data, false);
-		msg.msg_iovlen = 1;
-		msg.msg_iov = &vec;
-		vec.iov_base = pb->buf;
-		vec.iov_len = pb->bpos;
+		uc_vector_push(&strs, uv_to_strval(vm, data));
+	}
+
+	if (vm->exception.type != EXCEPTION_NONE)
+		goto out;
+
+	msg.msg_iovlen = strs.count;
+	msg.msg_iov = (strs.count > 1) ? xalloc(sizeof(vec) * strs.count) : &vec;
+
+	for (size_t i = 0; i < strs.count; i++) {
+		msg.msg_iov[i].iov_base = _ucv_string_get(&strs.entries[i]);
+		msg.msg_iov[i].iov_len = ucv_string_length(strs.entries[i]);
 	}
 
 	/* prepare address */
@@ -4299,16 +4353,20 @@ uc_socket_inst_sendmsg(uc_vm_t *vm, size_t nargs)
 		ret = sendmsg(sockfd, &msg, flagval);
 	} while (ret == -1 && errno == EINTR);
 
-	while (sbarr.count > 0)
-		printbuf_free(sbarr.entries[--sbarr.count]);
+out:
+	while (strs.count > 0)
+		ucv_put(strs.entries[--strs.count]);
 
-	uc_vector_clear(&sbarr);
+	uc_vector_clear(&strs);
 
 	if (msg.msg_iov != &vec)
 		free(msg.msg_iov);
 
 	if (ctl_allocated)
 		free(msg.msg_control);
+
+	if (vm->exception.type != EXCEPTION_NONE)
+		return NULL;
 
 	if (ret == -1)
 		err_return(errno, "sendmsg()");
@@ -4345,6 +4403,44 @@ uc_socket_inst_sendmsg(uc_vm_t *vm, size_t nargs)
  * An array of received control messages. Only included if a non-zero positive
  * *ancillarySize* was passed to `recvmsg()`.
  */
+
+static void
+recvmsg_buffers_free(strbuf_array_t *sbarr, struct msghdr *msg, struct iovec *vec)
+{
+	while (sbarr->count > 0)
+		strbuf_free(sbarr->entries[--sbarr->count]);
+
+	uc_vector_clear(sbarr);
+
+	if (msg->msg_iov != vec)
+		free(msg->msg_iov);
+
+	free(msg->msg_control);
+}
+
+static bool
+recvmsg_buffers_alloc(strbuf_array_t *sbarr, struct msghdr *msg, uc_value_t *length)
+{
+	for (size_t i = 0; i < (size_t)msg->msg_iovlen; i++) {
+		uc_value_t *size = (ucv_type(length) == UC_ARRAY) ? ucv_array_get(length, i) : length;
+		size_t sz = ucv_to_unsigned(size);
+		uc_stringbuf_t *sb;
+
+		if (errno != 0)
+			err_return(errno, "Invalid length value");
+
+		sb = strbuf_alloc(sz);
+
+		if (!sb)
+			return false;
+
+		uc_vector_push(sbarr, sb);
+		msg->msg_iov[i].iov_base = strbuf_data(sb);
+		msg->msg_iov[i].iov_len = sz;
+	}
+
+	return true;
+}
 
 /**
  * Receives a message from the socket.
@@ -4435,43 +4531,16 @@ uc_socket_inst_recvmsg(uc_vm_t *vm, size_t nargs)
 		msg.msg_iovlen = ucv_array_length(length);
 		msg.msg_iov = (msg.msg_iovlen > 1)
 			? xalloc(sizeof(vec) * msg.msg_iovlen) : &vec;
-
-		for (size_t i = 0; i < (size_t)msg.msg_iovlen; i++) {
-			size_t sz = ucv_to_unsigned(ucv_array_get(length, i));
-
-			if (errno != 0) {
-				while (sbarr.count > 0)
-					strbuf_free(sbarr.entries[--sbarr.count]);
-
-				uc_vector_clear(&sbarr);
-
-				if (msg.msg_iov != &vec)
-					free(msg.msg_iov);
-
-				free(msg.msg_control);
-
-				err_return(errno, "Invalid length value");
-			}
-
-			uc_vector_push(&sbarr, strbuf_alloc(sz));
-			msg.msg_iov[i].iov_base = strbuf_data(sbarr.entries[i]);
-			msg.msg_iov[i].iov_len = sz;
-		}
 	}
 	else {
-		size_t sz = ucv_to_unsigned(length);
-
-		if (errno != 0) {
-			free(msg.msg_control);
-			err_return(errno, "Invalid length value");
-		}
-
-		uc_vector_push(&sbarr, strbuf_alloc(sz));
-
 		msg.msg_iovlen = 1;
 		msg.msg_iov = &vec;
-		vec.iov_base = strbuf_data(sbarr.entries[0]);
-		vec.iov_len = sz;
+	}
+
+	if (!recvmsg_buffers_alloc(&sbarr, &msg, length)) {
+		recvmsg_buffers_free(&sbarr, &msg, &vec);
+
+		return NULL;
 	}
 
 	/* now receive actual data */
@@ -4483,16 +4552,7 @@ uc_socket_inst_recvmsg(uc_vm_t *vm, size_t nargs)
 	} while (ret == -1 && errno == EINTR);
 
 	if (ret == -1) {
-		while (sbarr.count > 0)
-			strbuf_free(sbarr.entries[--sbarr.count]);
-
-		uc_vector_clear(&sbarr);
-
-		if (msg.msg_iov != &vec)
-			free(msg.msg_iov);
-
-		free(msg.msg_control);
-
+		recvmsg_buffers_free(&sbarr, &msg, &vec);
 		err_return(errno, "recvmsg()");
 	}
 

@@ -1,0 +1,36 @@
+Test that `poll()` ends at an exception of a `fileno` method. The call of
+the `fileno` method of a later argument does not drop the exception, and
+`poll()` does not wait without the argument that failed.
+
+-- Testcase --
+{%
+	import * as socket from 'socket';
+
+	let sk = socket.pair(socket.SOCK_DGRAM);
+	let failing = { fileno: () => die("no descriptor") };
+	let wrapped = { fileno: () => sk[1].fileno() };
+	let calls = 0;
+	let counted = { fileno: () => { calls++; return sk[1].fileno(); } };
+
+	sk[0].send("x");
+
+	for (let args in [ [ failing, counted ], [ wrapped, failing ], [ [ failing, socket.POLLIN ], counted ] ]) {
+		try {
+			socket.poll(0, ...args);
+			print("not reached\n");
+		}
+		catch (e) {
+			printf("%s\n", e.message);
+		}
+	}
+
+	printf("%d %J\n", calls, map(socket.poll(0, wrapped), (e) => e[1] == socket.POLLIN));
+%}
+-- End --
+
+-- Expect stdout --
+no descriptor
+no descriptor
+no descriptor
+0 [ true ]
+-- End --
