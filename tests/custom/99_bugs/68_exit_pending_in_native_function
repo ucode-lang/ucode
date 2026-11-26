@@ -1,0 +1,94 @@
+When a callback of a C function called exit() and the C function went on,
+the exit request was lost: replace() called its callback for the next match,
+which cleared the pending exit.
+
+-- Testcase --
+{%
+	let n = 0;
+	let r = replace("aaa", /a/g, function() { if (!n++) exit(3); return "b"; });
+	print("not reached: ", r, "\n");
+%}
+-- End --
+
+-- Expect stdout --
+-- End --
+
+-- Expect exitcode --
+3
+-- End --
+
+
+A type error that a C function or the VM raises after the exit request does
+not replace it, so that try does not catch it.
+
+-- Testcase --
+{%
+	let o = proto({}, { tostring: function() { exit(15); } });
+
+	function f(...args) {}
+
+	try {
+		f(...o);
+	}
+	catch (e) {
+		print("caught ", e.message, "\n");
+	}
+
+	print("not reached\n");
+%}
+-- End --
+
+-- Expect stdout --
+-- End --
+
+-- Expect exitcode --
+15
+-- End --
+
+-- Testcase --
+{%
+	let o = proto({}, { tostring: function() { exit(16); } });
+
+	try {
+		print([ ...o ], "\n");
+	}
+	catch (e) {
+		print("caught ", e.message, "\n");
+	}
+
+	print("not reached\n");
+%}
+-- End --
+
+-- Expect stdout --
+-- End --
+
+-- Expect exitcode --
+16
+-- End --
+
+
+An exception object that die() raises after the exit request does not
+replace it.
+
+-- Testcase --
+{%
+	let m = proto({}, { tostring: function() { exit(17); } });
+
+	try {
+		die({ type: "Type error", message: m, stacktrace: [ { filename: "x", line: 1, byte: 1 } ] });
+	}
+	catch (e) {
+		print("caught ", e.type, "\n");
+	}
+
+	print("not reached\n");
+%}
+-- End --
+
+-- Expect stdout --
+-- End --
+
+-- Expect exitcode --
+17
+-- End --

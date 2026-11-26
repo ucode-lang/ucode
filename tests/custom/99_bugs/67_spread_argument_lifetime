@@ -1,0 +1,29 @@
+When a call spread its arguments, the VM moved them into a temporary array
+that the garbage collector did not see. A tostring method that ran gc()
+while the error for a spread value that is not an array was formatted freed
+the array, and the error path leaked a reference to that spread value.
+
+-- Testcase --
+{%
+	let o = proto({}, { tostring: function() { gc(); return "custom"; } });
+
+	try {
+		print(...[ {} ], ...o);
+	}
+	catch (e) {
+		print(e.message, "\n");
+	}
+
+	try {
+		print(.../x/);
+	}
+	catch (e) {
+		print(e.message, "\n");
+	}
+%}
+-- End --
+
+-- Expect stdout --
+(custom) is not iterable
+(/x/) is not iterable
+-- End --

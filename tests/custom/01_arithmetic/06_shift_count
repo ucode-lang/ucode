@@ -1,0 +1,58 @@
+The shift operators use the low six bits of the count. A negative count
+and a count of 64 or more give the result of a shift by the count modulo
+64. If one of the operands is negative, the result is a signed number and
+the right shift keeps the sign. An operand of 2^63 or more then counts as
+the negative number with the same 64 bits.
+
+-- Testcase --
+{%
+	function shift(value, count) {
+		return [ value << count, value >> count ];
+	}
+
+	let cases = [
+		[ 1, 63 ], [ 1, 64 ], [ 1, 65 ], [ 1, 0xffffffffffffffff ],
+		[ 1, -1 ], [ 1, -63 ], [ 1, -64 ], [ 5, -62 ],
+		[ -8, 1 ], [ -8, 64 ], [ -8, 65 ], [ -8, -63 ],
+		[ -1, 63 ], [ -1, -1 ], [ -1, 0xffffffffffffffff ],
+		[ -1, 0x8000000000000000 ],
+		[ 0xffffffffffffffff, 1 ], [ 0xffffffffffffffff, 64 ],
+		[ 0xffffffffffffffff, -1 ]
+	];
+
+	for (let c in cases)
+		print(c, " ", shift(c[0], c[1]), "\n");
+
+	let n = 1;
+	n <<= -62;
+	print(n, "\n");
+
+	n = -16;
+	n >>= 66;
+	print(n, "\n");
+%}
+-- End --
+
+-- Expect stdout --
+[ 1, 63 ] [ 9223372036854775808, 0 ]
+[ 1, 64 ] [ 1, 1 ]
+[ 1, 65 ] [ 2, 0 ]
+[ 1, 18446744073709551615 ] [ 9223372036854775808, 0 ]
+[ 1, -1 ] [ -9223372036854775808, 0 ]
+[ 1, -63 ] [ 2, 0 ]
+[ 1, -64 ] [ 1, 1 ]
+[ 5, -62 ] [ 20, 1 ]
+[ -8, 1 ] [ -16, -4 ]
+[ -8, 64 ] [ -8, -8 ]
+[ -8, 65 ] [ -16, -4 ]
+[ -8, -63 ] [ -16, -4 ]
+[ -1, 63 ] [ -9223372036854775808, -1 ]
+[ -1, -1 ] [ -9223372036854775808, -1 ]
+[ -1, 18446744073709551615 ] [ -9223372036854775808, -1 ]
+[ -1, 9223372036854775808 ] [ -1, -1 ]
+[ 18446744073709551615, 1 ] [ 18446744073709551614, 9223372036854775807 ]
+[ 18446744073709551615, 64 ] [ 18446744073709551615, 18446744073709551615 ]
+[ 18446744073709551615, -1 ] [ -9223372036854775808, -1 ]
+4
+-4
+-- End --

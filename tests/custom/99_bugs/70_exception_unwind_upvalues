@@ -1,0 +1,29 @@
+The unwind to the catch block dropped the variables of the try block
+without closing the upvalues that refer to them, so that a closure read the
+exception object in place of its variable.
+
+-- Testcase --
+{%
+	function closures() {
+		let fns = [];
+
+		try {
+			let t = "try";
+
+			push(fns, () => t);
+			die("x");
+		}
+		catch (e) {
+			push(fns, () => e.message);
+		}
+
+		return map(fns, fn => fn());
+	}
+
+	print(closures(), "\n");
+%}
+-- End --
+
+-- Expect stdout --
+[ "try", "x" ]
+-- End --

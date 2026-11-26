@@ -2043,7 +2043,6 @@ ucv_to_stringbuf_formatted(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, size
 	bool json = (pad_char != '\0');
 	bool constified = false;
 	bool pending = false;
-	size_t stackoff = 0;
 	uc_resource_type_t *restype;
 	uc_cfunction_t *cfunction;
 	uc_function_t *function;
@@ -2068,7 +2067,6 @@ ucv_to_stringbuf_formatted(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, size
 	 * traversal; no callbacks are invoked while an exception is pending since
 	 * calling them would discard it */
 	if (vm != NULL) {
-		stackoff = vm->stack.count;
 		uc_vm_stack_push(vm, ucv_get(uv));
 
 		pending = (vm->exception.type != EXCEPTION_NONE);
@@ -2077,8 +2075,7 @@ ucv_to_stringbuf_formatted(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, size
 			goto out;
 
 		/* do not fall back to formatting the value after its callback
-		 * failed, exit() may also have released uv while resetting the
-		 * VM stack */
+		 * failed, nor while an exit is pending: the program ends */
 		if (vm->exception.type == EXCEPTION_EXIT ||
 		    (!pending && vm->exception.type != EXCEPTION_NONE))
 			goto out;
@@ -2305,16 +2302,13 @@ ucv_to_stringbuf_formatted(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, size
 			json ? "\"" : "");
 	}
 
-	/* exit() within a child callback may have reset the VM stack, but uv
-	 * is not freed while marked, so its flags can still be restored */
 	ucv_clear_mark(uv);
 
 	if (constified)
 		ucv_set_constant(uv, false);
 
 out:
-	/* exit() within a callback resets the entire stack, our slot included */
-	if (vm != NULL && vm->stack.count > stackoff)
+	if (vm != NULL)
 		ucv_put(uc_vm_stack_pop(vm));
 }
 
@@ -2842,7 +2836,7 @@ static bool
 ucv_meta_call(uc_vm_t *vm, uc_value_t *scope, uc_value_t *meta,
               uc_value_t *key, uc_value_t *val, uc_value_t **rvp)
 {
-	size_t base = vm->stack.count, nargs = 1;
+	size_t nargs = 1;
 
 	if (rvp)
 		*rvp = NULL;
@@ -2856,16 +2850,8 @@ ucv_meta_call(uc_vm_t *vm, uc_value_t *scope, uc_value_t *meta,
 		nargs = 2;
 	}
 
-	if (uc_vm_call(vm, true, nargs) != EXCEPTION_NONE) {
-		/* An exception raised within the metamethod unwinds its frame - and
-		 * with it the operands pushed above - while one raised before that
-		 * frame got established, out of recursion for instance, leaves them
-		 * behind; either way, drop back to the slots pushed here. */
-		while (vm->stack.count > base)
-			ucv_put(uc_vm_stack_pop(vm));
-
+	if (uc_vm_call(vm, true, nargs) != EXCEPTION_NONE)
 		return false;
-	}
 
 	*rvp = uc_vm_stack_pop(vm);
 

@@ -1,0 +1,31 @@
+The update of a local variable read its call frame again after the
+operation. A tostring method of an operand that calls deep enough makes the
+VM move the call frames, so the read used released memory.
+
+-- Testcase --
+{%
+	function deep(n) { return n ? deep(n - 1) + 0 : 0; }
+
+	function update_object() {
+		let t = proto({}, { tostring: function() { deep(300); return "t"; } });
+
+		t += "x";
+
+		return t;
+	}
+
+	function update_string() {
+		let t = "x";
+
+		t += proto({}, { tostring: function() { deep(300); return "t"; } });
+
+		return t;
+	}
+
+	print(update_object(), " ", update_string(), "\n");
+%}
+-- End --
+
+-- Expect stdout --
+tx xt
+-- End --
