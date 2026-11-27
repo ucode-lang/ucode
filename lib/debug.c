@@ -1287,12 +1287,17 @@ uc_getinfo_upvals(uc_vm_t *vm, uc_closure_t *closure)
  * `regexp` values.
  *
  * @property {boolean} [newline]
- * Whether the compiled regex has the `s` (single line) flag set. Only
- * applicable to `regexp` values.
+ * Whether the compiled regex has the `s` (single line) flag set, which makes
+ * the dot operator match newlines. Only applicable to `regexp` values.
+ *
+ * @property {boolean} [multiline]
+ * Whether the compiled regex has the `m` (multi line) flag set, which makes `^`
+ * and `$` match at line boundaries. Only applicable to `regexp` values.
  *
  * @property {number} [nsub]
- * The amount of capture groups within the regular expression. Only applicable
- * to `regexp` values.
+ * The amount of capture groups within the regular expression, as written; the
+ * groups the preprocessing introduces on behalf of the `m` flag are not
+ * counted. Only applicable to `regexp` values.
  *
  * @property {string} [name]
  * The name of the non-anonymous function. Only applicable to `cfunction` and
@@ -1429,7 +1434,8 @@ uc_getinfo(uc_vm_t *vm, size_t nargs)
 		ucv_object_add(rv, "icase", ucv_boolean_new(uvreg->icase));
 		ucv_object_add(rv, "global", ucv_boolean_new(uvreg->global));
 		ucv_object_add(rv, "newline", ucv_boolean_new(uvreg->newline));
-		ucv_object_add(rv, "nsub", ucv_uint64_new(uvreg->regexp.re_nsub));
+		ucv_object_add(rv, "multiline", ucv_boolean_new(uvreg->multiline));
+		ucv_object_add(rv, "nsub", ucv_uint64_new(uvreg->nsub));
 
 		break;
 

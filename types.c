@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <ctype.h>
 #include <stdlib.h>
 #include <assert.h>
 #include <errno.h>
@@ -21,6 +22,7 @@
 #include <float.h>
 
 
+#include "ucode/internal/regexp.h"
 #include "ucode/internal/types.h"
 #include "ucode/internal/vm.h" /* ISA: I_* opcodes */
 #include "ucode/internal/program.h"
@@ -1514,45 +1516,1138 @@ ucv_resource_value_set(uc_value_t *uv, size_t idx, uc_value_t *val)
 	return true;
 }
 
-uc_value_t *
-ucv_regexp_new(const char *pattern, bool icase, bool newline, bool global, char **error)
+/* Bracket expression scanning, shared with the regexp literal scanning of
+ * lexer.c: the lexer has to tell a slash delimitting a literal from one
+ * embedded in a list, and the pattern preprocessing has to know where a list
+ * ends before taking it apart, so both drive this state machine one byte at a
+ * time and cannot disagree about where a list ends.
+ *
+ * A right bracket closes the expression unless it is the first member, and
+ * only the byte behind the opening bracket negates. A `[` may open a character
+ * class, collating or equivalence element, which extends to its closing
+ * delimiter and never closes the expression itself. A backslash escapes the
+ * byte behind it here, which the engines do not do - to them it is an ordinary
+ * member - so the preprocessor hands regcomp() a normalized expression. */
+__hidden bool
+uc_re_class_step(uc_re_class_t *cls, int ch)
 {
-	int cflags = REG_EXTENDED, res;
-	uc_regexp_t *re;
-	size_t len;
-
-	re = xalloc(sizeof(*re) + strlen(pattern) + 1);
-	re->header.type = UC_REGEXP;
-	re->header.refcount = 1;
-	re->icase = icase;
-	re->global = global;
-	re->newline = newline;
-	strcpy(re->source, pattern);
-
-	if (icase)
-		cflags |= REG_ICASE;
-
-	if (!newline)
-		cflags |= REG_NEWLINE;
-
-	res = regcomp(&re->regexp, pattern, cflags);
-
-	if (res != 0) {
-		if (error) {
-			len = regerror(res, &re->regexp, NULL, 0);
-			*error = xalloc(len);
-
-			regerror(res, &re->regexp, *error, len);
+	/* a character class, collating or equivalence element extends to its
+	 * closing delimiter followed by a right bracket and never closes the
+	 * bracket expression itself */
+	if (cls->elem) {
+		if (cls->elemend && ch == ']') {
+			cls->elem = 0;
+			cls->elemend = false;
+		}
+		else {
+			cls->elemend = (ch == cls->elem);
 		}
 
-		free(re);
+		return false;
+	}
+
+	/* an escaped byte is always a member, whatever it is, and having seen a
+	 * member a following right bracket closes the expression again */
+	if (cls->esc) {
+		cls->esc = false;
+		cls->first = false;
+
+		return false;
+	}
+
+	if (ch == '\\') {
+		cls->esc = true;
+
+		return false;
+	}
+
+	/* a `[` opens an element only when followed by `:', `.' or `=', otherwise
+	 * it is an ordinary member and the current byte still has to be read */
+	if (cls->pending) {
+		cls->pending = false;
+
+		if (ch == ':' || ch == '.' || ch == '=') {
+			cls->elem = ch;
+
+			return false;
+		}
+	}
+
+	/* Only the byte right behind the opening bracket negates, and a right
+	 * bracket in that position - and in the one following a negation - is an
+	 * ordinary member. A second caret is an ordinary member too, which is
+	 * what makes `[^^]` the list of everything but a caret. */
+	if (cls->first) {
+		if (!cls->neg && ch == '^') {
+			cls->neg = true;
+
+			return false;
+		}
+
+		cls->first = false;
+
+		if (ch == ']')
+			return false;
+	}
+
+	if (ch == ']')
+		return true;
+
+	cls->pending = (ch == '[');
+
+	return false;
+}
+
+
+uc_declare_vector(uc_re_bytes_t, char);
+
+#define uc_re_push(v, c) \
+	do { \
+		if ((v)) \
+			uc_vector_push((v), (c)); \
+	} while (0)
+
+static void
+uc_re_bytes_append(uc_re_bytes_t *v, const char *s, size_t n)
+{
+	if (!v || !n)
+		return;
+
+	memcpy(uc_vector_extend(v, n), s, n);
+
+	v->count += n;
+}
+
+static void
+uc_re_bytes_append_utf8(uc_re_bytes_t *v, uint32_t cp)
+{
+	if (cp < 0x80) {
+		uc_re_push(v, (char)cp);
+	}
+	else if (cp < 0x800) {
+		uc_re_push(v, (char)(0xc0 | (cp >> 6)));
+		uc_re_push(v, (char)(0x80 | (cp & 0x3f)));
+	}
+	else if (cp < 0x10000) {
+		uc_re_push(v, (char)(0xe0 | (cp >> 12)));
+		uc_re_push(v, (char)(0x80 | ((cp >> 6) & 0x3f)));
+		uc_re_push(v, (char)(0x80 | (cp & 0x3f)));
+	}
+	else {
+		uc_re_push(v, (char)(0xf0 | (cp >> 18)));
+		uc_re_push(v, (char)(0x80 | ((cp >> 12) & 0x3f)));
+		uc_re_push(v, (char)(0x80 | ((cp >> 6) & 0x3f)));
+		uc_re_push(v, (char)(0x80 | (cp & 0x3f)));
+	}
+}
+
+static bool
+uc_re_bytes_is(const uc_re_bytes_t *v, const char *s)
+{
+	return v->count == strlen(s) && memcmp(v->entries, s, v->count) == 0;
+}
+
+static int
+uc_re_hex(int ch)
+{
+	return (ch >= '0' && ch <= '9') ? ch - '0' : ((ch | 32) - 'a' + 10);
+}
+
+
+/* What an escape sequence denotes: bytes which are already what the engine
+ * should see, bytes denoting a character, or a bracket expression which has to
+ * go through the normalization of its own. */
+enum uc_re_esc {
+	UC_RE_ESC_RAW,
+	UC_RE_ESC_LITERAL,
+	UC_RE_ESC_CLASS,
+};
+
+/* The escapes which denote an atom of the pattern rather than a character, and
+ * which therefore keep their backslash outside a bracket expression: the
+ * anchoring, grouping and repetition operators of ERE, the word boundary
+ * anchors, and the backslash. */
+#define UC_RE_ESCAPED_LITERAL "^bB<>.[$()|*+?{\\"
+
+/* The escapes which stand for a set of characters, and which expand to a
+ * bracket expression outside one. */
+#define UC_RE_CLASS_MACROS "dDwWsS"
+
+/* The bytes an engine reads as an operator rather than as a character, and
+ * which therefore have to be quoted when an escape sequence denotes one. A
+ * dash is not among them, since outside a bracket expression it is ordinary. */
+#define UC_RE_METACHARS "\\.[]{}()*+?|^$"
+
+/* Resolves the escape sequence starting at `*pp`, appending the bytes it
+ * denotes to `lit`, reporting what they denote in `kind` and advancing `*pp`
+ * past the sequence.
+ *
+ * An escape sequence denotes a character, never an atom of the pattern: the
+ * bytes it decodes to have to reach the engine quoted, so that `\u002e` is a
+ * full stop and not the dot operator. The escapes which do denote an atom keep
+ * their backslash and are reported as raw bytes, and the macros standing for a
+ * set of characters are reported as a bracket expression, which then gets the
+ * same treatment as one written in the pattern.
+ *
+ * Within a bracket expression a backslash does not quote, since the engines
+ * read it as an ordinary member; the atoms therefore denote themselves there,
+ * and only the members can come out of an escape. */
+static bool
+uc_re_escape(const char **pp, uc_re_bytes_t *lit, enum uc_re_esc *kind,
+             bool inclass, char **error)
+{
+	/* the caller consumed the backslash already, p denotes the escaped byte */
+	const char *p = *pp;
+	uint32_t cp, lo;
+	size_t i;
+
+	/* a backslash at the end of the pattern escapes nothing; the check has to
+	 * precede the macro lookup below since strchr() matches the terminator */
+	if (!*p)
+		goto invalid;
+
+	if (*p == 'u') {
+		for (i = 1, cp = 0; i <= 4; i++) {
+			if (!isxdigit((unsigned char) p[i]))
+				goto invalid;
+
+			cp = cp * 16 + uc_re_hex(p[i]);
+		}
+
+		p += 5;
+
+		/* a leading surrogate combines with a trailing one following it
+		 * immediately, and denotes the replacement character where there is
+		 * none; the replacement is written here rather than when the next
+		 * sequence arrives, so that it keeps its position */
+		if ((cp & 0xfc00) == 0xd800) {
+			if (p[0] == '\\' && p[1] == 'u') {
+				for (i = 0, lo = 0; i < 4; i++) {
+					if (!isxdigit((unsigned char) p[2 + i]))
+						break;
+
+					lo = lo * 16 + uc_re_hex(p[2 + i]);
+				}
+
+				if (i == 4 && (lo & 0xfc00) == 0xdc00) {
+					cp = 0x10000 + ((cp & 0x3ff) << 10) + (lo & 0x3ff);
+					p += 6;
+				}
+			}
+
+			if ((cp & 0xfc00) == 0xd800)
+				cp = 0xfffd;
+		}
+		else if ((cp & 0xfc00) == 0xdc00) {
+			/* a trailing surrogate without a leading one */
+			cp = 0xfffd;
+		}
+
+		if (!cp)
+			goto nul;
+
+		uc_re_bytes_append_utf8(lit, cp);
+
+		*kind = UC_RE_ESC_LITERAL;
+		*pp = p;
+
+		return true;
+	}
+
+	if (*p == 'x') {
+		if (!isxdigit((unsigned char) p[1]) || !isxdigit((unsigned char) p[2]))
+			goto invalid;
+
+		cp = uc_re_hex(p[1]) * 16 + uc_re_hex(p[2]);
+
+		if (!cp)
+			goto nul;
+
+		uc_re_push(lit, (char)cp);
+
+		*kind = UC_RE_ESC_LITERAL;
+		*pp = p + 3;
+
+		return true;
+	}
+
+	if (*p >= '0' && *p <= '7') {
+		for (i = 0, cp = 0; i < 3 && *p >= '0' && *p <= '7'; i++)
+			cp = cp * 8 + (uint32_t)(*p++ - '0');
+
+		if (cp > 255)
+			goto invalid;
+
+		if (!cp)
+			goto nul;
+
+		uc_re_push(lit, (char)cp);
+
+		*kind = UC_RE_ESC_LITERAL;
+		*pp = p;
+
+		return true;
+	}
+
+	/* the macros which stand for a set of characters expand to a bracket
+	 * expression; within a bracket expression they denote the letter, as
+	 * they always have */
+	if (!inclass && strchr(UC_RE_CLASS_MACROS, *p)) {
+		const char *cls;
+
+		switch (*p) {
+		case 'd': cls = "[[:digit:]]"; break;
+		case 'D': cls = "[^[:digit:]]"; break;
+		case 'w': cls = "[[:alnum:]_]"; break;
+		case 'W': cls = "[^[:alnum:]_]"; break;
+		case 's': cls = "[[:space:]]"; break;
+		default: cls = "[^[:space:]]"; break;
+		}
+
+		uc_re_bytes_append(lit, cls, strlen(cls));
+
+		*kind = UC_RE_ESC_CLASS;
+		*pp = p + 1;
+
+		return true;
+	}
+
+	/* outside a bracket expression the atoms of the pattern keep their
+	 * backslash, which is what makes `\.` the dot operator and `\\` a
+	 * backslash */
+	if (!inclass && strchr(UC_RE_ESCAPED_LITERAL, *p)) {
+		uc_re_push(lit, '\\');
+		uc_re_push(lit, *p);
+
+		*kind = UC_RE_ESC_RAW;
+		*pp = p + 1;
+
+		return true;
+	}
+
+	switch (*p) {
+	case 'a': uc_re_push(lit, '\a'); break;
+	case 'b': uc_re_push(lit, '\b'); break;
+	case 'e': uc_re_push(lit, '\033'); break;
+	case 'f': uc_re_push(lit, '\f'); break;
+	case 'n': uc_re_push(lit, '\n'); break;
+	case 'r': uc_re_push(lit, '\r'); break;
+	case 't': uc_re_push(lit, '\t'); break;
+	case 'v': uc_re_push(lit, '\v'); break;
+
+	default:
+		/* any other escape denotes the character itself */
+		uc_re_push(lit, *p);
+		break;
+	}
+
+	*kind = UC_RE_ESC_LITERAL;
+	*pp = p + 1;
+
+	return true;
+
+nul:
+	/* the pattern is a C string, so a NUL character would truncate it rather
+	 * than denote itself */
+	if (error && !*error)
+		*error = strdup("Regular expression must not contain NUL");
+
+	return false;
+
+invalid:
+	if (error && !*error)
+		*error = strdup("Invalid escape sequence");
+
+	return false;
+}
+
+
+/* A unit of a bracket expression: a member, a range of two members, or a
+ * character class, collating or equivalence element. */
+enum uc_re_unit_kind {
+	UC_RE_UNIT_MEMBER,
+	UC_RE_UNIT_RANGE,
+	UC_RE_UNIT_ELEMENT,
+};
+
+typedef struct {
+	uint8_t kind;
+
+	/* the bytes of a member, or the text of an element */
+	uc_re_bytes_t text;
+
+	/* the endpoints of a range, which are single bytes */
+	char lo, hi;
+} uc_re_unit_t;
+
+uc_declare_vector(uc_re_units_t, uc_re_unit_t);
+
+static void
+uc_re_units_clear(uc_re_units_t *units)
+{
+	size_t i;
+
+	for (i = 0; i < units->count; i++)
+		uc_vector_clear(&units->entries[i].text);
+
+	uc_vector_clear(units);
+}
+
+/* Reads the next unit of the bracket expression which starts at `*pp` into
+ * `unit` and advances `*pp` past it. The expression ends at `end`, which
+ * points behind its closing right bracket. */
+static bool
+uc_re_class_unit(const char **pp, const char *end, uc_re_unit_t *unit, char **error)
+{
+	const char *p = *pp;
+
+	memset(unit, 0, sizeof(*unit));
+
+	/* a character class, collating or equivalence element extends to its
+	 * closing delimiter followed by a right bracket, and is not made up of
+	 * members the way a bracket expression is */
+	if (p[0] == '[' && (p[1] == ':' || p[1] == '.' || p[1] == '=')) {
+		const char *e = p + 2;
+
+		while (e < end && *e != p[1])
+			e++;
+
+		if (e >= end || *e != p[1] || e[1] != ']')
+			goto unmatched;
+
+		unit->kind = UC_RE_UNIT_ELEMENT;
+		uc_re_bytes_append(&unit->text, p, (size_t)(e + 2 - p));
+
+		*pp = e + 2;
+
+		return true;
+	}
+
+	if (p[0] == '\\') {
+		enum uc_re_esc kind;
+
+		p++;
+
+		if (!uc_re_escape(&p, &unit->text, &kind, true, error))
+			return false;
+
+		/* within a bracket expression an escape cannot denote an atom of the
+		 * pattern, so all it can yield is a member */
+		unit->kind = UC_RE_UNIT_MEMBER;
+		*pp = p;
+
+		return true;
+	}
+
+	unit->kind = UC_RE_UNIT_MEMBER;
+	uc_vector_push(&unit->text, *p);
+	*pp = p + 1;
+
+	return true;
+
+unmatched:
+	if (error && !*error)
+		*error = strdup("Unmatched [ or [^");
+
+	return false;
+}
+
+/* Parses the bracket expression starting at `*pp` - which points just behind
+ * its opening `[` - into `units` and advances `*pp` past its closing bracket.
+ *
+ * The expression is parsed into members and ranges rather than copied, because
+ * an engine reads a bracket expression as raw text: a member which the pattern
+ * quotes cannot be quoted to the engine, since the backslash is read as an
+ * ordinary member and the right bracket it precedes ends the expression.
+ * Telling the members and the ranges apart is what allows the members to be
+ * written to a position where they are read as members without turning a range
+ * into a list, or a list into a range.
+ *
+ * Where the expression ends is not decided here but by the state machine which
+ * lexer.c drives too, and the units are read from exactly the bytes it claims,
+ * so that a pattern scanned out of a script and the same pattern handed to the
+ * constructor cannot come to describe different expressions. */
+static bool
+uc_re_class_parse(const char **pp, uc_re_units_t *units, bool *neg, char **error)
+{
+	const char *p = *pp, *end;
+	uc_re_class_t cls = { .first = true };
+	uc_re_unit_t u, v;
+
+	*neg = false;
+
+	for (end = p; *end != 0; end++)
+		if (uc_re_class_step(&cls, (unsigned char)*end))
+			break;
+
+	/* an expression which is not closed is an error rather than something to
+	 * be passed on: an engine closes an expression at a right bracket which
+	 * the pattern quotes, which would make the pattern mean something else
+	 * than the same pattern written as a literal */
+	if (*end == 0)
+		goto unmatched;
+
+	end++;
+
+	/* a caret in leading position negates the expression */
+	if (*p == '^') {
+		*neg = true;
+		p++;
+	}
+
+	/* the closing right bracket is the byte at end - 1, so any right bracket
+	 * before it is a member */
+	while (p < end - 1) {
+		if (!uc_re_class_unit(&p, end, &u, error))
+			return false;
+
+		/* a dash between two single-byte members denotes a range; anywhere
+		 * else it is an ordinary member, which is also how the engines read
+		 * it */
+		if (u.kind == UC_RE_UNIT_MEMBER && u.text.count == 1 &&
+		    p[0] == '-' && p + 1 < end - 1) {
+			p++;
+
+			if (!uc_re_class_unit(&p, end, &v, error)) {
+				uc_vector_clear(&u.text);
+
+				return false;
+			}
+
+			if (v.kind == UC_RE_UNIT_MEMBER && v.text.count == 1) {
+				/* a range which ends below where it begins denotes nothing; the
+				 * engines reject it and so do we, rather than reading the dash
+				 * as a member and quietly matching more than was written */
+				if ((unsigned char) u.text.entries[0] > (unsigned char) v.text.entries[0]) {
+					uc_vector_clear(&u.text);
+					uc_vector_clear(&v.text);
+
+					goto badrange;
+				}
+
+				u.kind = UC_RE_UNIT_RANGE;
+				u.lo = u.text.entries[0];
+				u.hi = v.text.entries[0];
+
+				uc_vector_clear(&u.text);
+				uc_vector_clear(&v.text);
+			}
+			else {
+				/* the dash denotes itself, and so do the units around it */
+				*uc_vector_extend(units, 1) = u;
+				units->count++;
+
+				memset(&u, 0, sizeof(u));
+				u.kind = UC_RE_UNIT_MEMBER;
+				uc_re_push(&u.text, '-');
+
+				*uc_vector_extend(units, 1) = u;
+				units->count++;
+
+				*uc_vector_extend(units, 1) = v;
+				units->count++;
+
+				continue;
+			}
+		}
+
+		*uc_vector_extend(units, 1) = u;
+		units->count++;
+	}
+
+	*pp = end;
+
+	return true;
+
+unmatched:
+	if (error && !*error)
+		*error = strdup("Unmatched [ or [^");
+
+	return false;
+
+badrange:
+	if (error && !*error)
+		*error = strdup("Invalid range end");
+
+	return false;
+}
+
+/* Appends to `expr` the bracket expression denoting the same characters as the
+ * parsed units, in a form the engines read back unchanged, and reports in
+ * `has_lf` whether a newline is one of them.
+ *
+ * A member which the pattern quotes cannot be quoted to the engines, since
+ * they read a backslash inside a bracket expression as an ordinary member, so
+ * such a member is written to a position where it is read as a member: a right
+ * bracket to the front of the expression, where one always is a member, and a
+ * dash, a backslash, an opening bracket or a caret to the end of it, where a
+ * dash cannot denote a range, an opening bracket cannot open an element and a
+ * caret cannot negate. The dash goes last where that does not put a caret in
+ * leading position.
+ *
+ * A range whose start or end is one of those bytes is written as the
+ * contiguous residual range between them, since the engines read such a byte
+ * as a delimiter at either end: a right bracket or a dash at the start is
+ * moved to the front or the tail respectively, and a right bracket, an opening
+ * bracket or a caret at the end is moved to the front or the tail respectively.
+ * The residual is stripped again until neither end is special, which is what
+ * keeps a range which the pattern quotes from becoming a list and a list which
+ * the pattern quotes from becoming a range.
+ *
+ * The only list that cannot be written as an expression is a lone caret, which
+ * the caller writes as the escaped character instead. */
+static bool
+uc_re_class_write(const uc_re_units_t *units, bool neg, uc_re_bytes_t *expr,
+                  bool *has_lf)
+{
+	uc_re_bytes_t body = { 0, NULL };
+	bool front_bracket = false, dash = false, caret = false;
+	bool bracket = false, backslash = false;
+	size_t i;
+
+	*has_lf = false;
+
+	for (i = 0; i < units->count; i++) {
+		const uc_re_unit_t *u = &units->entries[i];
+
+		switch (u->kind) {
+		case UC_RE_UNIT_MEMBER:
+			if (u->text.count == 1) {
+				char c = u->text.entries[0];
+
+				if (c == '\n')
+					*has_lf = true;
+
+				if (c == ']') {
+					front_bracket = true;
+
+					break;
+				}
+
+				if (c == '-') {
+					dash = true;
+
+					break;
+				}
+
+				if (c == '\\') {
+					backslash = true;
+
+					break;
+				}
+
+				if (c == '[') {
+					bracket = true;
+
+					break;
+				}
+
+				if (c == '^') {
+					caret = true;
+
+					break;
+				}
+			}
+
+			uc_re_bytes_append(&body, u->text.entries, u->text.count);
+
+			break;
+
+		case UC_RE_UNIT_RANGE: {
+			unsigned char lo = (unsigned char)u->lo;
+			unsigned char hi = (unsigned char)u->hi;
+
+			if (lo <= '\n' && hi >= '\n')
+				*has_lf = true;
+
+			if (lo == hi) {
+				/* a range of a single byte is a member */
+				char c = (char)lo;
+
+				if (c == ']')
+					front_bracket = true;
+				else if (c == '-')
+					dash = true;
+				else if (c == '\\')
+					backslash = true;
+				else if (c == '[')
+					bracket = true;
+				else if (c == '^')
+					caret = true;
+				else
+					uc_vector_push(&body, c);
+
+				break;
+			}
+
+			/* strip the bytes the engines read as delimiters from the range's
+			 * ends and write them as members where they are read as members */
+			while (lo <= hi) {
+				bool changed = false;
+
+				if (lo == ']') { front_bracket = true; lo = '^'; changed = true; }
+				if (hi == ']') { front_bracket = true; hi = '\\'; changed = true; }
+				if (lo == '-') { dash = true; lo = '.'; changed = true; }
+				if (hi == '-') { dash = true; hi = ','; changed = true; }
+				if (lo == '^') { caret = true; lo = '_'; changed = true; }
+				if (hi == '^') { caret = true; hi = ']'; changed = true; }
+				/* an opening bracket at the end could open an element with the
+				 * byte that follows it, so it is moved to the tail */
+				if (hi == '[') { bracket = true; hi = 'Z'; changed = true; }
+
+				if (!changed)
+					break;
+			}
+
+			if (lo <= hi) {
+				uc_vector_push(&body, (char)lo);
+				uc_vector_push(&body, '-');
+				uc_vector_push(&body, (char)hi);
+			}
+
+			break;
+		}
+
+		default:
+			if (uc_re_bytes_is(&u->text, "[:space:]") ||
+			    uc_re_bytes_is(&u->text, "[:cntrl:]"))
+				*has_lf = true;
+
+			uc_re_bytes_append(&body, u->text.entries, u->text.count);
+
+			break;
+		}
+	}
+
+	uc_vector_push(expr, '[');
+
+	if (neg)
+		uc_vector_push(expr, '^');
+
+	if (front_bracket)
+		uc_vector_push(expr, ']');
+
+	uc_re_bytes_append(expr, body.entries, body.count);
+
+	/* a caret at the front of a positive expression would negate it; a dash
+	 * can be written before it in the only case where nothing else precedes
+	 * it */
+	if (!neg && caret && dash && body.count == 0 && !front_bracket &&
+	    !backslash && !bracket) {
+		uc_vector_push(expr, '-');
+		uc_vector_push(expr, '^');
+	}
+	else {
+		if (backslash)
+			uc_vector_push(expr, '\\');
+
+		if (bracket)
+			uc_vector_push(expr, '[');
+
+		if (caret)
+			uc_vector_push(expr, '^');
+
+		if (dash)
+			uc_vector_push(expr, '-');
+	}
+
+	uc_vector_push(expr, ']');
+
+	uc_vector_clear(&body);
+
+	return true;
+}
+
+/* The capture groups of a preprocessed pattern: the number of groups of the
+ * pattern as it is handed to regcomp(), and the indices of the groups the
+ * preprocessing introduced itself, numbered as in that pattern. */
+uc_declare_vector(uc_re_groupidx_t, size_t);
+
+typedef struct {
+	size_t ngroups;
+	uc_re_groupidx_t injected;
+} uc_re_groups_t;
+
+
+/* The character list standing in for the dot operator when the pattern is
+ * compiled with newline-sensitive matching and the dot shall match newlines
+ * too. It has to be a positive list, since REG_NEWLINE keeps a negated list
+ * from matching a newline.
+ *
+ * The POSIX character classes cover every character of the current locale, but
+ * in a single-byte locale they leave out the high bytes, which the dot
+ * operator does match there, so the range of high bytes is added. That range
+ * cannot be written in a multi-byte locale, where the engines reject a range
+ * of raw bytes, but there the classes alone already cover everything. */
+static const char *
+uc_re_dotall_class(void)
+{
+	static const char classes[] = "[[:print:][:cntrl:]]";
+	static const char classes_bytes[] = "[[:print:][:cntrl:]\200-\377]";
+
+	return MB_CUR_MAX > 1 ? classes : classes_bytes;
+}
+
+/* Copies the bracket expression starting at `*pp` - which points just behind
+ * its opening `[` - to `out` in a normalized form and advances `*pp` past it.
+ *
+ * Under newline-sensitive matching a negated expression does not match a
+ * newline, which surprises anyone writing `[^a]`; a newline is restored by an
+ * alternative against one, at the cost of a capture group which
+ * ucv_regexp_exec() filters out again. */
+static bool
+uc_re_class_prepare(const char **pp, uc_re_bytes_t *out, bool multiline,
+                    uc_re_groups_t *grp, char **error)
+{
+	uc_re_units_t units = { 0, NULL };
+	uc_re_bytes_t expr = { 0, NULL };
+	const char *p = *pp;
+	bool neg, has_lf;
+
+	if (!uc_re_class_parse(&p, &units, &neg, error))
+		goto error;
+
+	/* a list of a single caret cannot be written, since a caret in leading
+	 * position negates; the caret alone denotes the same character */
+	if (!neg && units.count == 1 &&
+	    ((units.entries[0].kind == UC_RE_UNIT_MEMBER &&
+	      units.entries[0].text.count == 1 &&
+	      units.entries[0].text.entries[0] == '^') ||
+	     (units.entries[0].kind == UC_RE_UNIT_RANGE &&
+	      units.entries[0].lo == '^' && units.entries[0].hi == '^'))) {
+		uc_vector_push(out, '\\');
+		uc_vector_push(out, '^');
+
+		uc_re_units_clear(&units);
+
+		*pp = p;
+
+		return true;
+	}
+
+	uc_re_class_write(&units, neg, &expr, &has_lf);
+
+	uc_re_units_clear(&units);
+
+	if (multiline && neg && !has_lf) {
+		grp->ngroups++;
+		uc_vector_push(&grp->injected, grp->ngroups);
+
+		uc_vector_push(out, '(');
+		uc_re_bytes_append(out, expr.entries, expr.count);
+		uc_re_bytes_append(out, "|\n)", 3);
+	}
+	else
+		uc_re_bytes_append(out, expr.entries, expr.count);
+
+	uc_vector_clear(&expr);
+
+	*pp = p;
+
+	return true;
+
+error:
+	uc_re_units_clear(&units);
+	uc_vector_clear(&expr);
+
+	return false;
+}
+
+
+
+/* Preprocesses a pattern before it is handed to regcomp(): resolves the escape
+ * sequences, expands the extension macros, normalizes the bracket expressions
+ * and rewrites the atoms whose meaning the flags change.
+ *
+ * The lexer scans a regexp literal only far enough to find the slash which
+ * delimits it and the flags following it, and hands the pattern over as
+ * written; the regexp() constructor receives the pattern as written too. Both
+ * paths come here, which is what keeps a regexp literal and the equivalent
+ * constructor call from describing different patterns.
+ *
+ * The dot operator and the negated character lists are the atoms whose meaning
+ * depends on the flags. The engines implement `.` as matching any character
+ * unless REG_NEWLINE is given, but REG_NEWLINE also turns `^` and `$` into
+ * line anchors and keeps negated lists from matching newlines. Relying on
+ * REG_NEWLINE alone therefore lets an anchored pattern such as `/^[a-z]+$/`
+ * match a single line of a multi-line subject, which breaks input validation
+ * based on such patterns, while giving up on it entirely would leave the
+ * multi-line flag unimplementable. The atoms are rewritten instead, so that
+ * anchoring and the dot operator stay independent of each other.
+ *
+ * With `wrap` off the negated lists are normalized but not wrapped, which is
+ * what ucv_regexp_new_ex() falls back to should the groups it counted not be
+ * the groups regcomp() reports. */
+static bool
+uc_regexp_prepare(const char *pattern, unsigned int flags, bool wrap,
+                  uc_re_bytes_t *out, uc_re_groups_t *grp, char **error)
+{
+	bool multiline = (flags & UC_REGEXP_MULTILINE) != 0;
+	bool dotall = (flags & UC_REGEXP_DOTALL) != 0;
+	const char *dotall_class = uc_re_dotall_class();
+	uc_re_bytes_t lit = { 0, NULL };
+	enum uc_re_esc kind;
+	const char *p;
+
+	for (p = pattern; *p != 0;) {
+		unsigned char c = (unsigned char)*p++;
+
+		if (c == '\\') {
+			if (!uc_re_escape(&p, &lit, &kind, false, error))
+				goto error;
+
+			switch (kind) {
+			case UC_RE_ESC_CLASS: {
+				/* the expansion is a bracket expression like any other, and
+				 * goes through the same normalization so that it is rewritten
+				 * under newline-sensitive matching too */
+				const char *q = lit.entries + 1;
+
+				if (!uc_re_class_prepare(&q, out, multiline && wrap, grp, error))
+					goto error;
+
+				break;
+			}
+
+			case UC_RE_ESC_RAW:
+				uc_re_bytes_append(out, lit.entries, lit.count);
+
+				break;
+
+			default:
+				/* an escape sequence denotes a character, so the bytes it
+				 * denotes have to be quoted to keep the engine from reading
+				 * them as an operator */
+				if (lit.count == 1 && strchr(UC_RE_METACHARS, lit.entries[0]))
+					uc_vector_push(out, '\\');
+
+				uc_re_bytes_append(out, lit.entries, lit.count);
+
+				break;
+			}
+
+			uc_vector_clear(&lit);
+
+			continue;
+		}
+
+		if (c == '[') {
+			if (!uc_re_class_prepare(&p, out, multiline && wrap, grp, error))
+				goto error;
+
+			continue;
+		}
+
+		if (c == '(') {
+			/* POSIX ERE has no non-capturing groups, every group counts */
+			grp->ngroups++;
+
+			uc_re_push(out, (char)c);
+
+			continue;
+		}
+
+		if (c == '.') {
+			/* without newline-sensitive matching the dot already excludes
+			 * nothing, so it has to be told to; with it, the dot already
+			 * excludes newlines, so only dotAll has to undo that */
+			if (!multiline && !dotall)
+				uc_re_bytes_append(out, "[^\n]", 4);
+			else if (multiline && dotall)
+				uc_re_bytes_append(out, dotall_class, strlen(dotall_class));
+			else
+				uc_re_push(out, (char)c);
+
+			continue;
+		}
+
+		uc_re_push(out, (char)c);
+	}
+
+	uc_re_push(out, '\0');
+
+	return true;
+
+error:
+	uc_vector_clear(&lit);
+	uc_vector_clear(out);
+
+	return false;
+}
+
+
+/* Whether the group with the given index of a preprocessed pattern was
+ * introduced by the preprocessing rather than written in the pattern. */
+static bool
+uc_re_group_injected(const uc_re_groups_t *grp, size_t idx)
+{
+	size_t i;
+
+	for (i = 0; i < grp->injected.count; i++)
+		if (grp->injected.entries[i] == idx)
+			return true;
+
+	return false;
+}
+
+uc_value_t *
+ucv_regexp_new_ex(const char *pattern, unsigned int flags, char **error)
+{
+	int cflags = REG_EXTENDED, res;
+	uc_re_bytes_t expr = { 0, NULL };
+	uc_re_groups_t grp = { 0, { 0, NULL } };
+	uint32_t *map;
+	uc_regexp_t *re;
+	size_t j, n, len, maplen;
+
+	if (!uc_regexp_prepare(pattern, flags, true, &expr, &grp, error)) {
+		/* the scan may have recorded groups before running into the error */
+		uc_vector_clear(&grp.injected);
 
 		return NULL;
 	}
 
+	/* the copy of the pattern and, when the preprocessing introduced groups,
+	 * the group map share the allocation trailing the struct; the map follows
+	 * the pattern at an offset aligned for it, and is sized by the scan, since
+	 * regcomp() has not run yet: one entry for each capture group of the
+	 * prepared pattern which the script sees, the whole match excluded since it
+	 * always maps to itself */
+	len = ALIGN(strlen(pattern) + 1);
+	maplen = grp.injected.count != 0
+		? (grp.ngroups - grp.injected.count) * sizeof(uint32_t)
+		: 0;
+
+	re = xalloc(sizeof(*re) + len + maplen);
+	re->header.type = UC_REGEXP;
+	re->header.refcount = 1;
+	re->icase = flags & UC_REGEXP_ICASE;
+	re->global = flags & UC_REGEXP_GLOBAL;
+	re->newline = flags & UC_REGEXP_DOTALL;
+	re->multiline = flags & UC_REGEXP_MULTILINE;
+	strcpy(re->source, pattern);
+
+	if (re->icase)
+		cflags |= REG_ICASE;
+
+	if (re->multiline)
+		cflags |= REG_NEWLINE;
+
+	res = regcomp(&re->regexp, expr.entries, cflags);
+
+	uc_vector_clear(&expr);
+
+	if (res != 0)
+		goto failed;
+
+	/* The scan counts the groups of the pattern it wrote, so regcomp() has to
+	 * report the same number. Should it ever not, the groups the preprocessing
+	 * introduced cannot be mapped; the pattern is then prepared without them,
+	 * which costs a negated list the newline it had restored but keeps the
+	 * capture groups and the flags the script asked for. */
+	if (grp.injected.count != 0 && re->regexp.re_nsub != grp.ngroups) {
+		regfree(&re->regexp);
+		uc_vector_clear(&grp.injected);
+
+		grp.ngroups = 0;
+
+		if (!uc_regexp_prepare(pattern, flags, false, &expr, &grp, error))
+			goto bail;
+
+		res = regcomp(&re->regexp, expr.entries, cflags);
+		uc_vector_clear(&expr);
+
+		if (res != 0)
+			goto failed;
+	}
+
+	/* the group map holds the indices the scan recorded, in the order the
+	 * script sees them, indexed from zero by the number of the group */
+	if (grp.injected.count != 0) {
+		map = (uint32_t *)(void *)(re->source + len);
+		n = 0;
+
+		for (j = 1; j <= re->regexp.re_nsub; j++)
+			if (!uc_re_group_injected(&grp, j))
+				map[n++] = j;
+
+		re->groupmap = map;
+		re->nsub = n;
+	}
+	else
+		re->nsub = re->regexp.re_nsub;
+
+	uc_vector_clear(&grp.injected);
+
 	return &re->header;
+
+failed:
+	/* regerror() describes the compiled pattern, so it has to run before that
+	 * pattern is released */
+	if (error) {
+		len = regerror(res, &re->regexp, NULL, 0);
+		*error = xalloc(len);
+
+		regerror(res, &re->regexp, *error, len);
+	}
+
+bail:
+	uc_vector_clear(&grp.injected);
+
+	free(re);
+
+	return NULL;
 }
 
+uc_value_t *
+ucv_regexp_new(const char *pattern, bool icase, bool newline, bool global, char **error)
+{
+	return ucv_regexp_new_ex(pattern,
+	                         (global    ? UC_REGEXP_GLOBAL : 0) |
+	                         (icase     ? UC_REGEXP_ICASE  : 0) |
+	                         (newline   ? UC_REGEXP_DOTALL : 0),
+	                         error);
+}
+
+/* The number of match array entries a match against this regexp reports, the
+ * whole match included. While preprocessing a pattern ucode may introduce
+ * groups of its own, so this can be more than the capture groups visible to
+ * the script, which are the nsub field plus one. */
+size_t
+ucv_regexp_nmatch(uc_value_t *val)
+{
+	return 1 + ucv_as_regexp(val)->regexp.re_nsub;
+}
+
+/* Matches a subject string, storing the extents of the whole match and of up
+ * to nmatch - 1 capture groups in an array of nmatch entries. The array has to
+ * be large enough for the groups of the compiled pattern, see
+ * ucv_regexp_nmatch(); the extents of the groups written in the pattern are
+ * left at its front, in the order the script sees them. */
+bool
+ucv_regexp_exec(uc_value_t *val, const char *subject, size_t nmatch,
+                regmatch_t *pmatch, int eflags)
+{
+	uc_regexp_t *re = ucv_as_regexp(val);
+	size_t i;
+
+	/* group 0 is never one of the groups the preprocessing introduced, so a
+	 * caller asking for the whole match alone needs no mapping */
+	if (!re->groupmap || nmatch < 2)
+		return regexec(&re->regexp, subject, nmatch, pmatch, eflags) == 0;
+
+	if (regexec(&re->regexp, subject, nmatch, pmatch, eflags) != 0)
+		return false;
+
+	/* move the groups the script wrote to the front of the array, in the order
+	 * it sees them; the map is ascending and never maps a group to a lower
+	 * index, so an entry is moved only after it has been read for the last
+	 * time. The entries behind them are those of the introduced groups */
+	for (i = 1; i <= re->nsub && i < nmatch; i++)
+		pmatch[i] = pmatch[re->groupmap[i - 1]];
+
+	return true;
+}
 
 uc_value_t *
 ucv_upvalref_new(size_t slot)
@@ -1794,11 +2889,12 @@ ucv_to_json(uc_value_t *uv)
 
 	case UC_REGEXP:
 		regexp = ucv_as_regexp(uv);
-		i = asprintf(&s, "/%s/%s%s%s",
+		i = asprintf(&s, "/%s/%s%s%s%s",
 			regexp->source,
 			regexp->global ? "g" : "",
 			regexp->icase ? "i" : "",
-			regexp->newline ? "s" : "");
+			regexp->newline ? "s" : "",
+			regexp->multiline ? "m" : "");
 
 		if (i <= 0)
 			return NULL;
@@ -2199,6 +3295,9 @@ ucv_to_stringbuf_formatted(uc_vm_t *vm, uc_stringbuf_t *pb, uc_value_t *uv, size
 
 		if (regexp->newline)
 			ucv_stringbuf_append(pb, "s");
+
+		if (regexp->multiline)
+			ucv_stringbuf_append(pb, "m");
 
 		if (json)
 			ucv_stringbuf_append(pb, "\"");

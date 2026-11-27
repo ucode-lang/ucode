@@ -2069,10 +2069,9 @@ uc_split(uc_vm_t *vm, size_t nargs)
 	uc_value_t *lim = uc_fn_arg(2);
 	uc_value_t *arr = NULL;
 	const char *p, *sepstr, *splitstr;
-	size_t seplen, splitlen, limit;
-	int eflags = 0, res;
+	size_t seplen, splitlen, limit, skip = 0;
+	int eflags = 0;
 	regmatch_t pmatch;
-	uc_regexp_t *re;
 
 	if (!sep || ucv_type(str) != UC_STRING)
 		return NULL;
@@ -2086,24 +2085,27 @@ uc_split(uc_vm_t *vm, size_t nargs)
 		goto out;
 
 	if (ucv_type(sep) == UC_REGEXP) {
-		re = ucv_as_regexp(sep);
-
 		while (limit > 1) {
-			res = regexec(&re->regexp, splitstr, 1, &pmatch, eflags);
-
-			if (res == REG_NOMATCH)
+			if (!ucv_regexp_exec(sep, splitstr + skip, 1, &pmatch, eflags))
 				break;
 
 			if (pmatch.rm_so != pmatch.rm_eo) {
-				ucv_array_push(arr, ucv_string_new_length(splitstr, pmatch.rm_so));
-				splitstr += pmatch.rm_eo;
-			}
-			else if (*splitstr) {
-				ucv_array_push(arr, ucv_string_new_length(splitstr, 1));
-				splitstr++;
+				ucv_array_push(arr, ucv_string_new_length(splitstr, skip + pmatch.rm_so));
+				splitstr += skip + pmatch.rm_eo;
+				skip = 0;
 			}
 			else {
-				goto out;
+				/* an empty match at the current position is skipped, its character
+				 * becoming part of the next piece; any other empty match splits at
+				 * its position, whose character starts the next piece */
+				if (skip || pmatch.rm_so)
+					ucv_array_push(arr, ucv_string_new_length(splitstr, skip + pmatch.rm_so));
+
+				splitstr += skip + pmatch.rm_so;
+				skip = 1;
+
+				if (!*splitstr)
+					goto out;
 			}
 
 			eflags |= REG_NOTBOL;
@@ -3441,18 +3443,20 @@ uc_match(uc_vm_t *vm, size_t nargs)
 	uc_value_t *pattern = uc_fn_arg(1);
 	uc_value_t *rv = NULL, *m;
 	regmatch_t *pmatch = NULL;
-	int eflags = 0, res;
 	uc_regexp_t *re;
 	bool freeable;
+	size_t nsub, nmatch, i;
+	int eflags = 0;
 	char *str, *p;
-	size_t i;
 
 	if (ucv_type(pattern) != UC_REGEXP || !subject)
 		return NULL;
 
 	re = ucv_as_regexp(pattern);
 
-	pmatch = calloc(1 + re->regexp.re_nsub, sizeof(regmatch_t));
+	nsub = 1 + re->nsub;
+	nmatch = ucv_regexp_nmatch(pattern);
+	pmatch = calloc(nmatch, sizeof(regmatch_t));
 
 	if (!pmatch)
 		return NULL;
@@ -3460,14 +3464,12 @@ uc_match(uc_vm_t *vm, size_t nargs)
 	str = p = uc_cast_string(vm, &subject, &freeable);
 
 	while (true) {
-		res = regexec(&re->regexp, p, 1 + re->regexp.re_nsub, pmatch, eflags);
-
-		if (res == REG_NOMATCH)
+		if (!ucv_regexp_exec(pattern, p, nmatch, pmatch, eflags))
 			break;
 
 		m = ucv_array_new(vm);
 
-		for (i = 0; i < 1 + re->regexp.re_nsub; i++) {
+		for (i = 0; i < nsub; i++) {
 			if (pmatch[i].rm_so != -1)
 				ucv_array_push(m,
 					ucv_string_new_length(p + pmatch[i].rm_so,
@@ -3666,19 +3668,20 @@ uc_replace(uc_vm_t *vm, size_t nargs)
 	uc_value_t *limitval = uc_fn_arg(3);
 	bool sb_freeable, pt_freeable;
 	regmatch_t *pmatch = NULL;
-	size_t pl, nmatch, limit;
+	size_t pl, nmatch, nvis, limit;
 	uc_regexp_t *re = NULL;
 	uc_stringbuf_t *resbuf;
-	int eflags = 0, res;
+	int eflags = 0;
 
 	if (!pattern || !subject || !replace)
 		return NULL;
 
-	nmatch = 1;
+	nmatch = nvis = 1;
 
 	if (ucv_type(pattern) == UC_REGEXP) {
 		re = ucv_as_regexp(pattern);
-		nmatch += re->regexp.re_nsub;
+		nmatch = ucv_regexp_nmatch(pattern);
+		nvis = 1 + re->nsub;
 	}
 
 	pmatch = calloc(nmatch, sizeof(regmatch_t));
@@ -3694,24 +3697,29 @@ uc_replace(uc_vm_t *vm, size_t nargs)
 		p = sb;
 
 		while (limit > 0) {
-			res = regexec(&re->regexp, p, nmatch, pmatch, eflags);
-
-			if (res == REG_NOMATCH)
+			if (!ucv_regexp_exec(pattern, p, nmatch, pmatch, eflags))
 				break;
 
 			ucv_stringbuf_addstr(resbuf, p, pmatch[0].rm_so);
 
 			if (ucv_is_callable(replace))
-				uc_replace_cb(vm, replace, p, pmatch, nmatch, resbuf);
+				uc_replace_cb(vm, replace, p, pmatch, nvis, resbuf);
 			else
-				uc_replace_str(vm, replace, p, pmatch, nmatch, resbuf);
+				uc_replace_str(vm, replace, p, pmatch, nvis, resbuf);
 
-			if (pmatch[0].rm_so != pmatch[0].rm_eo)
+			if (pmatch[0].rm_so != pmatch[0].rm_eo) {
 				p += pmatch[0].rm_eo;
-			else if (*p)
+			}
+			else {
+				/* an empty match consumes the character at its position to make
+				 * progress, which must not be emitted twice */
+				p += pmatch[0].rm_so;
+
+				if (!*p)
+					break;
+
 				ucv_stringbuf_addstr(resbuf, p++, 1);
-			else
-				break;
+			}
 
 			if (re->global)
 				eflags |= REG_NOTBOL;
@@ -4613,7 +4621,11 @@ uc_assert(uc_vm_t *vm, size_t nargs)
  * Supported flags:
  *  - `i`: Case-insensitive matching
  *  - `s`: DotAll - makes `.` match newline characters (default: `.` does not match newlines)
+ *  - `m`: Multi-line - makes `^` and `$` anchor at line boundaries as well (default: they anchor at the start and end of the whole subject string)
  *  - `g`: Global matching (for match() function)
+ *
+ * The line boundaries of `m` are those of the operating system regexp engine,
+ * which recognizes the newline only.
  *
  *  - Throws a type error exception if `flags` is not a string or if the string
  *    in `flags` contains unrecognized regular expression flag characters.
@@ -4628,7 +4640,8 @@ uc_assert(uc_vm_t *vm, size_t nargs)
  * The pattern string.
  *
  * @param {string} [flags]
- * The optional regular expression flags (i=ignore case, s=dotAll, g=global).
+ * The optional regular expression flags (i=ignore case, s=dotAll, m=multi-line,
+ * g=global).
  *
  * @returns {RegExp}
  *
@@ -4644,14 +4657,68 @@ uc_assert(uc_vm_t *vm, size_t nargs)
  * @example
  * // With 's' flag, . matches newlines (dotAll behavior)
  * match("hello\nworld", /hello.world/s);   // matches
+ *
+ * @example
+ * // Without the 'm' flag, ^ and $ anchor at the whole subject
+ * match("abc\ndef", /^[a-z]+$/);           // null
+ * match("abc\ndef", /^[a-z]+$/s);          // null
+ *
+ * @example
+ * // With the 'm' flag, ^ and $ anchor at line boundaries
+ * match("abc\ndef", /^[a-z]+$/m);          // matches "abc"
+ *
+ * @example
+ * // The 'm' flag alone keeps . from matching newlines, 's' is needed too
+ * match("abc\ndef", /^.*$/m);              // matches "abc"
+ * match("abc\ndef", /^.*$/ms);             // matches "abc\ndef"
+ *
+ * @example
+ * // Under the 'm' flag, a negated character list matches newlines like any
+ * // other character, which the engine would otherwise exclude
+ * match("a\n", /[^a]/m);                    // matches "\n"
+ *
+ * @example
+ * // The 'm' flag takes its line boundaries from the operating system regexp
+ * // engine, which knows the newline only; a carriage return before one is an
+ * // ordinary character, and the Unicode line separators are not line breaks
+ * match("abc\r\ndef", /^[a-z]+$/m);         // matches "def", not "abc"
+ *
+ * @example
+ * // Escape sequences and the extension macros \d, \D, \w, \W, \s and \S are
+ * // resolved by ucode before the pattern reaches the regexp engine, both in a
+ * // regexp literal and in a pattern given to this function
+ * match("5", /\d/);                        // matches
+ * match("5", regexp("\\d"));               // matches
+ * match("d", /[\d]/);                      // matches, since within a character
+ *                                          // list a backslash only quotes the
+ *                                          // following character
+ *
+ * @example
+ * // An escape sequence denotes a character, never an operator of the pattern,
+ * // so the character it denotes cannot change how the pattern is read
+ * match(".", /\u002e/);                    // matches, the escape is a full stop
+ * match("\n", /\u002e/);                   // null
+ * match("(a)", regexp("\\u0028a\\u0029")); // matches, the escapes are brackets
+ *
+ * @example
+ * // A quoted character list member is moved to a position where the engine
+ * // reads it as a member, so a quoted dash does not form a range
+ * match("-", /[a\-z]/);                    // matches
+ * match("b", /^[a\-z]+$/);                 // null
+ *
+ * @example
+ * // A character list is a list of bytes, which makes it of no use for the
+ * // multi-byte characters of a UTF-8 subject
+ * match("\u00e4", /[\u00e4]/);             // matches one byte of the character
  */
 static uc_value_t *
 uc_regexp(uc_vm_t *vm, size_t nargs)
 {
-	bool icase = false, newline = false, global = false, freeable;
 	uc_value_t *source = uc_fn_arg(0);
 	uc_value_t *flags = uc_fn_arg(1);
 	uc_value_t *regex = NULL;
+	unsigned rflags = 0;
+	bool freeable;
 	char *p, *err = NULL;
 
 	if (flags) {
@@ -4664,15 +4731,19 @@ uc_regexp(uc_vm_t *vm, size_t nargs)
 		for (p = ucv_string_get(flags); *p; p++) {
 			switch (*p) {
 			case 'i':
-				icase = true;
+				rflags |= UC_REGEXP_ICASE;
 				break;
 
 			case 's':
-				newline = true;
+				rflags |= UC_REGEXP_DOTALL;
+				break;
+
+			case 'm':
+				rflags |= UC_REGEXP_MULTILINE;
 				break;
 
 			case 'g':
-				global = true;
+				rflags |= UC_REGEXP_GLOBAL;
 				break;
 
 			default:
@@ -4684,7 +4755,7 @@ uc_regexp(uc_vm_t *vm, size_t nargs)
 	}
 
 	p = uc_cast_string(vm, &source, &freeable);
-	regex = ucv_regexp_new(p, icase, newline, global, &err);
+	regex = ucv_regexp_new_ex(p, rflags, &err);
 
 	if (freeable)
 		free(p);

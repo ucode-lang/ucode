@@ -48,25 +48,27 @@ function parse_testcases(file, dir) {
 	let code_first = false;
 
 	for (let line = fp.read('line'); length(line); line = fp.read('line')) {
-		if (line == '-- Args --\n') {
+		let text = trim(line);
+
+		if (text == '-- Args --') {
 			section = [ 'args', [] ];
 		}
-		else if (line == '-- Platform --\n') {
+		else if (text == '-- Platform --') {
 			section = [ 'platform', [] ];
 		}
-		else if (line == '-- Vars --\n') {
+		else if (text == '-- Vars --') {
 			section = [ 'env', {} ];
 		}
-		else if (line == '-- Testcase --\n') {
+		else if (text == '-- Testcase --') {
 			section = [ 'code', '' ];
 		}
-		else if ((m = match(line, /^-- Expect (stdout|stderr|exitcode) --$/)) != null) {
+		else if ((m = match(text, /^-- Expect (stdout|stderr|exitcode) --$/)) != null) {
 			section = [ m[1], '' ];
 		}
-		else if ((m = match(line, /^-- File (.*)--$/)) != null) {
+		else if ((m = match(text, /^-- File (.*)--$/)) != null) {
 			section = [ 'file', `${dir}/files/${trim(m[1]) || 'file'}`, '' ];
 		}
-		else if ((m = match(line, /^-- End( \(no-eol\))? --$/)) != null) {
+		else if ((m = match(text, /^-- End( \(no-eol\))? --$/)) != null) {
 			if (m[1] != null && type(section[-1]) == 'string')
 				section[-1] = substr(section[-1], 0, -1);
 
@@ -100,12 +102,12 @@ function parse_testcases(file, dir) {
 			switch (section[0]) {
 			case 'args':
 			case 'platform':
-				if ((m = trim(line)) != '')
+				if ((m = text) != '')
 					push(section[1], ...split(m, /[ \t\r\n]+/));
 				break;
 
 			case 'env':
-				if ((m = match(line, /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/)) != null)
+				if ((m = match(text, /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/)) != null)
 					section[1][m[1]] = m[2];
 				break;
 

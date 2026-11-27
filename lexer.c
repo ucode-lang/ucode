@@ -17,6 +17,7 @@
 #include <ctype.h>
 
 #include "ucode/internal/lexer.h"
+#include "ucode/internal/regexp.h"
 #include "ucode/internal/vallist.h"
 
 struct keyword {
@@ -219,10 +220,9 @@ append_utf8(uc_lexer_t *lex, int code) {
 }
 
 static uc_token_t *
-parse_escape(uc_lexer_t *lex, const char *regex_macros)
+parse_escape(uc_lexer_t *lex)
 {
 	int code, ch, i;
-	const char *p;
 
 	/* unicode escape sequence */
 	if (check_char(lex, 'u')) {
@@ -297,30 +297,6 @@ parse_escape(uc_lexer_t *lex, const char *regex_macros)
 			uc_vector_push(&lex->buffer, code);
 		}
 
-		/* ... no octal sequence, handle potential regex macros */
-		else if (strchr(regex_macros, ch)) {
-			ch = next_char(lex);
-
-			switch (ch) {
-			case 'd': p = "[[:digit:]]";   break;
-			case 'D': p = "[^[:digit:]]";  break;
-			case 'w': p = "[[:alnum:]_]";  break;
-			case 'W': p = "[^[:alnum:]_]"; break;
-			case 's': p = "[[:space:]]";   break;
-			case 'S': p = "[^[:space:]]";  break;
-			default:  p = NULL;
-			}
-
-			if (p) {
-				while (*p)
-					uc_vector_push(&lex->buffer, *p++);
-			}
-			else {
-				uc_vector_push(&lex->buffer, '\\');
-				uc_vector_push(&lex->buffer, ch);
-			}
-		}
-
 		/* ... handle other escape */
 		else {
 			ch = next_char(lex);
@@ -352,13 +328,11 @@ parse_string(uc_lexer_t *lex, int kind)
 {
 	uc_token_t *err, *tok;
 	unsigned type;
-	int code, ch;
+	int ch;
 	size_t off;
 
 	if (kind == '`')
 		type = TK_TEMPLATE;
-	else if (kind == '/')
-		type = TK_REGEXP;
 	else
 		type = TK_STRING;
 
@@ -380,77 +354,9 @@ parse_string(uc_lexer_t *lex, int kind)
 			uc_vector_push(&lex->buffer, '$');
 			break;
 
-		/* regexp bracket expression */
-		case '[':
-			uc_vector_push(&lex->buffer, '[');
-
-			if (type == TK_REGEXP) {
-				/* skip leading negation (^) */
-				if (check_char(lex, '^'))
-					uc_vector_push(&lex->buffer, '^');
-
-				/* skip leading `]` - it is literal and not closing the bracket expr */
-				if (check_char(lex, ']'))
-					uc_vector_push(&lex->buffer, ']');
-
-				/* read until closing `]` */
-				for (ch = next_char(lex); ch != EOF; ch = next_char(lex)) {
-					if (ch == '\\') {
-						err = parse_escape(lex, "^");
-
-						if (err) {
-							uc_vector_clear(&lex->buffer);
-
-							return err;
-						}
-
-						continue;
-					}
-
-					uc_vector_push(&lex->buffer, ch);
-
-					if (ch == ']')
-						break;
-
-					/* skip nested char classes / equivalence classes / collating chars */
-					if (ch == '[') {
-						code = lookahead_char(lex);
-
-						if (code == ':' || code == '.' || code == '=') {
-							uc_vector_push(&lex->buffer, code);
-							next_char(lex);
-
-							for (ch = next_char(lex); ch != EOF; ch = next_char(lex)) {
-								if (ch == '\\') {
-									err = parse_escape(lex, "");
-
-									if (err) {
-										uc_vector_clear(&lex->buffer);
-
-										return err;
-									}
-
-									continue;
-								}
-
-								uc_vector_push(&lex->buffer, ch);
-
-								if (ch == code && check_char(lex, ']')) {
-									uc_vector_push(&lex->buffer, ']');
-									break;
-								}
-							}
-						}
-					}
-				}
-			}
-
-			break;
-
 		/* escape sequence */
 		case '\\':
-			err = parse_escape(lex,
-				(type == TK_REGEXP) ? "^bBdDsSwW<>.[$()|*+?{\\" : "");
+			err = parse_escape(lex);
 
 			if (err) {
 				uc_vector_clear(&lex->buffer);
@@ -477,60 +383,102 @@ parse_string(uc_lexer_t *lex, int kind)
 }
 
 
-/*
- * Parses a regexp literal from the given buffer.
+/* Scans a regular expression literal.
  *
- * Returns a negative value on error, otherwise the amount of consumed
- * characters from the given buffer.
+ * The pattern is kept verbatim: resolving escape sequences, expanding the
+ * extension macros and rewriting the dot operator happen when the literal is
+ * loaded, in the pattern preprocessing of types.c, which is also where the
+ * regexp() constructor ends up. All that is needed here is to find the slash
+ * which delimits the literal, which comes down to telling an embedded slash
+ * from a delimitting one: a backslash escapes the byte following it, and a
+ * slash inside a bracket expression is a member of that expression.
  *
- * Error values:
- *  -UC_ERROR_UNTERMINATED_STRING	Unterminated regexp
- *  -UC_ERROR_INVALID_ESCAPE		Invalid escape sequence
- *  -UC_ERROR_OVERLONG_STRING		Regexp literal too long
- *  -UC_ERROR_INVALID_REGEXP        Could not compile regexp
+ * The bracket expression is read by the shared state machine declared in
+ * include/ucode/internal/regexp.h, the same one the pattern preprocessing
+ * drives, so the lexer and the preprocessor cannot disagree about where a
+ * character list ends and thereby about where the literal ends.
+ *
+ * The literal is stored as a flags byte followed by the pattern bytes; a plain
+ * string would do as well, but the pattern may contain NUL bytes. The flags
+ * byte is reserved as the first byte of the lex buffer, which lets the token
+ * string be emitted directly from the buffer.
  */
-
-enum {
-	UC_LEX_PARSE_REGEX_INIT,
-	UC_LEX_PARSE_REGEX_PATTERN,
-	UC_LEX_PARSE_REGEX_FLAGS
-};
-
 static uc_token_t *
 parse_regexp(uc_lexer_t *lex)
 {
-	bool is_reg_global = false, is_reg_icase = false, is_reg_newline = false;
-	uc_token_t *rv;
-	size_t len;
-	char *s;
+	unsigned flags = 0;
+	size_t off = lex->off - 1;
+	uc_re_class_t cls;
+	bool inclass = false;
+	int ch;
 
-	rv = parse_string(lex, '/');
+	/* reserve the flags byte, the pattern bytes follow it */
+	uc_vector_push(&lex->buffer, 0);
 
-	if (rv->type == TK_REGEXP) {
-		while (true) {
-			if (check_char(lex, 'g'))
-				is_reg_global = true;
-			else if (check_char(lex, 'i'))
-				is_reg_icase = true;
-			else if (check_char(lex, 's'))
-				is_reg_newline = true;
-			else
-				break;
+	for (ch = next_char(lex); ch != EOF; ch = next_char(lex)) {
+		if (inclass) {
+			uc_vector_push(&lex->buffer, ch);
+
+			if (uc_re_class_step(&cls, ch))
+				inclass = false;
+
+			continue;
 		}
 
-		/* encode the flags byte followed by the raw pattern bytes; a plain
-		 * printf conversion cannot be used as the pattern may contain NUL */
-		len = ucv_string_length(rv->uv);
-		s = xalloc(len + 1);
-		s[0] = (is_reg_global << 0) | (is_reg_icase << 1) | (is_reg_newline << 2);
-		memcpy(s + 1, ucv_string_get(rv->uv), len);
+		switch (ch) {
+		/* escape sequence: the escaped byte cannot delimit the literal */
+		case '\\':
+			uc_vector_push(&lex->buffer, ch);
 
-		ucv_free(rv->uv, false);
-		rv->uv = ucv_string_new_length(s, len + 1);
-		free(s);
+			ch = next_char(lex);
+
+			if (ch == EOF)
+				goto unterminated;
+
+			uc_vector_push(&lex->buffer, ch);
+			break;
+
+		/* bracket expression: a slash within it is an ordinary member */
+		case '[':
+			cls = (uc_re_class_t){ .first = true };
+			inclass = true;
+
+			uc_vector_push(&lex->buffer, ch);
+			break;
+
+		/* terminating delimitter */
+		case '/':
+			goto delimited;
+
+		default:
+			uc_vector_push(&lex->buffer, ch);
+			break;
+		}
 	}
 
-	return rv;
+unterminated:
+	lex->state = UC_LEX_EOF;
+	uc_vector_clear(&lex->buffer);
+
+	return emit_op(lex, lex->lastoff, TK_ERROR, ucv_string_new("Unterminated regexp pattern"));
+
+delimited:
+	while (true) {
+		if (check_char(lex, 'g'))
+			flags |= UC_REGEXP_GLOBAL;
+		else if (check_char(lex, 'i'))
+			flags |= UC_REGEXP_ICASE;
+		else if (check_char(lex, 's'))
+			flags |= UC_REGEXP_DOTALL;
+		else if (check_char(lex, 'm'))
+			flags |= UC_REGEXP_MULTILINE;
+		else
+			break;
+	}
+
+	*uc_vector_first(&lex->buffer) = flags;
+
+	return emit_buffer(lex, off, TK_REGEXP, NULL);
 }
 
 
