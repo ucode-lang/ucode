@@ -201,6 +201,11 @@ uc_fs_read_common(uc_vm_t *vm, size_t nargs, FILE **fp)
 	if (!fp || !*fp)
 		err_return(EBADF);
 
+	/* The end-of-file indicator is sticky: left set by an earlier read, it
+	 * makes getline(), getdelim() and fread() return nothing even after more
+	 * data has arrived on a tty, pipe or growing file. */
+	clearerr(*fp);
+
 	if (ucv_type(limit) == UC_STRING) {
 		lstr = ucv_string_get(limit);
 		llen = ucv_string_length(limit);
